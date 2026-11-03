@@ -15,4 +15,6 @@ pub struct DeskAccess {
     pub code: String,
     pub name: String,
     pub can_book: bool,
+    #[serde(default)]
+    pub can_resolve: bool,
 }

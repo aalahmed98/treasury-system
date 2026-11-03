@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use chrono::{DateTime, Local, Utc};
-use domain::{Deal, DealStatus, Product};
+use domain::{BreakStatus, BreakView, Deal, DealStatus, MatchStatus, Product};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -24,6 +24,9 @@ pub struct DealRow {
     pub trader: String,
     pub status: String,
     pub updated: String,
+    pub match_status: String,
+    /// K B Q I presence, e.g. "K·Q·" with a dot for absent sources.
+    pub sources: String,
     /// Lower-cased haystack for the search box.
     pub search: String,
 }
@@ -36,10 +39,14 @@ impl DealRow {
         };
         let rate = if deal.product.is_fx() { format!("{:.5}", deal.rate) } else { format!("{:.4}%", deal.rate) };
         let search = format!(
-            "{} {} {} {} {} {} {}",
-            deal.deal_ref, deal.desk_code, deal.product, deal.side, pair, deal.counterparty, deal.trader_name
+            "{} {} {} {} {} {} {} {}",
+            deal.deal_ref, deal.desk_code, deal.product, deal.side, pair, deal.counterparty, deal.trader_name, deal.match_status
         )
         .to_lowercase();
+        let sources = [domain::Source::Kondor, domain::Source::Bloomberg, domain::Source::Quantum, domain::Source::Internal]
+            .iter()
+            .map(|s| if deal.sources.contains(s) { s.short() } else { "·" })
+            .collect::<String>();
         Self {
             deal_ref: deal.deal_ref.clone(),
             desk: deal.desk_code.clone(),
@@ -55,9 +62,20 @@ impl DealRow {
             trader: deal.trader_name.clone(),
             status: deal.status.as_str().to_string(),
             updated: fmt_local(deal.updated_at),
+            match_status: match_label(deal.match_status).to_string(),
+            sources,
             search,
             deal,
         }
+    }
+}
+
+pub fn match_label(m: MatchStatus) -> &'static str {
+    match m {
+        MatchStatus::Unmatched => "unmatched",
+        MatchStatus::Partial => "partial",
+        MatchStatus::Matched => "matched",
+        MatchStatus::Break => "BREAK",
     }
 }
 
@@ -101,6 +119,7 @@ pub fn fmt_amount(d: Decimal) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey {
+    Match,
     Updated,
     Ref,
     Desk,
@@ -182,6 +201,7 @@ impl DealStore {
         self.rows.sort_by(|a, b| {
             let (a, b) = (&a.deal, &b.deal);
             let ord = match key {
+                SortKey::Match => match_rank(a.match_status).cmp(&match_rank(b.match_status)),
                 SortKey::Updated => a.updated_at.cmp(&b.updated_at),
                 SortKey::Ref => a.deal_ref.cmp(&b.deal_ref),
                 SortKey::Desk => a.desk_code.cmp(&b.desk_code),
@@ -201,6 +221,118 @@ impl DealStore {
     }
 
     /// Drop expired flashes; returns true if any are still live (caller keeps repainting).
+    pub fn tick_flash(&mut self, ttl_secs: u64) -> bool {
+        self.flash.retain(|_, t| t.elapsed().as_secs() < ttl_secs);
+        !self.flash.is_empty()
+    }
+}
+
+fn match_rank(m: MatchStatus) -> u8 {
+    match m {
+        MatchStatus::Break => 0,
+        MatchStatus::Unmatched => 1,
+        MatchStatus::Partial => 2,
+        MatchStatus::Matched => 3,
+    }
+}
+
+/// Open and recently resolved breaks, formatted once.
+pub struct BreakRow {
+    pub view: BreakView,
+    pub kind: String,
+    pub deal_ref: String,
+    pub source: String,
+    pub field: String,
+    pub expected: String,
+    pub observed: String,
+    pub detected: String,
+    pub status: String,
+    pub search: String,
+}
+
+impl BreakRow {
+    pub fn new(b: BreakView) -> Self {
+        let expected = b.details.get("expected").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let observed = b.details.get("observed").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let source = match (&b.source, &b.source_ref) {
+            (Some(s), Some(r)) => format!("{} {}", s.short(), r),
+            (Some(s), None) => s.as_str().to_string(),
+            _ => String::new(),
+        };
+        let search = format!("{} {} {} {} {}", b.kind, b.deal_ref.clone().unwrap_or_default(), source, b.field.clone().unwrap_or_default(), b.desk_code).to_lowercase();
+        Self {
+            kind: b.kind.as_str().to_string(),
+            deal_ref: b.deal_ref.clone().unwrap_or_else(|| "—".into()),
+            source,
+            field: b.field.clone().unwrap_or_default(),
+            expected,
+            observed,
+            detected: fmt_local(b.detected_at),
+            status: match b.status {
+                BreakStatus::Open => "open".into(),
+                BreakStatus::Acknowledged => "acknowledged".into(),
+                BreakStatus::Resolved => format!("resolved ({})", b.resolution.map(|r| r.as_str().to_lowercase()).unwrap_or_default()),
+            },
+            search,
+            view: b,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct BreakStore {
+    rows: Vec<BreakRow>,
+    index: HashMap<i64, usize>,
+    pub version: u64,
+    pub flash: HashMap<i64, Instant>,
+}
+
+impl BreakStore {
+    pub fn rows(&self) -> &[BreakRow] {
+        &self.rows
+    }
+
+    pub fn get(&self, id: i64) -> Option<&BreakRow> {
+        self.index.get(&id).map(|&i| &self.rows[i])
+    }
+
+    pub fn open_count(&self) -> usize {
+        self.rows.iter().filter(|r| r.view.status != BreakStatus::Resolved).count()
+    }
+
+    pub fn replace(&mut self, breaks: Vec<BreakView>) {
+        self.rows = breaks.into_iter().map(BreakRow::new).collect();
+        self.resort();
+    }
+
+    pub fn upsert(&mut self, b: BreakView) {
+        let id = b.id;
+        match self.index.get(&id) {
+            Some(&i) => {
+                if self.rows[i].view.updated_at > b.updated_at {
+                    return;
+                }
+                self.rows[i] = BreakRow::new(b);
+            }
+            None => self.rows.push(BreakRow::new(b)),
+        }
+        self.flash.insert(id, Instant::now());
+        self.resort();
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn resort(&mut self) {
+        self.rows.sort_by(|a, b| {
+            let open = |r: &BreakRow| r.view.status == BreakStatus::Resolved;
+            open(a).cmp(&open(b)).then_with(|| b.view.detected_at.cmp(&a.view.detected_at)).then_with(|| b.view.id.cmp(&a.view.id))
+        });
+        self.index = self.rows.iter().enumerate().map(|(i, r)| (r.view.id, i)).collect();
+        self.version += 1;
+    }
+
     pub fn tick_flash(&mut self, ttl_secs: u64) -> bool {
         self.flash.retain(|_, t| t.elapsed().as_secs() < ttl_secs);
         !self.flash.is_empty()

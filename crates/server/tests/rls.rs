@@ -29,10 +29,43 @@ async fn app_pool(owner: &PgPool) -> PgPool {
     PgPoolOptions::new().max_connections(4).connect_with(creds.database(&test_db)).await.expect("app role connects")
 }
 
+/// Users and entitlements from the seed, plus a deterministic book of internal deals:
+/// 150 FX by fx1, 150 FX by fx2, 200 MM by mm1 (every tenth one settled).
 async fn seeded(owner: &PgPool) -> PgPool {
     let app = app_pool(owner).await;
     seed::run(owner, &app).await.expect("seed runs");
+    book_many(&app, "fx1", "FX", 150).await;
+    book_many(&app, "fx2", "FX", 150).await;
+    book_many(&app, "mm1", "MM", 200).await;
     app
+}
+
+async fn book_many(app: &PgPool, user: &str, desk: &str, n: i32) {
+    let fx = desk == "FX";
+    let mut tx = db::begin_as(app, seed::user_id(user)).await.unwrap();
+    sqlx::query(
+        "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \
+                            trade_date, value_date, maturity_date, counterparty, trader_id, status) \
+         SELECT gen_random_uuid(), $1 || '-' || lpad(nextval('deal_ref_seq')::text, 6, '0'), k.id, \
+                $2, $3, $4, $5, 1000000 * (1 + g % 5), $6, \
+                current_date - (g % 20), current_date - (g % 20) + 2, \
+                CASE WHEN $7 THEN NULL ELSE current_date - (g % 20) + 32 END, \
+                'Test Bank ' || (g % 4), $8, CASE WHEN g % 10 = 0 THEN 'SETTLED' ELSE 'BOOKED' END \
+         FROM desks k, generate_series(1, $9) g WHERE k.code = $1",
+    )
+    .bind(desk)
+    .bind(if fx { "FX_SPOT" } else { "MM_DEPO" })
+    .bind(if fx { "BUY" } else { "LEND" })
+    .bind(if fx { "USD" } else { "BHD" })
+    .bind(if fx { Some("BHD") } else { None })
+    .bind(if fx { rust_decimal::Decimal::new(376, 3) } else { rust_decimal::Decimal::new(525, 2) })
+    .bind(fx)
+    .bind(seed::user_id(user))
+    .bind(n)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
 }
 
 fn state(app: PgPool) -> AppState {
@@ -200,6 +233,7 @@ async fn booking_requires_can_book_and_self_attribution(owner: PgPool) {
 #[sqlx::test(migrations = "../../db/migrations")]
 async fn amendment_requires_booking_rights_on_the_deal_desk(owner: PgPool) {
     let app = seeded(&owner).await;
+    // mm1 has no FX access yet
     // Hypothetical future user: reads FX, books MM.
     grant_read(&owner, "mm1", "FX").await;
     assert_eq!(desks_seen(&app, "mm1").await, vec!["FX", "MM"], "mm1 now reads both desks");
@@ -211,16 +245,18 @@ async fn amendment_requires_booking_rights_on_the_deal_desk(owner: PgPool) {
         .unwrap()
         .rows_affected();
     assert_eq!(touched, 0, "read-only entitlement must not allow amendments");
-    let moved = sqlx::query(
+    tx.commit().await.unwrap();
+    // The API role has no UPDATE privilege on desk_id at all, so a desk move is refused outright.
+    let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();
+    let err = sqlx::query(
         "UPDATE deals SET desk_id = (SELECT id FROM desks WHERE code = 'MM') \
          WHERE desk_id = (SELECT id FROM desks WHERE code = 'FX')",
     )
     .execute(&mut *tx)
     .await
-    .unwrap()
-    .rows_affected();
-    assert_eq!(moved, 0, "deals cannot be pulled from a read-only desk into a bookable one");
-    tx.commit().await.unwrap();
+    .expect_err("deals cannot be pulled from a read-only desk into a bookable one");
+    assert_eq!(sqlstate(&err).as_deref(), Some("42501"));
+    drop(tx);
 
     // A legitimate amendment on the bookable desk works, bumps the version and is journaled.
     let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();

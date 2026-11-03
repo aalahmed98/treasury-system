@@ -1,116 +1,149 @@
 # NBB Treasury System
 
-Position-keeping and intraday-liquidity decision support for treasury desks. Phase 1 proves the
-foundation: a central Postgres database with mock deals, desk entitlements enforced by row-level
-security, hardened login, and a native desktop client that shows each user only their desks' deals,
-live.
+A reconciliation-first golden record for treasury deals. Observations from the front office
+(Finastra Kondor), execution (Bloomberg), the back office (FIS Quantum) and the desk's own bookings
+are ingested into one append-only log, matched into golden deals, tracked per source through
+executed → booked → confirmed → settled, held to expected-lag SLAs, and surfaced to each desk with
+its breaks and provenance. Nothing is ever written back to a source system. Entitlement is enforced
+by Postgres row-level security, not by application code.
+
+Phase 1 built the foundation (database, hardened login, native client, live updates). Phase 2A, the
+current state, built the reconciliation core with synthetic feeds that reproduce real failure modes.
+Phase 2B (liquidity ladder, booking ticket, history view) comes next.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `crates/domain` | Types shared by server and client (deals, desks, users, API bodies, events) |
-| `crates/server` | axum HTTP + SSE server over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
-| `crates/client` | egui desktop client. Binary `treasury-client`, builds to a Windows `.exe` |
-| `db/migrations` | Schema, RLS policies, triggers, history, login functions, grants |
-| `db/init` | Docker-only bootstrap: creates the two roles and the database from `.env` passwords |
-| `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end), `build-windows.cmd` |
+| `crates/domain` | Types shared by everything: deals, sources, breaks, provenance, API bodies, events |
+| `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
+| `crates/recon` | Reconciliation core (calendar, normaliser, matcher, SLA, pipeline, synthetic world). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `status` |
+| `crates/client` | egui desktop client (Windows `.exe`): blotter with match status, provenance, breaks, feed freshness |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening) and `0002_recon` (event log, source state, breaks, feeds, recon role) |
+| `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
+| `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `build-windows.cmd` |
+
+## How reconciliation works
+
+```
+feeds -> source_events (full image per observation, append-only, deduplicated by hash)
+            |  treasury-recon: one batch per transaction, one savepoint per event
+            v
+   source_deals (latest image per source ref, link to a golden deal)
+   deals       (golden record: economics owned by the highest-precedence source, derived status,
+                confirmed flag, match status)
+   breaks      (MISSING, MISMATCH, ORPHAN, AMBIGUOUS, DUPLICATE; idempotent by key)
+   feed_status / recon_status (heartbeats and the worker's clock: visible freshness)
+```
+
+**Matching is deterministic and tiered.** An observation is attached by its own reference, then by
+a cross reference in either direction, then by economics: product, side, pair, trade date and
+notional (within 0.01%), with a strict pass (exact rate, counterparty, value date) before a relaxed
+one (0.5 pip or 1 bp, alias-equal counterparty, value date within one business day). Several
+candidates are an AMBIGUOUS break, never a guess. A second record from a source already linked to
+the deal is a DUPLICATE. After every link, unlinked records in the same bucket are retried, so the
+outcome does not depend on arrival order. Amends apply only when newer than what was applied; an
+older image is recorded as STALE. Internal bookings are self-identifying and absorb a provisional
+golden deal created earlier from an external source.
+
+**Per-source lifecycle.** Golden status is the furthest lifecycle any linked source reports;
+CANCELLED only from a source with cancel authority (Kondor, or the booking itself while nothing
+else has seen it). `confirmed` is set when the back office reaches CONFIRMED. Field disagreements
+with the owning source become MISMATCH breaks that resolve themselves when a later image agrees.
+
+**SLA monitor.** Expectations are directional and per hop (Bloomberg→Kondor 5 min, internal→Kondor
+10 min, Kondor→Quantum 30 min, plus grace). A source expected and not seen by its deadline is a
+MISSING break that resolves itself on arrival, recording how late it was. Unlinked records from a
+source that cannot originate deals become ORPHAN breaks after a grace window. A feed whose heartbeat
+has gone stale does not generate MISSING breaks.
+
+**User actions.** Acknowledging is direct. Linking and dismissing are appended to the event log as
+USER events and applied by the worker in order, so they are auditable and replayable. A dismissal
+stands until the observation changes. Rights: `can_resolve` on the desk (bookers and the treasury
+head by default).
+
+**Rebuild.** `treasury-recon rebuild` wipes links, breaks and external-origin deals and replays
+the log. Deals, links and observation-derived breaks come back identical. Known limitation: a user
+action on a break that was raised by an SLA tick cannot be replayed, because that break is re-raised
+with a new id; the rebuild reports how many such actions were skipped so they can be re-applied.
 
 ## Security model
 
-**Two database roles, neither a superuser.** `treasury_owner` owns the schema and runs migrations,
-seeding of users, and the tests. `treasury_app` is what the server connects as: it owns nothing,
-cannot bypass row-level security, and holds only the grants at the bottom of the migration. It
-cannot read password hashes, write users or entitlements, or touch the audit log and deal history
-except by appending audit rows. Credentials live in `user_credentials`, reachable only through the
-definer-rights function `auth_lookup`.
+Three database roles, none a superuser:
 
-**Entitlement is decided in Postgres.** Every request that touches deals runs inside a transaction
-that first sets `app.user_id`; the policies on `deals` compare that against `user_desk_access`. An
-unset identity sees nothing. Booking requires `can_book` on that desk and the deal must be
-attributed to the booker. Amending requires booking rights on the deal's own desk, and a trigger
-forbids changing a deal's desk, reference or trader, or amending settled and cancelled deals. Every
-version of every deal is journaled in `deal_history` by a definer-rights trigger.
+- `treasury_owner` owns the schema and runs migrations, seeding and tests.
+- `treasury_app` is the API role. It reads deals, reconciliation rows and feed status through
+  desk-scoped policies, books internal deals, and can only act on breaks through definer-rights
+  functions that check `can_resolve`. It cannot read credentials, write entitlements, or touch the
+  event log, source state or breaks directly.
+- `treasury_recon` is the worker role. It appends to the event log, owns source state and breaks,
+  creates and annotates external-origin deals, and may never change the economics of an internal
+  booking or reach identity tables.
 
-**Login hardening.** Argon2id hashes, one verification per attempt whether or not the user exists,
-per-username lockout after `LOGIN_MAX_FAILURES` (applied to unknown usernames too, so lockout
-cannot enumerate accounts), and a per-IP limit on login attempts. Sessions are opaque random
-tokens stored as SHA-256; they end at `SESSION_TTL_HOURS` or after `SESSION_IDLE_MINUTES` without
-user activity. Event-driven refetches carry an `x-treasury-passive` header and do not count as
-activity, so an abandoned workstation times out even on a busy desk. Every login outcome and
-logout is audited with client IP and request id.
-
-**Event streams follow the session.** An open `/events` stream closes immediately on logout and
-within ten seconds of expiry, idle timeout, or an entitlement change (its desk filter is reloaded
-on every check). Only ids travel on the stream; the client fetches each deal through the
-RLS-checked read path.
-
-**Transport.** Plaintext HTTP is accepted only on a loopback address; binding anywhere else needs
-`TLS_CERT` and `TLS_KEY`. The client refuses to send credentials over plain http to a non-local
-host, takes its server address from the command line or environment rather than a typed field, and
-can pin a CA with `--ca` or `TREASURY_CA`.
-
-Reviewed and tested; not yet done: OIDC against the bank's directory, certificate pinning by
-fingerprint, a shared store for the per-IP limiter if the server is ever scaled out, signing the
-Windows executable.
+Everything from phase 1 still holds: argon2id passwords in a separate table, hashed session tokens
+with absolute and idle expiry, per-username lockout and per-IP throttling, event streams that close
+on logout, plaintext HTTP only on loopback, audit rows with client IP and request id. See
+`db/migrations/0001_init.sql` and `0002_recon.sql` for the policies and grants.
 
 ## Run it (WSL / Linux dev loop)
 
 ```bash
-cp .env.example .env            # dev passwords for the local Docker database
-docker compose up -d --wait     # Postgres 16 on 127.0.0.1:5434 (5433 is taken by a Windows PostgreSQL)
-cargo run -p server -- migrate  # as treasury_owner
-cargo run -p server -- seed     # 5 users, 500 deals
-cargo run -p server             # serves plain http on 127.0.0.1:8787
-cargo run -p client             # native window (WSLg) -> log in as fx1 / password
+cp .env.example .env                      # dev passwords for the local Docker database
+docker compose up -d --wait               # Postgres 16 on 127.0.0.1:5434
+cargo run -p server -- migrate            # as treasury_owner
+cargo run -p server -- seed               # users and entitlements only
+cargo run -p recon -- synth --mode replay --speed 20000 --days 5   # a synthetic world through the pipeline (~40 s)
+cargo run -p recon -- serve               # the worker, for anything that arrives from now on
+cargo run -p server                       # the API on 127.0.0.1:8787
+cargo run -p client                       # the desktop client (WSLg); log in as fx1 / password
 ```
 
-Seeded users (password `password`): `fx1`, `fx2` (book FX), `mm1` (book MM), `alm1` (reads FX, MM,
-ALM), `head1` (reads everything).
+Seeded users (password `password`): `fx1`, `fx2` (book and resolve FX), `mm1` (book and resolve
+MM), `alm1` (reads FX, MM, ALM), `head1` (reads everything, resolves anywhere).
 
-Reset the data: `docker compose down -v`, then `up`, migrate and seed again. The role bootstrap in
-`db/init` runs only when the volume is created.
+`treasury-recon synth` modes: `replay` (simulated clock from the first event, at `--speed`),
+`catch-up` (everything up to now at once, then live), `realtime` (a world for today, fed as it
+happens; add `--keep-serving`). `--dump file.json` writes the generated observations instead of
+feeding them; `--config synth.toml` overrides the built-in world, scenario mix and per-feed lag,
+drop, duplicate, reorder, rounding and naming behaviour. `treasury-recon status` prints the worker
+clock, feed freshness, deals by match status and breaks by kind.
+
+Reset everything: `docker compose down -v`, then the steps above again.
 
 ### TLS
 
 ```bash
-cargo run -p server -- gen-dev-cert          # writes certs/dev-server.pem and certs/dev-server-key.pem
-TLS_CERT=certs/dev-server.pem TLS_KEY=certs/dev-server-key.pem BIND_ADDR=127.0.0.1:8787 cargo run -p server
+cargo run -p server -- gen-dev-cert
+TLS_CERT=certs/dev-server.pem TLS_KEY=certs/dev-server-key.pem cargo run -p server
 cargo run -p client -- https://localhost:8787 --ca certs/dev-server.pem
 ```
-
-The generated certificate is for development only. On a Windows-mounted folder its key file
-cannot be made private by permissions; keep real keys elsewhere.
 
 ## Tests
 
 ```bash
 set -a; source .env; set +a
-cargo test
+cargo test --workspace
 ```
 
-Each server test gets a fresh database created from the migrations. The suite covers the
-entitlement matrix, the privilege boundary of the app role, booking and amendment policies, deal
-history, session expiry and idle timeout, token hashing, lockout, per-IP limiting, the HTTP login
-flow with audit fields, NOTIFY on insert, and the event stream's behaviour on logout, session
-death and entitlement change. `./scripts/verify.sh` runs the whole thing end to end.
+58 tests. Recon: 20 unit tests (calendar, tolerances, normaliser, matcher, SLA maths, generator
+determinism and scenario coverage) and 12 pipeline scenarios on a fresh database each (three-way
+match, reversed quote within tolerance, mismatch then correction, missing after SLA then late
+arrival, orphan then manual link, ambiguity, duplicates at every layer, amend before new, cancel
+propagation, internal anchor and merge, poisoned event, rebuild). Server: 14 phase-1 tests, 7 on
+the reconciliation privilege boundary, 3 on the reconciliation endpoints.
 
-`cargo audit` (install with `cargo install cargo-audit`) checks the lockfile against RustSec.
+`./scripts/verify.sh` runs the whole thing from a clean database and checks the behaviour over HTTP,
+including a rebuild. `cargo audit` checks the lockfile against RustSec.
 
 ## Windows .exe
-
-From PowerShell or cmd on Windows (Rust 1.95+ MSVC toolchain):
 
 ```
 scripts\build-windows.cmd
 C:\dev\targets\treasury\release\treasury-client.exe http://localhost:8787
 ```
 
-The server can keep running under WSL. If `localhost` does not reach it from Windows, enable
-mirrored networking in `%USERPROFILE%\.wslconfig` (`[wsl2]` / `networkingMode=mirrored`). For a
-server on another machine use `https://` and pass `--ca` (or set `TREASURY_CA`).
+## Not yet built
 
-## Not in phase 1
-
-Kondor / Bloomberg / Quantum adapters, the matching engine, OIDC login against AD or Entra, deal
-amendment UI, Power BI replica. See the plan for the agreed direction.
+Phase 2B: intraday liquidity ladder, booking ticket, deal history view. Later: real Kondor,
+Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and database
+engines), OIDC against the bank's directory, settlement-date SLAs, allocations, code-signing.

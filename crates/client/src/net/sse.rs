@@ -42,7 +42,15 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                                 Ok(ServerEvent::Resync) => {
                                     let _ = cmds.send(Command::Refresh { passive: true });
                                 }
+                                Ok(ServerEvent::Break { .. }) => {} // breaks are handled by the "break" event name (M6)
                                 Err(e) => tracing::warn!(error = %e, data = %ev.data, "bad deal event"),
+                            },
+                            "break" => match serde_json::from_str::<ServerEvent>(&ev.data) {
+                                Ok(ServerEvent::Break { id, .. }) => {
+                                    let _ = cmds.send(Command::FetchBreak(id));
+                                }
+                                Ok(_) => {}
+                                Err(e) => tracing::warn!(error = %e, data = %ev.data, "bad break event"),
                             },
                             "resync" => {
                                 let _ = cmds.send(Command::Refresh { passive: true });

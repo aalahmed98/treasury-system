@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
-use domain::{Deal, DealsResponse, ErrorBody, LoginRequest, LoginResponse, MeResponse, Position};
+use domain::{BreakDetail, BreakView, Deal, DealsResponse, ErrorBody, FeedsResponse, LoginRequest, LoginResponse, MeResponse, Position, ProvenanceResponse, ResolveRequest};
 use reqwest::{Certificate, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
@@ -95,6 +95,36 @@ impl Api {
 
     pub async fn deal(&self, id: Uuid) -> anyhow::Result<Deal> {
         let res = self.auth(self.http.get(format!("{}/deals/{id}", self.base)), true).send().await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn provenance(&self, id: Uuid) -> anyhow::Result<ProvenanceResponse> {
+        let res = self.auth(self.http.get(format!("{}/deals/{id}/provenance", self.base)), true).send().await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn breaks(&self, all: bool, passive: bool) -> anyhow::Result<Vec<BreakView>> {
+        let req = self.http.get(format!("{}/breaks", self.base)).query(&[("status", if all { "all" } else { "open" })]);
+        Ok(check(self.auth(req, passive).send().await.map_err(connect_error)?).await?.json().await?)
+    }
+
+    pub async fn break_detail(&self, id: i64) -> anyhow::Result<BreakDetail> {
+        let res = self.auth(self.http.get(format!("{}/breaks/{id}", self.base)), true).send().await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn ack_break(&self, id: i64) -> anyhow::Result<BreakView> {
+        let res = self.auth(self.http.post(format!("{}/breaks/{id}/ack", self.base)), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn resolve_break(&self, id: i64, req: &ResolveRequest) -> anyhow::Result<BreakView> {
+        let res = self.auth(self.http.post(format!("{}/breaks/{id}/resolve", self.base)).json(req), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn feeds(&self) -> anyhow::Result<FeedsResponse> {
+        let res = self.auth(self.http.get(format!("{}/feeds", self.base)), true).send().await.map_err(connect_error)?;
         Ok(check(res).await?.json().await?)
     }
 

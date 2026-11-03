@@ -1,4 +1,5 @@
 pub mod blotter;
+pub mod breaks;
 pub mod login;
 pub mod main;
 pub mod positions;
@@ -19,5 +20,25 @@ pub fn status_color(status: domain::DealStatus) -> Color32 {
         Confirmed => GREEN,
         Settled => MUTED,
         Cancelled => RED,
+    }
+}
+
+pub fn match_color(m: domain::MatchStatus) -> Color32 {
+    match m {
+        domain::MatchStatus::Matched => GREEN,
+        domain::MatchStatus::Partial => AMBER,
+        domain::MatchStatus::Unmatched => MUTED,
+        domain::MatchStatus::Break => RED,
+    }
+}
+
+pub fn break_color(k: domain::BreakKind) -> Color32 {
+    use domain::BreakKind::*;
+    match k {
+        Missing => AMBER,
+        Mismatch => RED,
+        Orphan => Color32::from_rgb(0x9b, 0x6d, 0xe0),
+        Ambiguous => Color32::from_rgb(0x4d, 0x9d, 0xe0),
+        Duplicate => Color32::from_rgb(0xe0, 0x6d, 0xb0),
     }
 }

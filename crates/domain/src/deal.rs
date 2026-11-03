@@ -1,44 +1,7 @@
-use std::fmt;
-use std::str::FromStr;
-
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-macro_rules! text_enum {
-    ($(#[$meta:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-        pub enum $name {
-            $(#[serde(rename = $text)] $variant),+
-        }
-
-        impl $name {
-            pub const ALL: &'static [$name] = &[$($name::$variant),+];
-
-            pub fn as_str(self) -> &'static str {
-                match self { $($name::$variant => $text),+ }
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.as_str())
-            }
-        }
-
-        impl FromStr for $name {
-            type Err = String;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    $($text => Ok($name::$variant),)+
-                    other => Err(format!("unknown {}: {other}", stringify!($name))),
-                }
-            }
-        }
-    };
-}
 
 text_enum! {
     /// Instrument type. The text form is what the database stores.
@@ -61,13 +24,34 @@ text_enum! {
 }
 
 text_enum! {
-    /// Deal lifecycle. Mirrors the reconciliation states agreed in the design discussion.
+    /// Deal lifecycle, both for a golden deal and for what one source currently reports.
     DealStatus {
         Executed => "EXECUTED",
         Booked => "BOOKED",
         Confirmed => "CONFIRMED",
         Settled => "SETTLED",
         Cancelled => "CANCELLED",
+    }
+}
+
+text_enum! {
+    /// How far a golden deal has been reconciled across the sources expected to carry it.
+    MatchStatus {
+        Unmatched => "UNMATCHED",
+        Partial => "PARTIAL",
+        Matched => "MATCHED",
+        Break => "BREAK",
+    }
+}
+
+text_enum! {
+    /// A system that observes deals. `User` is the pseudo-source for manual resolutions.
+    Source {
+        Kondor => "KONDOR",
+        Bloomberg => "BLOOMBERG",
+        Quantum => "QUANTUM",
+        Internal => "INTERNAL",
+        User => "USER",
     }
 }
 
@@ -85,9 +69,47 @@ impl Side {
             Side::Sell | Side::Borrow => -1,
         }
     }
+
+    pub fn flipped(self) -> Side {
+        match self {
+            Side::Buy => Side::Sell,
+            Side::Sell => Side::Buy,
+            Side::Lend => Side::Borrow,
+            Side::Borrow => Side::Lend,
+        }
+    }
 }
 
-/// A deal as seen by an entitled user. Desk and trader names are joined in by the server.
+impl DealStatus {
+    /// Ordering along the lifecycle; CANCELLED sits outside it.
+    pub fn rank(self) -> u8 {
+        match self {
+            DealStatus::Executed => 0,
+            DealStatus::Booked => 1,
+            DealStatus::Confirmed => 2,
+            DealStatus::Settled => 3,
+            DealStatus::Cancelled => 9,
+        }
+    }
+
+    pub fn is_terminal(self) -> bool {
+        matches!(self, DealStatus::Settled | DealStatus::Cancelled)
+    }
+}
+
+impl Source {
+    pub fn short(self) -> &'static str {
+        match self {
+            Source::Kondor => "K",
+            Source::Bloomberg => "B",
+            Source::Quantum => "Q",
+            Source::Internal => "I",
+            Source::User => "U",
+        }
+    }
+}
+
+/// A golden deal as seen by an entitled user. Desk and trader names are joined in by the server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Deal {
     pub id: Uuid,
@@ -104,12 +126,20 @@ pub struct Deal {
     pub value_date: NaiveDate,
     pub maturity_date: Option<NaiveDate>,
     pub counterparty: String,
-    pub trader_id: Uuid,
+    /// None for deals the reconciler created from an external source.
+    pub trader_id: Option<Uuid>,
     pub trader_name: String,
     pub status: DealStatus,
     pub version: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Which source first produced this golden deal.
+    pub origin: Source,
+    pub match_status: MatchStatus,
+    /// A confirming source (back office) has reached CONFIRMED or beyond.
+    pub confirmed: bool,
+    /// Sources currently linked to this deal, sorted.
+    pub sources: Vec<Source>,
 }
 
 /// Net position per desk and currency, computed by the database.

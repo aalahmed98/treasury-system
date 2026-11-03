@@ -31,11 +31,12 @@ macro_rules! deal_select {
         "SELECT d.id, d.deal_ref, d.desk_id, k.code AS desk_code, d.product, d.side, \
                 d.ccy1::text AS ccy1, d.ccy2::text AS ccy2, d.notional, d.rate, \
                 d.trade_date, d.value_date, d.maturity_date, d.counterparty, \
-                d.trader_id, u.display_name AS trader_name, d.status, d.version, \
-                d.created_at, d.updated_at \
+                d.trader_id, coalesce(u.display_name, '') AS trader_name, d.status, d.version, \
+                d.created_at, d.updated_at, d.origin, d.match_status, d.confirmed, \
+                array(SELECT s.source FROM source_deals s WHERE s.deal_id = d.id ORDER BY s.source) AS sources \
          FROM deals d \
          JOIN desks k ON k.id = d.desk_id \
-         JOIN users u ON u.id = d.trader_id"
+         LEFT JOIN users u ON u.id = d.trader_id"
     };
 }
 
@@ -55,12 +56,16 @@ pub struct DealRow {
     pub value_date: NaiveDate,
     pub maturity_date: Option<NaiveDate>,
     pub counterparty: String,
-    pub trader_id: Uuid,
+    pub trader_id: Option<Uuid>,
     pub trader_name: String,
     pub status: String,
     pub version: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub origin: String,
+    pub match_status: String,
+    pub confirmed: bool,
+    pub sources: Vec<String>,
 }
 
 impl TryFrom<DealRow> for Deal {
@@ -88,6 +93,10 @@ impl TryFrom<DealRow> for Deal {
             version: r.version,
             created_at: r.created_at,
             updated_at: r.updated_at,
+            origin: r.origin.parse().map_err(anyhow::Error::msg)?,
+            match_status: r.match_status.parse().map_err(anyhow::Error::msg)?,
+            confirmed: r.confirmed,
+            sources: r.sources.iter().map(|s| s.parse().map_err(anyhow::Error::msg)).collect::<Result<_, _>>()?,
         })
     }
 }

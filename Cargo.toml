@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/domain", "crates/server", "crates/client"]
+members = ["crates/domain", "crates/server", "crates/client", "crates/recon"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ license = "UNLICENSED"
 
 [workspace.dependencies]
 domain = { path = "crates/domain" }
+recon = { path = "crates/recon" }
 
 # shared
 serde = { version = "1.0.229", features = ["derive"] }
@@ -22,12 +23,12 @@ thiserror = "2.0.21"
 futures = "0.3.34"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
 
 # server
 axum = "0.8.9"
 tokio-stream = { version = "0.1.19", features = ["sync"] }
-sqlx = { version = "0.9.0", features = ["postgres", "runtime-tokio", "tls-rustls-ring", "macros", "migrate", "chrono", "uuid", "rust_decimal"] }
+sqlx = { version = "0.9.0", features = ["postgres", "runtime-tokio", "tls-rustls-ring", "macros", "migrate", "chrono", "uuid", "rust_decimal", "json"] }
 argon2 = "0.6.0"
 rand = "0.10.3"
 sha2 = "0.10"
@@ -36,6 +37,8 @@ tower-http = { version = "0.7.1", features = ["trace", "request-id"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 dotenvy = "0.15.7"
+toml = "0.9"
+clap = { version = "4.5", features = ["derive"] }
 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 

@@ -40,9 +40,11 @@ async fn pump(state: AppState, auth: AuthUser, tx: mpsc::Sender<Result<Event, In
         let out = tokio::select! {
             _ = tx.closed() => break,
             r = events.recv() => match r {
-                Ok(ev @ ServerEvent::Deal { desk_id, .. }) if desk_ids.contains(&desk_id) => Some(ev),
-                Ok(ServerEvent::Deal { .. }) => None,
                 Ok(ServerEvent::Resync) | Err(RecvError::Lagged(_)) => Some(ServerEvent::Resync),
+                Ok(ev) => match ev.desk_id() {
+                    Some(d) if desk_ids.contains(&d) => Some(ev),
+                    _ => None,
+                },
                 Err(RecvError::Closed) => break,
             },
             r = revoked.recv() => match r {
@@ -67,10 +69,7 @@ async fn pump(state: AppState, auth: AuthUser, tx: mpsc::Sender<Result<Event, In
         };
 
         if let Some(ev) = out {
-            let name = match ev {
-                ServerEvent::Deal { .. } => "deal",
-                ServerEvent::Resync => "resync",
-            };
+            let name = ev.name();
             let data = serde_json::to_string(&ev).expect("ServerEvent serialises");
             if tx.send(Ok(Event::default().event(name).data(data))).await.is_err() {
                 break;

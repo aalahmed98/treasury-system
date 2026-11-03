@@ -3,6 +3,7 @@ pub mod auth;
 pub mod deals;
 pub mod events;
 pub mod positions;
+pub mod recon;
 
 use axum::extract::Request;
 use axum::routing::{get, post};
@@ -19,6 +20,12 @@ pub fn router(state: AppState) -> Router {
         .route("/me", get(auth::me))
         .route("/deals", get(deals::list).post(deals::create))
         .route("/deals/{id}", get(deals::get_one))
+        .route("/deals/{id}/provenance", get(recon::provenance))
+        .route("/breaks", get(recon::list_breaks))
+        .route("/breaks/{id}", get(recon::get_break))
+        .route("/breaks/{id}/ack", post(recon::ack_break))
+        .route("/breaks/{id}/resolve", post(recon::resolve_break))
+        .route("/feeds", get(recon::feeds))
         .route("/positions", get(positions::list))
         .route("/events", get(events::stream))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));

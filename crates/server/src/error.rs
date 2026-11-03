@@ -28,6 +28,8 @@ impl From<sqlx::Error> for ApiError {
                 Some("23505") => return ApiError::BadRequest("duplicate record".into()),
                 // Our own RAISE EXCEPTION messages are written for users; constraint names are not.
                 Some("P0001") => return ApiError::BadRequest(db.message().to_string()),
+                // no_data_found: a definer function could not find (or show) the record
+                Some("P0002") => return ApiError::NotFound,
                 Some("23514") | Some("23502") | Some("23503") => {
                     return ApiError::BadRequest("the request violates a data constraint".into());
                 }

@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: postgres
       TREASURY_OWNER_PASSWORD: ${TREASURY_OWNER_PASSWORD:?set TREASURY_OWNER_PASSWORD in .env}
       TREASURY_APP_PASSWORD: ${TREASURY_APP_PASSWORD:?set TREASURY_APP_PASSWORD in .env}
+      TREASURY_RECON_PASSWORD: ${TREASURY_RECON_PASSWORD:?set TREASURY_RECON_PASSWORD in .env}
     ports:
       # Loopback only. Nothing on the LAN can reach the database. (5433 is taken by a Windows PostgreSQL service.)
       - "127.0.0.1:5434:5432"

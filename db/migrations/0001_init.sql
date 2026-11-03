@@ -10,7 +10,7 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'treasury_app') THEN
-        CREATE ROLE treasury_app NOLOGIN NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+        RAISE EXCEPTION 'role treasury_app must exist before this migration runs (db/init/01-roles.sh creates it for Docker; operations create it elsewhere)';
     END IF;
 END
 $$;

@@ -9,7 +9,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use domain::{Deal, LoginResponse, Position};
+use domain::{BreakView, Deal, FeedsResponse, LoginResponse, Position, ProvenanceResponse, ResolveRequest};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -27,6 +27,12 @@ pub enum Command {
     RefreshPositions,
     /// The user is present; keep the session's idle timer fresh.
     Heartbeat,
+    FetchBreak(i64),
+    FetchBreaks { all: bool, passive: bool },
+    FetchProvenance(Uuid),
+    FetchFeeds,
+    AckBreak(i64),
+    ResolveBreak { id: i64, req: ResolveRequest },
 }
 
 impl fmt::Debug for Command {
@@ -40,6 +46,12 @@ impl fmt::Debug for Command {
             Command::FetchDeal(id) => f.debug_tuple("FetchDeal").field(id).finish(),
             Command::RefreshPositions => f.write_str("RefreshPositions"),
             Command::Heartbeat => f.write_str("Heartbeat"),
+            Command::FetchBreak(id) => f.debug_tuple("FetchBreak").field(id).finish(),
+            Command::FetchBreaks { all, passive } => f.debug_struct("FetchBreaks").field("all", all).field("passive", passive).finish(),
+            Command::FetchProvenance(id) => f.debug_tuple("FetchProvenance").field(id).finish(),
+            Command::FetchFeeds => f.write_str("FetchFeeds"),
+            Command::AckBreak(id) => f.debug_tuple("AckBreak").field(id).finish(),
+            Command::ResolveBreak { id, req } => f.debug_struct("ResolveBreak").field("id", id).field("action", &req.action).finish(),
         }
     }
 }
@@ -56,6 +68,12 @@ pub enum NetEvent {
     /// The server no longer accepts this session (logout elsewhere, expiry, idle timeout).
     SessionExpired(String),
     LoggedOut,
+    Breaks(Vec<BreakView>),
+    BreakUpdated(BreakView),
+    Provenance(ProvenanceResponse),
+    Feeds(FeedsResponse),
+    /// A user action was accepted or refused; shown in the status bar.
+    Notice(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +170,8 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                         let sse = tokio::spawn(sse::run(api.clone(), emit.clone(), self_tx.clone()));
                         session = Some(Session { api: api.clone(), sse });
                         load_all(api, emit.clone(), false);
+                        let _ = self_tx.send(Command::FetchBreaks { all: false, passive: false });
+                        let _ = self_tx.send(Command::FetchFeeds);
                     }
                     Err(e) => emit.send(NetEvent::LoginFailed(e.to_string())),
                 }
@@ -168,6 +188,7 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
             Command::Refresh { passive } => {
                 if let Some(s) = &session {
                     load_all(s.api.clone(), emit.clone(), passive);
+                    let _ = self_tx.send(Command::FetchBreaks { all: false, passive });
                 }
             }
             Command::RefreshPositions => {
@@ -203,6 +224,79 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                     tokio::spawn(async move {
                         if let Err(e) = api.me().await {
                             emit.fail("heartbeat", e);
+                        }
+                    });
+                }
+            }
+            Command::FetchBreak(id) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.break_detail(id).await {
+                            Ok(d) => emit.send(NetEvent::BreakUpdated(d.break_)),
+                            Err(e) if is_unauthorized(&e) => emit.fail("break", e),
+                            Err(e) => tracing::debug!(error = %e, id, "break fetch skipped"),
+                        }
+                    });
+                }
+            }
+            Command::FetchBreaks { all, passive } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.breaks(all, passive).await {
+                            Ok(b) => emit.send(NetEvent::Breaks(b)),
+                            Err(e) => emit.fail("breaks", e),
+                        }
+                    });
+                }
+            }
+            Command::FetchProvenance(id) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.provenance(id).await {
+                            Ok(p) => emit.send(NetEvent::Provenance(p)),
+                            Err(e) => emit.fail("provenance", e),
+                        }
+                    });
+                }
+            }
+            Command::FetchFeeds => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.feeds().await {
+                            Ok(f) => emit.send(NetEvent::Feeds(f)),
+                            Err(e) => emit.fail("feeds", e),
+                        }
+                    });
+                }
+            }
+            Command::AckBreak(id) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.ack_break(id).await {
+                            Ok(b) => {
+                                emit.send(NetEvent::BreakUpdated(b));
+                                emit.send(NetEvent::Notice(format!("break #{id} acknowledged")));
+                            }
+                            Err(e) => emit.send(NetEvent::Notice(format!("acknowledge failed: {e}"))),
+                        }
+                    });
+                }
+            }
+            Command::ResolveBreak { id, req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.resolve_break(id, &req).await {
+                            Ok(b) => {
+                                emit.send(NetEvent::BreakUpdated(b));
+                                emit.send(NetEvent::Notice(format!("break #{id}: {} sent to the reconciler", req.action.as_str().to_lowercase())));
+                            }
+                            Err(e) => emit.send(NetEvent::Notice(format!("resolve failed: {e}"))),
                         }
                     });
                 }

@@ -10,11 +10,32 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
-struct Payload {
+struct DealPayload {
     op: DealOp,
     id: Uuid,
     desk_id: i16,
     version: i32,
+}
+
+#[derive(Deserialize)]
+struct BreakPayload {
+    id: i64,
+    desk_id: i16,
+    deal_id: Option<Uuid>,
+    status: domain::BreakStatus,
+}
+
+fn parse(channel: &str, payload: &str) -> Result<ServerEvent, serde_json::Error> {
+    match channel {
+        "break_events" => {
+            let p: BreakPayload = serde_json::from_str(payload)?;
+            Ok(ServerEvent::Break { id: p.id, desk_id: p.desk_id, deal_id: p.deal_id, status: p.status })
+        }
+        _ => {
+            let p: DealPayload = serde_json::from_str(payload)?;
+            Ok(ServerEvent::Deal { op: p.op, id: p.id, desk_id: p.desk_id, version: p.version })
+        }
+    }
 }
 
 pub async fn run(pool: PgPool, tx: broadcast::Sender<ServerEvent>) {
@@ -30,21 +51,21 @@ pub async fn run(pool: PgPool, tx: broadcast::Sender<ServerEvent>) {
             }
         };
         listener.eager_reconnect(false);
-        if let Err(e) = listener.listen("deal_events").await {
+        if let Err(e) = listener.listen_all(["deal_events", "break_events"]).await {
             tracing::warn!(error = %e, "LISTEN failed; retrying");
             tokio::time::sleep(backoff).await;
             continue;
         }
         backoff = Duration::from_secs(1);
-        tracing::info!("listening on deal_events");
+        tracing::info!("listening on deal_events and break_events");
 
         loop {
             match listener.try_recv().await {
-                Ok(Some(n)) => match serde_json::from_str::<Payload>(n.payload()) {
-                    Ok(p) => {
-                        let _ = tx.send(ServerEvent::Deal { op: p.op, id: p.id, desk_id: p.desk_id, version: p.version });
+                Ok(Some(n)) => match parse(n.channel(), n.payload()) {
+                    Ok(ev) => {
+                        let _ = tx.send(ev);
                     }
-                    Err(e) => tracing::warn!(error = %e, payload = n.payload(), "bad notify payload"),
+                    Err(e) => tracing::warn!(error = %e, channel = n.channel(), payload = n.payload(), "bad notify payload"),
                 },
                 // Connection dropped and came back: anything sent meanwhile is gone.
                 Ok(None) => {

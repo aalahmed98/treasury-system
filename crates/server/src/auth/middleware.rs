@@ -70,8 +70,8 @@ pub async fn load_identity(pool: &PgPool, user_id: Uuid) -> Result<(UserInfo, Ve
     .await?;
     let (id, username, display_name, home_desk_id) = user.ok_or(ApiError::Unauthorized)?;
 
-    let desks: Vec<(i16, String, String, bool)> = sqlx::query_as(
-        "SELECT a.desk_id, k.code, k.name, a.can_book \
+    let desks: Vec<(i16, String, String, bool, bool)> = sqlx::query_as(
+        "SELECT a.desk_id, k.code, k.name, a.can_book, a.can_resolve \
          FROM user_desk_access a JOIN desks k ON k.id = a.desk_id \
          WHERE a.user_id = $1 ORDER BY k.id",
     )
@@ -82,7 +82,7 @@ pub async fn load_identity(pool: &PgPool, user_id: Uuid) -> Result<(UserInfo, Ve
 
     let desks = desks
         .into_iter()
-        .map(|(desk_id, code, name, can_book)| DeskAccess { desk_id, code, name, can_book })
+        .map(|(desk_id, code, name, can_book, can_resolve)| DeskAccess { desk_id, code, name, can_book, can_resolve })
         .collect();
     Ok((UserInfo { id, username, display_name, home_desk_id }, desks))
 }
