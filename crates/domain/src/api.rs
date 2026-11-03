@@ -4,10 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Deal, DeskAccess, Product, Side, UserInfo};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+}
+
+/// Never print the password, even by accident in a debug log.
+impl std::fmt::Debug for LoginRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginRequest").field("username", &self.username).field("password", &"[redacted]").finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

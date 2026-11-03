@@ -1,27 +1,37 @@
 use egui::{Align, Key, Layout, RichText, TextEdit};
 
 use crate::app::App;
-use crate::ui::RED;
+use crate::ui::{AMBER, MUTED, RED};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let enter = ui.input(|i| i.key_pressed(Key::Enter));
 
     ui.with_layout(Layout::top_down(Align::Center), |ui| {
-        ui.add_space(ui.available_height() * 0.22);
+        ui.add_space(ui.available_height() * 0.2);
         ui.heading(RichText::new("NBB Treasury").size(28.0).strong());
-        ui.label(RichText::new("Position keeping and intraday liquidity").color(crate::ui::MUTED));
-        ui.add_space(24.0);
+        ui.label(RichText::new("Position keeping and intraday liquidity").color(MUTED));
+        ui.add_space(20.0);
 
         egui::Frame::group(ui.style()).inner_margin(20.0).show(ui, |ui| {
-            ui.set_width(360.0);
-            egui::Grid::new("login_grid").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
-                ui.label("Server");
-                ui.add(TextEdit::singleline(&mut app.server).desired_width(240.0));
-                ui.end_row();
+            ui.set_width(380.0);
 
+            // The server is configured, not typed: a fixed target cannot be phished.
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Server").color(MUTED));
+                let secure = app.server_url.starts_with("https://");
+                ui.label(RichText::new(if secure { "🔒" } else { "⚠" }).color(if secure { MUTED } else { AMBER }))
+                    .on_hover_text(if secure { "TLS" } else { "plain HTTP (loopback only)" });
+                ui.monospace(&app.server_url);
+            });
+            if let Some(p) = &app.server_problem {
+                ui.label(RichText::new(p).color(RED));
+            }
+            ui.add_space(8.0);
+
+            egui::Grid::new("login_grid").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
                 ui.label("Username");
                 let u = ui.add(TextEdit::singleline(&mut app.username).desired_width(240.0));
-                if app.username.is_empty() && app.user.is_none() {
+                if app.username.is_empty() && app.user.is_none() && !app.logging_in {
                     u.request_focus();
                 }
                 ui.end_row();
@@ -33,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                let ready = !app.logging_in && !app.username.trim().is_empty() && !app.password.is_empty();
+                let ready = app.can_login();
                 if ui.add_enabled(ready, egui::Button::new("Log in")).clicked() || (ready && enter) {
                     app.submit_login();
                 }
@@ -46,9 +56,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(6.0);
                 ui.label(RichText::new(err).color(RED));
             }
+            if let Some(n) = &app.notice {
+                ui.add_space(6.0);
+                ui.label(RichText::new(n).color(AMBER));
+            }
         });
 
-        ui.add_space(16.0);
-        ui.label(RichText::new("Dev users: fx1, fx2, mm1, alm1, head1  ·  password: password").color(crate::ui::MUTED).small());
+        if cfg!(debug_assertions) {
+            ui.add_space(16.0);
+            ui.label(RichText::new("dev build · seeded users fx1, fx2, mm1, alm1, head1").color(MUTED).small());
+        }
     });
 }

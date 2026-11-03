@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use domain::ErrorBody;
 
@@ -13,6 +13,8 @@ pub enum ApiError {
     NotFound,
     #[error("bad request: {0}")]
     BadRequest(String),
+    #[error("too many attempts; try again in {retry_after} seconds")]
+    TooManyRequests { retry_after: u64 },
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -21,10 +23,14 @@ impl From<sqlx::Error> for ApiError {
     fn from(e: sqlx::Error) -> Self {
         if let sqlx::Error::Database(db) = &e {
             match db.code().as_deref() {
-                // insufficient_privilege: raised when an INSERT/UPDATE violates an RLS policy
+                // insufficient_privilege: an INSERT/UPDATE rejected by a row-level security policy
                 Some("42501") => return ApiError::Forbidden("not entitled to that desk".into()),
                 Some("23505") => return ApiError::BadRequest("duplicate record".into()),
-                Some("23514") => return ApiError::BadRequest(db.message().to_string()),
+                // Our own RAISE EXCEPTION messages are written for users; constraint names are not.
+                Some("P0001") => return ApiError::BadRequest(db.message().to_string()),
+                Some("23514") | Some("23502") | Some("23503") => {
+                    return ApiError::BadRequest("the request violates a data constraint".into());
+                }
                 _ => {}
             }
         }
@@ -42,11 +48,16 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ApiError::TooManyRequests { .. } => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             ApiError::Internal(e) => {
                 tracing::error!(error = ?e, "internal error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
             }
         };
-        (status, Json(ErrorBody { error: msg })).into_response()
+        let mut res = (status, Json(ErrorBody { error: msg })).into_response();
+        if let ApiError::TooManyRequests { retry_after } = self {
+            res.headers_mut().insert(header::RETRY_AFTER, retry_after.into());
+        }
+        res
     }
 }

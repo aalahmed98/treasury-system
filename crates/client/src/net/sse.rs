@@ -1,5 +1,5 @@
 //! Server-sent events loop with reconnect. Each `deal` event becomes a FetchDeal command;
-//! `resync` and every reconnect become a full Refresh.
+//! `resync` and every reconnect become a passive Refresh. A 401 means the session is over.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +27,7 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                 backoff = Duration::from_secs(1);
                 if !first {
                     // Anything pushed while we were away is lost; reload.
-                    let _ = cmds.send(Command::Refresh);
+                    let _ = cmds.send(Command::Refresh { passive: true });
                 }
                 first = false;
 
@@ -40,12 +40,12 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                                     let _ = cmds.send(Command::FetchDeal(id));
                                 }
                                 Ok(ServerEvent::Resync) => {
-                                    let _ = cmds.send(Command::Refresh);
+                                    let _ = cmds.send(Command::Refresh { passive: true });
                                 }
                                 Err(e) => tracing::warn!(error = %e, data = %ev.data, "bad deal event"),
                             },
                             "resync" => {
-                                let _ = cmds.send(Command::Refresh);
+                                let _ = cmds.send(Command::Refresh { passive: true });
                             }
                             other => tracing::debug!(event = other, "ignored event"),
                         },
@@ -55,10 +55,11 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                         }
                     }
                 }
+                // The server closes the stream when the session ends; the reconnect below finds out.
             }
             Ok(res) if res.status() == reqwest::StatusCode::UNAUTHORIZED => {
-                emit.send(NetEvent::Error("session expired; please log in again".into()));
                 emit.send(NetEvent::Stream(StreamState::Disconnected));
+                emit.send(NetEvent::SessionExpired("your session has ended; please log in again".into()));
                 return;
             }
             Ok(res) => emit.send(NetEvent::Error(format!("event stream: HTTP {}", res.status()))),

@@ -2,25 +2,37 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
-use domain::{Deal, DealsResponse, ErrorBody, LoginRequest, LoginResponse, Position};
-use reqwest::{RequestBuilder, Response, StatusCode};
+use domain::{Deal, DealsResponse, ErrorBody, LoginRequest, LoginResponse, MeResponse, Position};
+use reqwest::{Certificate, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
+
+/// Marks machine-initiated requests so the server does not count them as user activity.
+const PASSIVE_HEADER: &str = "x-treasury-passive";
+
+/// A non-2xx reply, with the server's message when it sent one.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct ApiFailure {
+    pub status: StatusCode,
+    pub message: String,
+}
+
+pub fn is_unauthorized(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<ApiFailure>().is_some_and(|f| f.status == StatusCode::UNAUTHORIZED)
+}
 
 #[derive(Clone)]
 pub struct Api {
     http: reqwest::Client,
     base: String,
     token: Option<String>,
+    ca: Option<Certificate>,
 }
 
 impl Api {
-    pub fn new(base: &str) -> Self {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(8))
-            .build()
-            .expect("reqwest client");
-        Self { http, base: base.trim_end_matches('/').to_string(), token: None }
+    pub fn new(base: &str, ca: Option<Certificate>) -> Self {
+        let http = build_client(&ca, Some(Duration::from_secs(20)));
+        Self { http, base: base.trim_end_matches('/').to_string(), token: None, ca }
     }
 
     pub fn base(&self) -> &str {
@@ -31,11 +43,17 @@ impl Api {
         self.token.as_deref()
     }
 
-    fn auth(&self, rb: RequestBuilder) -> RequestBuilder {
-        match &self.token {
+    /// A client with no overall timeout, for the long-lived event stream.
+    pub fn stream_client(&self) -> reqwest::Client {
+        build_client(&self.ca, None)
+    }
+
+    fn auth(&self, rb: RequestBuilder, passive: bool) -> RequestBuilder {
+        let rb = match &self.token {
             Some(t) => rb.bearer_auth(t),
             None => rb,
-        }
+        };
+        if passive { rb.header(PASSIVE_HEADER, "1") } else { rb }
     }
 
     /// Consumes the unauthenticated client and returns one carrying the session token.
@@ -47,38 +65,54 @@ impl Api {
             .send()
             .await
             .map_err(connect_error)?;
-        let resp: LoginResponse = check(res).await?.json().await.context("decoding login response")?;
+        let res = check(res).await.map_err(|e| match e.downcast_ref::<ApiFailure>() {
+            Some(f) if f.status == StatusCode::UNAUTHORIZED => anyhow!("invalid username or password"),
+            _ => e,
+        })?;
+        let resp: LoginResponse = res.json().await.context("decoding login response")?;
         self.token = Some(resp.token.clone());
         Ok((self, resp))
     }
 
     pub async fn logout(&self) -> anyhow::Result<()> {
-        check(self.auth(self.http.post(format!("{}/auth/logout", self.base))).send().await?).await?;
+        check(self.auth(self.http.post(format!("{}/auth/logout", self.base)), false).send().await?).await?;
         Ok(())
     }
 
-    pub async fn deals(&self, since: Option<DateTime<Utc>>) -> anyhow::Result<DealsResponse> {
+    /// Proves the user is still here; counts as activity for the idle timeout.
+    pub async fn me(&self) -> anyhow::Result<MeResponse> {
+        let res = self.auth(self.http.get(format!("{}/me", self.base)), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn deals(&self, since: Option<DateTime<Utc>>, passive: bool) -> anyhow::Result<DealsResponse> {
         let mut req = self.http.get(format!("{}/deals", self.base));
         if let Some(s) = since {
             req = req.query(&[("since", s.to_rfc3339())]);
         }
-        Ok(check(self.auth(req).send().await.map_err(connect_error)?).await?.json().await?)
+        Ok(check(self.auth(req, passive).send().await.map_err(connect_error)?).await?.json().await?)
     }
 
     pub async fn deal(&self, id: Uuid) -> anyhow::Result<Deal> {
-        let res = self.auth(self.http.get(format!("{}/deals/{id}", self.base))).send().await?;
+        let res = self.auth(self.http.get(format!("{}/deals/{id}", self.base)), true).send().await?;
         Ok(check(res).await?.json().await?)
     }
 
-    pub async fn positions(&self) -> anyhow::Result<Vec<Position>> {
-        let res = self.auth(self.http.get(format!("{}/positions", self.base))).send().await.map_err(connect_error)?;
+    pub async fn positions(&self, passive: bool) -> anyhow::Result<Vec<Position>> {
+        let res = self.auth(self.http.get(format!("{}/positions", self.base)), passive).send().await.map_err(connect_error)?;
         Ok(check(res).await?.json().await?)
     }
+}
 
-    /// A client with no overall timeout, for the long-lived event stream.
-    pub fn stream_client(&self) -> reqwest::Client {
-        reqwest::Client::builder().connect_timeout(Duration::from_secs(8)).build().expect("reqwest client")
+fn build_client(ca: &Option<Certificate>, timeout: Option<Duration>) -> reqwest::Client {
+    let mut b = reqwest::Client::builder().connect_timeout(Duration::from_secs(8));
+    if let Some(t) = timeout {
+        b = b.timeout(t);
     }
+    if let Some(c) = ca {
+        b = b.add_root_certificate(c.clone());
+    }
+    b.build().expect("reqwest client")
 }
 
 fn connect_error(e: reqwest::Error) -> anyhow::Error {
@@ -91,19 +125,16 @@ fn connect_error(e: reqwest::Error) -> anyhow::Error {
     }
 }
 
-/// Turn non-2xx responses into readable errors using the server's `{error}` body when present.
+/// Turn non-2xx responses into `ApiFailure`, using the server's `{error}` body when present.
 async fn check(res: Response) -> anyhow::Result<Response> {
     let status = res.status();
     if status.is_success() {
         return Ok(res);
     }
-    let msg = res
+    let message = res
         .json::<ErrorBody>()
         .await
         .map(|b| b.error)
         .unwrap_or_else(|_| status.canonical_reason().unwrap_or("request failed").to_string());
-    Err(match status {
-        StatusCode::UNAUTHORIZED => anyhow!("invalid username or password"),
-        _ => anyhow!("{msg}"),
-    })
+    Err(ApiFailure { status, message }.into())
 }

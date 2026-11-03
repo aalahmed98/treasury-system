@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end check from a clean database: migrate, seed, start server, smoke-test the API,
-# then prove a deal inserted directly in Postgres reaches an entitled event-stream subscriber only.
+# End-to-end check from a clean database: migrate, seed, start the server, smoke-test the API,
+# prove a deal inserted directly in Postgres reaches an entitled event-stream subscriber only,
+# and prove a stream dies the moment its session is logged out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
@@ -32,3 +33,11 @@ psql "$DATABASE_URL" -qAtc "INSERT INTO deals (id, deal_ref, desk_id, product, s
 wait $C1 $C2 || true
 echo "fx1 stream: $(grep -c 'event: deal' /tmp/ev-fx1.txt || true) deal event(s)   (expect 1)"
 echo "mm1 stream: $(grep -c 'event: deal' /tmp/ev-mm1.txt || true) deal event(s)   (expect 0)"
+
+echo "--- a stream must end as soon as its session is logged out ---"
+FX=$(tok fx1)
+curl -s -N --max-time 8 "$BASE/events" -H "authorization: Bearer $FX" >/dev/null &
+C3=$!; sleep 1
+curl -s -o /dev/null -X POST "$BASE/auth/logout" -H "authorization: Bearer $FX"
+T0=$(date +%s); wait $C3 || true
+echo "stream closed $(( $(date +%s) - T0 ))s after logout (expect 0 or 1; 7+ means it ran to the timeout)"

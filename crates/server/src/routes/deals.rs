@@ -17,6 +17,7 @@ const LIST_SQL: &str = concat!(
       ORDER BY d.updated_at DESC, d.id DESC LIMIT $2"
 );
 const ONE_SQL: &str = concat!(deal_select!(), " WHERE d.id = $1");
+const MAX_COUNTERPARTY_LEN: usize = 200;
 
 pub async fn list(
     State(state): State<AppState>,
@@ -53,14 +54,15 @@ pub async fn create(
     Extension(auth): Extension<AuthUser>,
     Json(new): Json<NewDeal>,
 ) -> Result<(StatusCode, Json<Deal>), ApiError> {
-    validate(&new)?;
+    let new = validate(new)?;
     // A desk the user cannot even read is reported as forbidden before touching the database.
     let desk = auth.desk(new.desk_id).ok_or_else(|| ApiError::Forbidden("not entitled to that desk".into()))?;
     let desk_code = desk.code.clone();
 
     let id = Uuid::now_v7();
     let mut tx = db::begin_as(&state.pool, auth.user.id).await?;
-    // The INSERT policy (can_book) decides; a violation surfaces as SQLSTATE 42501 -> 403.
+    // The INSERT policy decides (can_book on the desk, trader must be the caller);
+    // a violation surfaces as SQLSTATE 42501 -> 403.
     sqlx::query(
         "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \
                             trade_date, value_date, maturity_date, counterparty, trader_id, status) \
@@ -88,12 +90,12 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(Deal::try_from(row)?)))
 }
 
-fn validate(d: &NewDeal) -> Result<(), ApiError> {
+fn validate(mut d: NewDeal) -> Result<NewDeal, ApiError> {
     let bad = |m: &str| Err(ApiError::BadRequest(m.to_string()));
     if !is_ccy(&d.ccy1) {
         return bad("ccy1 must be a 3-letter ISO code");
     }
-    match (&d.product.is_fx(), &d.ccy2) {
+    match (d.product.is_fx(), &d.ccy2) {
         (true, Some(c)) if !is_ccy(c) => return bad("ccy2 must be a 3-letter ISO code"),
         (true, None) => return bad("FX deals need ccy2"),
         (false, Some(_)) => return bad("money market deals take a single currency"),
@@ -105,10 +107,17 @@ fn validate(d: &NewDeal) -> Result<(), ApiError> {
     if d.value_date < d.trade_date {
         return bad("value date before trade date");
     }
-    if d.counterparty.trim().is_empty() {
-        return bad("counterparty is required");
+    if d.maturity_date.is_some_and(|m| m < d.value_date) {
+        return bad("maturity date before value date");
     }
-    Ok(())
+    d.counterparty = d.counterparty.trim().to_string();
+    if d.counterparty.is_empty() || d.counterparty.chars().count() > MAX_COUNTERPARTY_LEN {
+        return bad("counterparty is required (at most 200 characters)");
+    }
+    if d.counterparty.chars().any(char::is_control) {
+        return bad("counterparty contains control characters");
+    }
+    Ok(d)
 }
 
 fn is_ccy(s: &str) -> bool {

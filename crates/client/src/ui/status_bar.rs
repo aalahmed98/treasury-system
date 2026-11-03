@@ -43,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 app.logout();
             }
             if ui.button("Refresh").clicked() {
-                app.net.send(crate::net::Command::Refresh);
+                app.net.send(crate::net::Command::Refresh { passive: false });
             }
         });
     });

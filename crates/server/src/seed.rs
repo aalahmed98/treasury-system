@@ -1,5 +1,6 @@
-//! Mock data for phase 1. Runs as the application role: users and entitlements are plain inserts,
-//! deals are inserted under each trader's identity so the booking policy is exercised.
+//! Mock data for phase 1. Users, credentials and entitlements are written by the owner role
+//! (the app role has no such rights); deals are then booked through the app role under each
+//! trader's own identity, so the booking policy is exercised by the seed itself.
 
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use rand::rngs::StdRng;
@@ -73,9 +74,10 @@ pub fn user_id(username: &str) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("treasury-user:{username}").as_bytes())
 }
 
-pub async fn run(pool: &PgPool) -> anyhow::Result<()> {
+/// `owner` must be the schema owner; `app` the application role.
+pub async fn run(owner: &PgPool, app: &PgPool) -> anyhow::Result<()> {
     let desks: HashMap<String, i16> = sqlx::query_as::<_, (i16, String)>("SELECT id, code FROM desks")
-        .fetch_all(pool)
+        .fetch_all(owner)
         .await?
         .into_iter()
         .map(|(id, code)| (code, id))
@@ -84,35 +86,41 @@ pub async fn run(pool: &PgPool) -> anyhow::Result<()> {
 
     let hash = password::hash(DEV_PASSWORD)?;
     for u in USERS {
+        let id = user_id(u.username);
         sqlx::query(
-            "INSERT INTO users (id, username, password_hash, display_name, home_desk_id) \
-             VALUES ($1, $2, $3, $4, $5) \
-             ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, \
-                                                 display_name = EXCLUDED.display_name",
+            "INSERT INTO users (id, username, display_name, home_desk_id) VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (username) DO UPDATE SET display_name = EXCLUDED.display_name",
         )
-        .bind(user_id(u.username))
+        .bind(id)
         .bind(u.username)
-        .bind(&hash)
         .bind(u.display_name)
         .bind(desk(u.home))
-        .execute(pool)
+        .execute(owner)
+        .await?;
+        sqlx::query(
+            "INSERT INTO user_credentials (user_id, password_hash) VALUES ($1, $2) \
+             ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = now()",
+        )
+        .bind(id)
+        .bind(&hash)
+        .execute(owner)
         .await?;
         for (code, can_book) in u.access {
             sqlx::query(
                 "INSERT INTO user_desk_access (user_id, desk_id, can_book) VALUES ($1, $2, $3) \
-                 ON CONFLICT DO NOTHING",
+                 ON CONFLICT (user_id, desk_id) DO UPDATE SET can_book = EXCLUDED.can_book",
             )
-            .bind(user_id(u.username))
+            .bind(id)
             .bind(desk(code))
             .bind(can_book)
-            .execute(pool)
+            .execute(owner)
             .await?;
         }
     }
-    tracing::info!(count = USERS.len(), password = DEV_PASSWORD, "users seeded");
+    tracing::info!(count = USERS.len(), "users seeded (development password: see README)");
 
     // head1 sees every desk, so its count is the total.
-    let mut tx = db::begin_as(pool, user_id("head1")).await?;
+    let mut tx = db::begin_as(app, user_id("head1")).await?;
     let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM deals").fetch_one(&mut *tx).await?;
     tx.commit().await?;
     if existing > 0 {
@@ -135,7 +143,7 @@ pub async fn run(pool: &PgPool) -> anyhow::Result<()> {
 
     for (trader, group) in [("fx1", "FX"), ("fx2", "FX"), ("mm1", "MM")] {
         let rows: Vec<&GenDeal> = fx.iter().chain(mm.iter()).filter(|(t, _)| *t == trader).map(|(_, d)| d).collect();
-        let mut tx = db::begin_as(pool, user_id(trader)).await?;
+        let mut tx = db::begin_as(app, user_id(trader)).await?;
         for d in &rows {
             sqlx::query(
                 "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \

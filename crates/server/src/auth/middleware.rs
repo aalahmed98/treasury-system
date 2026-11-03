@@ -13,12 +13,17 @@ use crate::db;
 use crate::error::ApiError;
 use crate::state::AppState;
 
-/// The authenticated caller, attached to every protected request.
+/// Requests carrying this header are machine-initiated (event-driven refetches) and do not
+/// count as user activity for the idle timeout.
+pub const PASSIVE_HEADER: &str = "x-treasury-passive";
+
+/// The authenticated caller, attached to every protected request. Holds the token's hash only;
+/// the raw token is not kept after authentication.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user: UserInfo,
     pub desks: Vec<DeskAccess>,
-    pub token: String,
+    pub token_hash: Vec<u8>,
 }
 
 impl AuthUser {
@@ -33,9 +38,12 @@ impl AuthUser {
 
 pub async fn require_auth(State(state): State<AppState>, mut req: Request, next: Next) -> Result<Response, ApiError> {
     let raw = bearer_token(&req).ok_or(ApiError::Unauthorized)?.to_owned();
-    let user_id = session::authenticate(&state.pool, &raw).await?.ok_or(ApiError::Unauthorized)?;
+    let passive = req.headers().get(PASSIVE_HEADER).is_some();
+    let (user_id, token_hash) = session::authenticate(&state.pool, &raw, state.config.session_idle, !passive)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
     let (user, desks) = load_identity(&state.pool, user_id).await?;
-    req.extensions_mut().insert(AuthUser { user, desks, token: raw });
+    req.extensions_mut().insert(AuthUser { user, desks, token_hash });
     Ok(next.run(req).await)
 }
 

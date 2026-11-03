@@ -1,31 +1,74 @@
-//! Row-level security and auth behaviour, run against a fresh database per test.
-//! `DATABASE_URL` must point at the owner role so sqlx::test can create databases.
+//! Row-level security, privilege boundaries and auth behaviour, each against a fresh database.
+//! `DATABASE_URL` must be the owner role (sqlx::test creates databases with it) and
+//! `APP_DATABASE_URL` supplies the application role's credentials.
+
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
+use axum::extract::ConnectInfo;
+use axum::http::{Method, Request, Response, StatusCode, header};
 use domain::{DealsResponse, LoginResponse};
 use http_body_util::BodyExt;
 use server::auth::session;
+use server::config::Config;
 use server::{AppState, db, seed};
-use sqlx::postgres::{PgListener, PgPoolOptions};
 use sqlx::PgPool;
-use std::time::Duration;
-use tokio::sync::broadcast;
+use sqlx::postgres::{PgConnectOptions, PgListener, PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-const MIGRATIONS: &str = "../../db/migrations";
+const PEER: &str = "127.0.0.1:40000";
 
 /// A pool connected as the application role (no RLS bypass) to the same test database.
 async fn app_pool(owner: &PgPool) -> PgPool {
-    let opts = (*owner.connect_options()).clone().username("treasury_app").password("app_dev");
-    PgPoolOptions::new().max_connections(4).connect_with(opts).await.expect("app role connects")
+    let url = std::env::var("APP_DATABASE_URL").expect("APP_DATABASE_URL (app role) must be set");
+    let creds = PgConnectOptions::from_str(&url).expect("APP_DATABASE_URL parses");
+    let test_db = owner.connect_options().get_database().expect("test database has a name").to_string();
+    PgPoolOptions::new().max_connections(4).connect_with(creds.database(&test_db)).await.expect("app role connects")
 }
 
 async fn seeded(owner: &PgPool) -> PgPool {
     let app = app_pool(owner).await;
-    seed::run(&app).await.expect("seed runs under the app role");
+    seed::run(owner, &app).await.expect("seed runs");
     app
+}
+
+fn state(app: PgPool) -> AppState {
+    state_with(app, Config::default())
+}
+
+fn state_with(app: PgPool, config: Config) -> AppState {
+    AppState::new(app, config)
+}
+
+fn req(method: Method, uri: &str, token: Option<&str>, body: Option<&str>, peer: &str) -> Request<Body> {
+    let mut b = Request::builder()
+        .method(method)
+        .uri(uri)
+        .extension(ConnectInfo(peer.parse::<SocketAddr>().unwrap()))
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(t) = token {
+        b = b.header(header::AUTHORIZATION, format!("Bearer {t}"));
+    }
+    b.body(body.map(|s| Body::from(s.to_string())).unwrap_or_else(Body::empty)).unwrap()
+}
+
+async fn json<T: serde::de::DeserializeOwned>(res: Response<Body>) -> T {
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).expect("json body")
+}
+
+async fn login(router: &axum::Router, username: &str, password: &str, peer: &str) -> Response<Body> {
+    let body = serde_json::json!({ "username": username, "password": password }).to_string();
+    router.clone().oneshot(req(Method::POST, "/auth/login", None, Some(&body), peer)).await.unwrap()
+}
+
+async fn login_ok(router: &axum::Router, username: &str) -> LoginResponse {
+    let res = login(router, username, seed::DEV_PASSWORD, PEER).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    json(res).await
 }
 
 async fn count_as(app: &PgPool, user: &str) -> i64 {
@@ -37,22 +80,17 @@ async fn count_as(app: &PgPool, user: &str) -> i64 {
 
 async fn desks_seen(app: &PgPool, user: &str) -> Vec<String> {
     let mut tx = db::begin_as(app, seed::user_id(user)).await.unwrap();
-    let v: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT k.code FROM deals d JOIN desks k ON k.id = d.desk_id ORDER BY 1",
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .unwrap();
+    let v: Vec<String> =
+        sqlx::query_scalar("SELECT DISTINCT k.code FROM deals d JOIN desks k ON k.id = d.desk_id ORDER BY 1")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
     tx.commit().await.unwrap();
     v
 }
 
-fn state(app: PgPool) -> AppState {
-    let (events, _) = broadcast::channel(16);
-    AppState { pool: app, events, session_ttl: chrono::Duration::hours(1) }
-}
-
-async fn insert_as(app: &PgPool, user: &str, desk_code: &str) -> sqlx::Result<()> {
+/// Book a money-market deal on `desk_code` as `user`, attributed to `trader`.
+async fn insert_as(app: &PgPool, user: &str, desk_code: &str, trader: &str) -> sqlx::Result<()> {
     let mut tx = db::begin_as(app, seed::user_id(user)).await?;
     sqlx::query(
         "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \
@@ -63,12 +101,57 @@ async fn insert_as(app: &PgPool, user: &str, desk_code: &str) -> sqlx::Result<()
     )
     .bind(Uuid::now_v7())
     .bind(format!("T-{}", Uuid::now_v7()))
-    .bind(seed::user_id(user))
+    .bind(seed::user_id(trader))
     .bind(desk_code)
     .execute(&mut *tx)
     .await?;
     tx.commit().await
 }
+
+fn sqlstate(e: &sqlx::Error) -> Option<String> {
+    match e {
+        sqlx::Error::Database(d) => d.code().map(|c| c.to_string()),
+        _ => None,
+    }
+}
+
+async fn grant_read(owner: &PgPool, user: &str, desk_code: &str) {
+    sqlx::query(
+        "INSERT INTO user_desk_access (user_id, desk_id, can_book) \
+         SELECT $1, id, false FROM desks WHERE code = $2",
+    )
+    .bind(seed::user_id(user))
+    .bind(desk_code)
+    .execute(owner)
+    .await
+    .unwrap();
+}
+
+/// Read SSE frames until one carries a `deal` event or the timeout passes.
+async fn next_deal_event(body: &mut Body, timeout: Duration) -> Option<String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        match tokio::time::timeout(remaining, body.frame()).await {
+            Ok(Some(Ok(frame))) => {
+                if let Some(data) = frame.data_ref() {
+                    let text = String::from_utf8_lossy(data).to_string();
+                    if text.contains("event: deal") {
+                        return Some(text);
+                    }
+                }
+            }
+            _ => return None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Entitlement matrix
+// ---------------------------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "../../db/migrations")]
 async fn fx_trader_sees_only_fx(owner: PgPool) {
@@ -94,46 +177,183 @@ async fn unset_identity_sees_nothing(owner: PgPool) {
     assert_eq!(n, 0, "app role without app.user_id must see no rows");
     let p: i64 = sqlx::query_scalar("SELECT count(*) FROM positions_v").fetch_one(&app).await.unwrap();
     assert_eq!(p, 0, "view must inherit RLS via security_invoker");
-    // The owner (superuser) bypasses RLS, which is why the server never connects as it.
+    // The owner is not a superuser; it sees everything through an explicit admin policy.
     let all: i64 = sqlx::query_scalar("SELECT count(*) FROM deals").fetch_one(&owner).await.unwrap();
     assert_eq!(all, 500);
 }
 
 #[sqlx::test(migrations = "../../db/migrations")]
-async fn booking_requires_can_book_on_that_desk(owner: PgPool) {
+async fn booking_requires_can_book_and_self_attribution(owner: PgPool) {
     let app = seeded(&owner).await;
-    let err = insert_as(&app, "mm1", "FX").await.expect_err("MM trader cannot book FX");
-    let code = match &err {
-        sqlx::Error::Database(d) => d.code().map(|c| c.to_string()),
-        _ => None,
-    };
-    assert_eq!(code.as_deref(), Some("42501"), "expected RLS violation, got {err}");
+    let err = insert_as(&app, "mm1", "FX", "mm1").await.expect_err("MM trader cannot book FX");
+    assert_eq!(sqlstate(&err).as_deref(), Some("42501"), "expected RLS violation, got {err}");
 
-    insert_as(&app, "alm1", "MM").await.expect_err("ALM has read-only entitlement");
-    insert_as(&app, "mm1", "MM").await.expect("MM trader books MM");
+    insert_as(&app, "alm1", "MM", "alm1").await.expect_err("ALM has read-only entitlement");
+
+    let err = insert_as(&app, "fx1", "FX", "fx2").await.expect_err("a deal cannot be attributed to another trader");
+    assert_eq!(sqlstate(&err).as_deref(), Some("42501"));
+
+    insert_as(&app, "mm1", "MM", "mm1").await.expect("MM trader books MM");
     assert_eq!(count_as(&app, "mm1").await, 201);
 }
 
 #[sqlx::test(migrations = "../../db/migrations")]
-async fn sessions_expire_and_tokens_are_hashed(owner: PgPool) {
+async fn amendment_requires_booking_rights_on_the_deal_desk(owner: PgPool) {
+    let app = seeded(&owner).await;
+    // Hypothetical future user: reads FX, books MM.
+    grant_read(&owner, "mm1", "FX").await;
+    assert_eq!(desks_seen(&app, "mm1").await, vec!["FX", "MM"], "mm1 now reads both desks");
+
+    let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();
+    let touched = sqlx::query("UPDATE deals SET counterparty = 'X' WHERE desk_id = (SELECT id FROM desks WHERE code = 'FX')")
+        .execute(&mut *tx)
+        .await
+        .unwrap()
+        .rows_affected();
+    assert_eq!(touched, 0, "read-only entitlement must not allow amendments");
+    let moved = sqlx::query(
+        "UPDATE deals SET desk_id = (SELECT id FROM desks WHERE code = 'MM') \
+         WHERE desk_id = (SELECT id FROM desks WHERE code = 'FX')",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(moved, 0, "deals cannot be pulled from a read-only desk into a bookable one");
+    tx.commit().await.unwrap();
+
+    // A legitimate amendment on the bookable desk works, bumps the version and is journaled.
+    let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();
+    let id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM deals WHERE desk_id = (SELECT id FROM desks WHERE code = 'MM') \
+         AND status IN ('EXECUTED', 'BOOKED', 'CONFIRMED') LIMIT 1",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let version: i32 = sqlx::query_scalar("UPDATE deals SET counterparty = 'Amended Bank' WHERE id = $1 RETURNING version")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(version, 2);
+    tx.commit().await.unwrap();
+
+    let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();
+    let err = sqlx::query("UPDATE deals SET desk_id = (SELECT id FROM desks WHERE code = 'FX') WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .expect_err("desk is immutable");
+    assert!(sqlstate(&err).as_deref() == Some("P0001") || sqlstate(&err).as_deref() == Some("42501"), "{err}");
+    drop(tx);
+
+    let history: Vec<(i32, String, Option<Uuid>)> =
+        sqlx::query_as("SELECT version, op, changed_by FROM deal_history WHERE deal_id = $1 ORDER BY version")
+            .bind(id)
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    assert_eq!(history.len(), 2, "one row per version");
+    assert_eq!(history[1].0, 2);
+    assert_eq!(history[1].1, "UPDATE");
+    assert_eq!(history[1].2, Some(seed::user_id("mm1")), "the amending user is recorded");
+
+    // Terminal deals are frozen.
+    let mut tx = db::begin_as(&app, seed::user_id("mm1")).await.unwrap();
+    let err = sqlx::query(
+        "UPDATE deals SET counterparty = 'X' WHERE id = (SELECT id FROM deals WHERE status = 'SETTLED' \
+         AND desk_id = (SELECT id FROM desks WHERE code = 'MM') LIMIT 1)",
+    )
+    .execute(&mut *tx)
+    .await
+    .expect_err("settled deals cannot be amended");
+    assert_eq!(sqlstate(&err).as_deref(), Some("P0001"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Privilege boundary of the application role
+// ---------------------------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn app_role_cannot_escalate(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let denied = |sql: &'static str| {
+        let app = app.clone();
+        async move {
+            let err = sqlx::query(sql).execute(&app).await.expect_err(sql);
+            assert_eq!(sqlstate(&err).as_deref(), Some("42501"), "{sql}: {err}");
+        }
+    };
+    denied("INSERT INTO user_desk_access (user_id, desk_id, can_book) SELECT u.id, k.id, true FROM users u, desks k").await;
+    denied("UPDATE user_desk_access SET can_book = true").await;
+    denied("INSERT INTO users (id, username, display_name, home_desk_id) VALUES (gen_random_uuid(), 'backdoor', 'x', 1)").await;
+    denied("UPDATE users SET is_active = false").await;
+    denied("SELECT password_hash FROM user_credentials").await;
+    denied("UPDATE user_credentials SET password_hash = 'x'").await;
+    denied("SELECT * FROM login_throttle").await;
+    denied("SELECT * FROM deal_history").await;
+    denied("DELETE FROM deal_history").await;
+    denied("SELECT * FROM audit_log").await;
+    denied("DELETE FROM audit_log").await;
+    denied("UPDATE audit_log SET action = 'x'").await;
+    denied("DELETE FROM deals").await;
+
+    // The narrow questions it may ask still work.
+    let (uid, hash): (Option<Uuid>, Option<String>) =
+        sqlx::query_as("SELECT user_id, password_hash FROM auth_lookup('fx1')").fetch_one(&app).await.unwrap();
+    assert_eq!(uid, Some(seed::user_id("fx1")));
+    assert!(hash.unwrap().starts_with("$argon2id$"));
+    let (uid, hash): (Option<Uuid>, Option<String>) =
+        sqlx::query_as("SELECT user_id, password_hash FROM auth_lookup('nobody')").fetch_one(&app).await.unwrap();
+    assert!(uid.is_none() && hash.is_none(), "unknown users still yield exactly one row");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sessions and login hardening
+// ---------------------------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn sessions_expire_absolutely_and_on_idle(owner: PgPool) {
     let app = seeded(&owner).await;
     let router = server::app(state(app.clone()));
+    let fx1 = seed::user_id("fx1");
 
-    let live = session::create(&app, seed::user_id("fx1"), chrono::Duration::hours(1)).await.unwrap();
-    let dead = session::create(&app, seed::user_id("fx1"), chrono::Duration::hours(-1)).await.unwrap();
+    let live = session::create(&app, fx1, chrono::Duration::hours(1)).await.unwrap();
+    let dead = session::create(&app, fx1, chrono::Duration::hours(-1)).await.unwrap();
+    let idle = session::create(&app, fx1, chrono::Duration::hours(1)).await.unwrap();
+    sqlx::query("UPDATE sessions SET last_seen_at = now() - interval '31 minutes' WHERE token_hash = $1")
+        .bind(session::hash_token(&idle.token))
+        .execute(&owner)
+        .await
+        .unwrap();
 
-    let get_me = |tok: String| {
-        Request::builder().uri("/me").header(header::AUTHORIZATION, format!("Bearer {tok}")).body(Body::empty()).unwrap()
-    };
-    assert_eq!(router.clone().oneshot(get_me(live.token.clone())).await.unwrap().status(), StatusCode::OK);
-    assert_eq!(router.clone().oneshot(get_me(dead.token.clone())).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(router.clone().oneshot(get_me("garbage".into())).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-    let no_auth = Request::builder().uri("/me").body(Body::empty()).unwrap();
-    assert_eq!(router.clone().oneshot(no_auth).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    let me = |tok: &str| req(Method::GET, "/me", Some(tok), None, PEER);
+    assert_eq!(router.clone().oneshot(me(&live.token)).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(router.clone().oneshot(me(&dead.token)).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(router.clone().oneshot(me(&idle.token)).await.unwrap().status(), StatusCode::UNAUTHORIZED, "idle for longer than SESSION_IDLE_MINUTES");
+    assert_eq!(router.clone().oneshot(me("garbage")).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(router.clone().oneshot(req(Method::GET, "/me", None, None, PEER)).await.unwrap().status(), StatusCode::UNAUTHORIZED);
 
-    // The raw token never reaches the database.
+    // Only hashes are stored.
     let stored: Vec<Vec<u8>> = sqlx::query_scalar("SELECT token_hash FROM sessions").fetch_all(&owner).await.unwrap();
     assert!(stored.iter().all(|h| h.len() == 32 && h != live.token.as_bytes()));
+
+    // A passive (event-driven) request proves liveness without counting as activity.
+    let before: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("SELECT last_seen_at FROM sessions WHERE token_hash = $1")
+        .bind(session::hash_token(&live.token))
+        .fetch_one(&owner)
+        .await
+        .unwrap();
+    let mut passive = me(&live.token);
+    passive.headers_mut().insert("x-treasury-passive", "1".parse().unwrap());
+    assert_eq!(router.clone().oneshot(passive).await.unwrap().status(), StatusCode::OK);
+    let after: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("SELECT last_seen_at FROM sessions WHERE token_hash = $1")
+        .bind(session::hash_token(&live.token))
+        .fetch_one(&owner)
+        .await
+        .unwrap();
+    assert_eq!(before, after, "passive requests do not extend the idle window");
 }
 
 #[sqlx::test(migrations = "../../db/migrations")]
@@ -141,37 +361,74 @@ async fn login_then_list_deals_over_http(owner: PgPool) {
     let app = seeded(&owner).await;
     let router = server::app(state(app.clone()));
 
-    let bad = Request::post("/auth/login")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"username":"fx1","password":"nope"}"#))
-        .unwrap();
-    assert_eq!(router.clone().oneshot(bad).await.unwrap().status(), StatusCode::UNAUTHORIZED);
-
-    let ok = Request::post("/auth/login")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"username":"fx1","password":"password"}"#))
-        .unwrap();
-    let res = router.clone().oneshot(ok).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let login: LoginResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(login(&router, "fx1", "nope", PEER).await.status(), StatusCode::UNAUTHORIZED);
+    let login = login_ok(&router, "fx1").await;
     assert_eq!(login.user.username, "fx1");
     assert_eq!(login.desks.len(), 1);
 
-    let req = Request::get("/deals")
-        .header(header::AUTHORIZATION, format!("Bearer {}", login.token))
-        .body(Body::empty())
-        .unwrap();
-    let res = router.clone().oneshot(req).await.unwrap();
+    let res = router.clone().oneshot(req(Method::GET, "/deals", Some(&login.token), None, PEER)).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let deals: DealsResponse = serde_json::from_slice(&body).unwrap();
+    assert!(res.headers().get("x-request-id").is_some(), "responses carry a request id");
+    let deals: DealsResponse = json(res).await;
     assert_eq!(deals.deals.len(), 300);
     assert!(deals.deals.iter().all(|d| d.desk_code == "FX"));
 
-    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE username = 'fx1'").fetch_one(&owner).await.unwrap();
-    assert_eq!(audits, 2, "one failed and one successful login audited");
+    let audits: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT action, host(client_ip), request_id FROM audit_log WHERE username = 'fx1' ORDER BY id",
+    )
+    .fetch_all(&owner)
+    .await
+    .unwrap();
+    assert_eq!(audits.len(), 2, "one failed and one successful login audited");
+    assert_eq!(audits[0].0, "login_failed");
+    assert_eq!(audits[1].0, "login_ok");
+    assert_eq!(audits[1].1.as_deref(), Some("127.0.0.1"), "client ip recorded");
+    assert!(audits[1].2.is_some(), "request id recorded");
 }
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn login_locks_after_repeated_failures(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let router = server::app(state(app.clone()));
+
+    for attempt in 1..=4 {
+        assert_eq!(login(&router, "fx1", "wrong", PEER).await.status(), StatusCode::UNAUTHORIZED, "attempt {attempt}");
+    }
+    let res = login(&router, "fx1", "wrong", PEER).await;
+    assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS, "5th failure locks the username");
+    assert!(res.headers().get(header::RETRY_AFTER).is_some());
+
+    // Locked means locked, even with the right password.
+    assert_eq!(login(&router, "fx1", seed::DEV_PASSWORD, PEER).await.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Unknown usernames behave identically, so lockout responses do not reveal which users exist.
+    for _ in 1..=4 {
+        assert_eq!(login(&router, "ghost", "wrong", PEER).await.status(), StatusCode::UNAUTHORIZED);
+    }
+    assert_eq!(login(&router, "ghost", "wrong", PEER).await.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let locked: Vec<(String, bool)> = sqlx::query_as("SELECT action, coalesce(detail ? 'locked_until', false) FROM audit_log WHERE username = 'fx1' ORDER BY id DESC LIMIT 2")
+        .fetch_all(&owner)
+        .await
+        .unwrap();
+    assert!(locked.iter().any(|(a, _)| a == "login_locked"), "lock hit is audited: {locked:?}");
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn login_is_rate_limited_per_ip(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let router = server::app(state_with(app.clone(), Config { login_ip_limit: 3, ..Config::default() }));
+
+    for _ in 0..3 {
+        assert_eq!(login(&router, "fx1", seed::DEV_PASSWORD, "10.1.1.1:5").await.status(), StatusCode::OK);
+    }
+    assert_eq!(login(&router, "fx1", seed::DEV_PASSWORD, "10.1.1.1:5").await.status(), StatusCode::TOO_MANY_REQUESTS, "4th attempt from the same ip");
+    assert_eq!(login(&router, "fx1", seed::DEV_PASSWORD, "10.1.1.2:5").await.status(), StatusCode::OK, "other ips unaffected");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Live events
+// ---------------------------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "../../db/migrations")]
 async fn insert_notifies_deal_events(owner: PgPool) {
@@ -179,11 +436,86 @@ async fn insert_notifies_deal_events(owner: PgPool) {
     let mut listener = PgListener::connect_with(&app).await.unwrap();
     listener.listen("deal_events").await.unwrap();
 
-    insert_as(&app, "mm1", "MM").await.unwrap();
+    insert_as(&app, "mm1", "MM", "mm1").await.unwrap();
 
     let n = tokio::time::timeout(Duration::from_secs(2), listener.recv()).await.expect("notification within 2s").unwrap();
     let payload: serde_json::Value = serde_json::from_str(n.payload()).unwrap();
     assert_eq!(payload["op"], "INSERT");
     assert_eq!(payload["desk_id"], 2);
     assert!(payload["id"].as_str().map(|s| Uuid::parse_str(s).is_ok()).unwrap_or(false));
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn event_stream_closes_on_logout(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let router = server::app(state(app.clone()));
+    let login = login_ok(&router, "fx1").await;
+
+    let res = router.clone().oneshot(req(Method::GET, "/events", Some(&login.token), None, PEER)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body();
+    let drained = tokio::spawn(async move { body.collect().await.map(|c| c.to_bytes().len()) });
+
+    let res = router.clone().oneshot(req(Method::POST, "/auth/logout", Some(&login.token), None, PEER)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    tokio::time::timeout(Duration::from_secs(5), drained)
+        .await
+        .expect("stream ends promptly after logout")
+        .unwrap()
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn event_stream_closes_when_session_dies(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let cfg = Config { stream_check: Duration::from_millis(200), ..Config::default() };
+    let router = server::app(state_with(app.clone(), cfg));
+    let login = login_ok(&router, "fx1").await;
+
+    let res = router.clone().oneshot(req(Method::GET, "/events", Some(&login.token), None, PEER)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body();
+    let drained = tokio::spawn(async move { body.collect().await.map(|_| ()) });
+
+    // Simulate the idle timeout passing.
+    sqlx::query("UPDATE sessions SET last_seen_at = now() - interval '2 hours'").execute(&owner).await.unwrap();
+
+    tokio::time::timeout(Duration::from_secs(5), drained)
+        .await
+        .expect("stream ends within a check interval of the session dying")
+        .unwrap()
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn event_stream_honours_entitlement_changes(owner: PgPool) {
+    let app = seeded(&owner).await;
+    let cfg = Config { stream_check: Duration::from_millis(200), ..Config::default() };
+    let state = state_with(app.clone(), cfg);
+    tokio::spawn(server::listener::run(app.clone(), state.events.clone()));
+    let router = server::app(state);
+    let login = login_ok(&router, "alm1").await; // reads FX, MM, ALM
+    tokio::time::sleep(Duration::from_millis(300)).await; // let the listener subscribe
+
+    let res = router.clone().oneshot(req(Method::GET, "/events", Some(&login.token), None, PEER)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let mut body = res.into_body();
+
+    insert_as(&app, "fx1", "FX", "fx1").await.unwrap();
+    assert!(next_deal_event(&mut body, Duration::from_secs(3)).await.is_some(), "FX deal reaches alm1 while entitled");
+
+    // Revoke FX access; the stream must stop forwarding FX within a check interval.
+    sqlx::query("DELETE FROM user_desk_access WHERE user_id = $1 AND desk_id = (SELECT id FROM desks WHERE code = 'FX')")
+        .bind(seed::user_id("alm1"))
+        .execute(&owner)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    insert_as(&app, "fx1", "FX", "fx1").await.unwrap();
+    assert!(next_deal_event(&mut body, Duration::from_secs(2)).await.is_none(), "FX deal must not reach alm1 after revocation");
+
+    insert_as(&app, "mm1", "MM", "mm1").await.unwrap();
+    assert!(next_deal_event(&mut body, Duration::from_secs(3)).await.is_some(), "MM deals still flow");
 }
