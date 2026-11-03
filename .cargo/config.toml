@@ -1,0 +1,4 @@
+# Keep build output off /mnt/c (slow 9p filesystem, and OneDrive would sync it).
+# On Windows, set CARGO_TARGET_DIR=C:\dev\targets\treasury in the environment instead.
+[build]
+target-dir = "/home/haman/.cargo-targets/treasury"
