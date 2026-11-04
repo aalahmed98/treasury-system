@@ -3,7 +3,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from '@playwright/test';
-import { login, ready, setTheme } from './helpers';
+import { fullPage, login, ready, setTheme } from './helpers';
 
 const dir = process.env.SHOTS_DIR ?? join('e2e', 'shots');
 const routes: [string, string][] = [
@@ -25,7 +25,7 @@ for (const theme of ['light', 'dark'] as const) {
     for (const [name, path] of routes) {
       await page.goto(path);
       await ready(page);
-      await page.screenshot({ path: join(dir, `${name}-${theme}.png`), fullPage: true });
+      await fullPage(page, join(dir, `${name}-${theme}.png`));
     }
     await page.goto('/app/');
     await ready(page);

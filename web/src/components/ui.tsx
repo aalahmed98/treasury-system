@@ -61,7 +61,7 @@ export function StatStrip({ cells, testId }: { cells: StatCell[]; testId?: strin
           <>
             <span className="label">{c.label}</span>
             <span className="value">{c.value}</span>
-            <span className="sub">
+            <span className="sub" title={c.sub}>
               {c.tone && <Dot tone={c.tone} />}
               {c.sub}
             </span>

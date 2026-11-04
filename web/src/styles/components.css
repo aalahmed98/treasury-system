@@ -598,3 +598,12 @@
   margin-right: 5px;
   vertical-align: -1px;
 }
+
+/* the limits table inside its card */
+.table.limits tbody tr:nth-child(even) {
+  background: none;
+}
+.table.limits td {
+  height: 24px;
+  padding: 0 6px;
+}
