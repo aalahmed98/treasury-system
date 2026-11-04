@@ -1,0 +1,134 @@
+/* The visual system from DESIGN.md as CSS custom properties. Light is the primary design; dark is
+   its own stepped set, applied for the OS preference unless the page is stamped light, and for an
+   explicit dark stamp. Feature styles use these roles, never raw colours. */
+:root {
+  color-scheme: light;
+  --canvas: #f6f3f2;
+  --surface: #fefcfc;
+  --surface-alt: #faf7f6;
+  --raised: #fefdfd;
+  --hairline: #e2dddc;
+  --border: #c9c2c1;
+  --hover: #f1ebea;
+  --active: #e8e1e0;
+  --text: #201917;
+  --text-2: #59504f;
+  --muted: #746b69;
+  --faint: #a59c9b;
+  --ink: #261d1b;
+  --ink-text: #fcf9f9;
+  --selection: #ece2e0;
+  --good: #00792b;
+  --good-soft: #ddf6e0;
+  --warn: #9a6000;
+  --warn-soft: #ffedcb;
+  --bad: #be2323;
+  --bad-soft: #ffe6e2;
+  --info: #1f68bc;
+  --info-soft: #e1f0ff;
+  --brand: #d62223;
+  --violet: #654db6;
+  --magenta: #b53c7f;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --shadow: 0 4px 16px rgba(11, 11, 11, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #0e0a0a;
+    --surface: #161312;
+    --surface-alt: #1e1b1a;
+    --raised: #242120;
+    --hairline: #2c2827;
+    --border: #474140;
+    --hover: #282322;
+    --active: #322c2b;
+    --text: #ebe7e6;
+    --text-2: #ada6a5;
+    --muted: #8c8483;
+    --faint: #5b5352;
+    --ink: #e8e3e2;
+    --ink-text: #16100f;
+    --selection: #3a302f;
+    --good: #4ec36f;
+    --good-soft: #15301b;
+    --warn: #f0b135;
+    --warn-soft: #3b2b0d;
+    --bad: #f66d67;
+    --bad-soft: #47211e;
+    --info: #60aaf3;
+    --info-soft: #142a41;
+    --brand: #ed4b43;
+    --violet: #a495f0;
+    --magenta: #f080b8;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --s6: #008300;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0e0a0a;
+  --surface: #161312;
+  --surface-alt: #1e1b1a;
+  --raised: #242120;
+  --hairline: #2c2827;
+  --border: #474140;
+  --hover: #282322;
+  --active: #322c2b;
+  --text: #ebe7e6;
+  --text-2: #ada6a5;
+  --muted: #8c8483;
+  --faint: #5b5352;
+  --ink: #e8e3e2;
+  --ink-text: #16100f;
+  --selection: #3a302f;
+  --good: #4ec36f;
+  --good-soft: #15301b;
+  --warn: #f0b135;
+  --warn-soft: #3b2b0d;
+  --bad: #f66d67;
+  --bad-soft: #47211e;
+  --info: #60aaf3;
+  --info-soft: #142a41;
+  --brand: #ed4b43;
+  --violet: #a495f0;
+  --magenta: #f080b8;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #008300;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+@font-face {
+  font-family: 'Inter Treasury';
+  src: url('/app/fonts/InterTreasury-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter Treasury';
+  src: url('/app/fonts/InterTreasury-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter Treasury';
+  src: url('/app/fonts/InterTreasury-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}

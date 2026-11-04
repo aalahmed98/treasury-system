@@ -10,9 +10,11 @@ pub mod positions;
 pub mod recon;
 
 use axum::extract::Request;
+use axum::response::Redirect;
 use axum::routing::{get, post};
 use axum::{Router, middleware};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
 use crate::auth::require_auth;
@@ -55,10 +57,18 @@ pub fn router(state: AppState) -> Router {
         .route("/events", get(events::stream))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
+    // The web client: built pages under `/app`, with every deep link falling back to the page so
+    // the router inside it can take over. Nothing here is behind `require_auth`; the pages carry
+    // no data and fetch everything through the API with the user's session.
+    let web_dist = state.config.web_dist.clone();
+    let web = ServeDir::new(&web_dist).fallback(ServeFile::new(web_dist.join("index.html")));
+
     // Later `.layer` calls are outermost: request ids are assigned first, traced, then echoed back.
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/", get(|| async { Redirect::temporary("/app/") }))
         .route("/auth/login", post(auth::login))
+        .nest_service("/app", web)
         .merge(protected)
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TraceLayer::new_for_http().make_span_with(|req: &Request| {

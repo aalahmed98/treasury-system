@@ -1,0 +1,600 @@
+/* The shared vocabulary: top bar, tabs, chips, badges, dots, stat strip, cards, popups, tables. */
+
+/* top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  gap: 0;
+}
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+.wordmark .brand {
+  color: var(--brand);
+}
+.tabs {
+  display: flex;
+  align-items: stretch;
+  height: 44px;
+  margin-left: 12px;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text-2);
+  font-weight: 500;
+  position: relative;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-decoration: none;
+}
+.tab:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.tab:hover::before {
+  content: '';
+  position: absolute;
+  inset: 7px 2px;
+  border-radius: 6px;
+  background: var(--hover);
+  z-index: -1;
+}
+.tab.active {
+  color: var(--text);
+}
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 0;
+  height: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+.topbar .cluster {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* chips, badges, dots */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.chip:active {
+  background: var(--active);
+}
+.chip.outlined {
+  border-color: var(--border);
+}
+.chip.selected,
+.chip.selected:hover {
+  background: var(--ink);
+  color: var(--ink-text);
+  border-color: transparent;
+}
+.chip-sm {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 11px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--surface-alt);
+  color: var(--text-2);
+  border: 1px solid var(--hairline);
+}
+.badge.good {
+  background: var(--good-soft);
+  color: var(--good);
+  border-color: transparent;
+}
+.badge.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: transparent;
+}
+.badge.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: transparent;
+}
+.badge.info {
+  background: var(--info-soft);
+  color: var(--info);
+  border-color: transparent;
+}
+.badge .dot {
+  width: 6px;
+  height: 6px;
+}
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.dot.good {
+  background: var(--good);
+}
+.dot.warn {
+  background: var(--warn);
+}
+.dot.bad {
+  background: var(--bad);
+}
+.dot.info {
+  background: var(--info);
+}
+.dot.neutral {
+  background: var(--muted);
+}
+.dot.violet {
+  background: var(--violet);
+}
+.dot.magenta {
+  background: var(--magenta);
+}
+
+/* segmented theme switch */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 14px;
+  background: var(--surface-alt);
+  border: 1px solid var(--hairline);
+}
+
+/* feed cluster */
+.feeds {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.feed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-2);
+  font-weight: 500;
+  cursor: default;
+}
+.feed .age {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* popups and menus */
+.anchor {
+  position: relative;
+}
+.popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+.popup-wide {
+  width: 460px;
+}
+.popup-list {
+  max-height: 440px;
+  overflow: auto;
+  margin-top: 4px;
+}
+.popup-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: start;
+  padding: 7px 4px;
+  border-top: 1px solid var(--hairline);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.popup-row:first-child {
+  border-top: 0;
+}
+.popup-row:hover {
+  background: var(--hover);
+}
+.popup-row .dot {
+  margin-top: 5px;
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.menu-item:hover {
+  background: var(--hover);
+}
+.bell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+  font-size: 12px;
+  cursor: pointer;
+}
+.bell:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.bell.good {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.bell.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.bell.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.bell.info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+/* stat strip */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  max-width: 2000px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.strip .cell {
+  position: relative;
+  padding: 11px 14px 10px;
+  box-shadow: -1px 0 0 var(--hairline);
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 3px;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: inherit;
+  min-width: 0;
+}
+.strip .cell.clickable {
+  cursor: pointer;
+}
+.strip .cell.clickable:hover {
+  background: var(--hover);
+}
+.strip .label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strip .value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.strip .sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* cards and sections */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+}
+.card > .t-heading {
+  margin-bottom: 8px;
+}
+.section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+/* key-value rows */
+.kv {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 16px;
+}
+.kv .k {
+  color: var(--text-2);
+}
+.kv .v {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.kv .emph .k {
+  color: var(--text);
+  font-weight: 500;
+}
+.kv .emph .v {
+  font-weight: 600;
+}
+
+/* tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 0 8px;
+  height: 24px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--hairline);
+}
+.table td {
+  padding: 0 8px;
+  height: 22px;
+  white-space: nowrap;
+}
+.table tbody tr:nth-child(even) {
+  background: var(--surface-alt);
+}
+.table tbody tr.selectable {
+  cursor: pointer;
+}
+.table tbody tr.selectable:hover {
+  background: var(--hover);
+}
+.table tbody tr.selected,
+.table tbody tr.selected:hover {
+  background: var(--selection);
+}
+.table tbody tr.flash td:first-child {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+.table .num,
+.table th.num {
+  text-align: right;
+}
+
+/* status bar */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-alt);
+  border-top: 1px solid var(--hairline);
+}
+.statusbar .state {
+  color: var(--text-2);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.statusbar .right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* login */
+.login {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 18vh;
+  background: var(--canvas);
+}
+.login .wordmark {
+  font-size: 30px;
+  margin: 0 0 6px;
+}
+.login .card {
+  width: 396px;
+  padding: 28px;
+  border-radius: 12px;
+  margin-top: 24px;
+  display: grid;
+  gap: 6px;
+}
+.notice {
+  font-size: 12px;
+}
+.notice.bad {
+  color: var(--bad);
+}
+.notice.warn {
+  color: var(--warn);
+}
+
+/* limit gauge */
+.gauge {
+  position: relative;
+  width: 100px;
+  height: 16px;
+}
+.gauge .track {
+  position: absolute;
+  inset: 4px 0;
+  border-radius: 4px;
+  background: var(--hairline);
+}
+.gauge .fill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border-radius: 4px;
+}
+.gauge .limit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text);
+}
+.gauge .trigger {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 1.5px;
+  background: var(--muted);
+}
+
+/* activity rows */
+.activity {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.activity .row-a {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  cursor: pointer;
+}
+.activity .row-a:hover .text {
+  color: var(--text);
+}
+.activity .text {
+  color: var(--text-2);
+}
+
+/* chart surfaces */
+.chart {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.chart text {
+  font-family: inherit;
+  font-size: 11px;
+  fill: var(--muted);
+}
+.chart .value {
+  font-weight: 500;
+  fill: var(--text-2);
+}
+.chart .baseline {
+  stroke: var(--border);
+}
+.chart .grid {
+  stroke: var(--hairline);
+}
+.chart .hover {
+  fill: var(--hover);
+}
+.tip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text);
+}
+.legend {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}

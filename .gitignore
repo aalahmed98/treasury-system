@@ -3,3 +3,8 @@ target/
 *.log
 certs/
 dist/
+web/node_modules/
+web/dist/
+web/e2e/shots/
+web/test-results/
+web/playwright-report/

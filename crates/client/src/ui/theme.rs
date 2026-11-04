@@ -162,9 +162,9 @@ pub fn pal(ui: &egui::Ui) -> Palette {
 
 // ---- type scale -------------------------------------------------------------------------------
 
-const FONT_REGULAR: &[u8] = include_bytes!("../../assets/fonts/InterTreasury-Regular.ttf");
-const FONT_MEDIUM: &[u8] = include_bytes!("../../assets/fonts/InterTreasury-Medium.ttf");
-const FONT_SEMIBOLD: &[u8] = include_bytes!("../../assets/fonts/InterTreasury-SemiBold.ttf");
+const FONT_REGULAR: &[u8] = include_bytes!("../../../../assets/fonts/InterTreasury-Regular.ttf");
+const FONT_MEDIUM: &[u8] = include_bytes!("../../../../assets/fonts/InterTreasury-Medium.ttf");
+const FONT_SEMIBOLD: &[u8] = include_bytes!("../../../../assets/fonts/InterTreasury-SemiBold.ttf");
 
 pub fn medium() -> FontFamily {
     FontFamily::Name("medium".into())

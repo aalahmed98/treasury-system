@@ -25,6 +25,8 @@ pub struct Config {
     pub login_ip_limit: u32,
     /// How often an open event stream re-checks its session and entitlements.
     pub stream_check: std::time::Duration,
+    /// The built web client, served at `/app`. A missing directory simply answers 404.
+    pub web_dist: PathBuf,
 }
 
 impl Default for Config {
@@ -39,6 +41,7 @@ impl Default for Config {
             login_lock: chrono::Duration::minutes(15),
             login_ip_limit: 20,
             stream_check: std::time::Duration::from_secs(10),
+            web_dist: PathBuf::from("web/dist"),
         }
     }
 }
@@ -77,6 +80,7 @@ impl Config {
             login_lock: chrono::Duration::minutes(env_i64("LOGIN_LOCK_MINUTES", d.login_lock.num_minutes())?),
             login_ip_limit: env_i64("LOGIN_IP_LIMIT_PER_MINUTE", d.login_ip_limit as i64)? as u32,
             stream_check: d.stream_check,
+            web_dist: std::env::var("WEB_DIST").map(PathBuf::from).unwrap_or(d.web_dist),
         })
     }
 }
