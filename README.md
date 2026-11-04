@@ -8,20 +8,24 @@ its breaks and provenance. Nothing is ever written back to a source system. Enti
 by Postgres row-level security, not by application code.
 
 Phase 1 built the foundation (database, hardened login, native client, live updates). Phase 2A built
-the reconciliation core with synthetic feeds that reproduce real failure modes. Phase 2B, the current
-state, added the intraday liquidity ladder with synthetic nostro statements, a booking ticket with
-amendments, and the deal history view. The implementation plan with what is blocked and what is
-not lives in `docs/implementation-plan.html`.
+the reconciliation core with synthetic feeds that reproduce real failure modes. Phase 2B added the
+intraday liquidity ladder with synthetic nostro statements, a booking ticket with amendments, and the
+deal history view. Phase 2C, the current state, turned the client into a dashboard (overview, tabs,
+attention panel, light and dark mode) and added the ALM workbench: LCR, NSFR, NII and NIM, stress
+testing, variance attribution, an interest rate differential calculator, the repricing gap and funding
+concentration, on a synthetic banking book with the bank's limits as a versioned parameter set. The
+implementation plan with what is blocked and what is not lives in `docs/implementation-plan.html`.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `crates/domain` | Types shared by everything: deals, sources, breaks, provenance, API bodies, events |
+| `crates/domain` | Types shared by everything: deals, sources, breaks, provenance, API bodies, events, the business-day calendar, the banking book and the ALM parameters and results |
+| `crates/alm` | Pure ALM maths: contractual schedules, LCR, NSFR, curves and Basel shocks, repricing gap, NII projection, EVE, stress, attribution, IRD, funding concentration |
 | `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
-| `crates/recon` | Reconciliation core (calendar, normaliser, matcher, SLA, pipeline, synthetic world). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `status` |
-| `crates/client` | egui desktop client (Windows `.exe`): blotter with match status, provenance, breaks, feed freshness |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access) |
+| `crates/recon` | Reconciliation core (normaliser, matcher, SLA, pipeline, synthetic world, synthetic banking book). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `nostro`, `alm-synth`, `status` |
+| `crates/client` | egui desktop client (Windows `.exe`): overview, blotter with match status and provenance, breaks, liquidity ladder, ALM workbench |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `build-windows.cmd` |
 
@@ -96,6 +100,42 @@ amendment that disagrees with Kondor shows up as a mismatch. `GET /deals/{id}/hi
 version with the fields that changed and who changed them, through a definer function that applies
 desk entitlement to the append-only history table.
 
+## Dashboard and ALM workbench
+
+The client opens on an **Overview** that is desk-aware: deals on the latest trade date, provisional
+and unmatched counts, open breaks by kind, SLA breaches, feed health, the next five value dates of
+expected cash, recent activity and the largest positions. ALM and treasury-head users also get the
+balance-sheet block: LCR, NSFR, NII for the next twelve months and NIM, income month and year to
+date against budget, the one-year cumulative gap, the worst EVE scenario and depositor
+concentration, eight limit rows with gauges, a 30-day LCR trend, actual against budget by month and
+the gap by bucket. The top bar carries the tabs, the feed ages, the attention bell (a server-computed,
+severity-sorted list: SLA breaches, breaks awaiting a decision, stale feeds, deals unconfirmed beyond
+a business day, large settlements on the next business day, limit breaches, parameter changes; each
+item opens the right place) and the System, Light or Dark theme switch, which is remembered between
+runs. Every colour comes from one palette resolved per theme.
+
+The **ALM** tab is a tool strip: Dashboard, LCR, NSFR, NII / NIM, Stress, Attribution, IRD, Gap,
+Funding and Setup. Each tool shows the bank's saved assumptions on the left, editable as an unsaved
+what-if, and the result on the right with its thresholds. Setup starts a draft from the active version
+or the current what-if and saves it as a new version with a note; any user on the ALM desk may save,
+the server validates, the database function versions and audits it, and every open client is told
+over the live stream. Version 1 holds Basel III defaults; the CBB LM-11 and LM-12 calibration and the
+bank's own limits are to be confirmed, which is why every factor is a parameter.
+
+The maths lives in `crates/alm` and is pure: the server runs it on a banking-book snapshot (and
+caches official results per snapshot, generation time and parameter version), the client runs the
+IRD calculator on the latest curves itself. Analytics carry `f64`; every ratio with a possibly-zero
+denominator is optional. The business date is the reconciler's published clock when it has one and
+the wall clock otherwise, so a replayed world shows a coherent "today".
+
+**Synthetic banking book.** Until the bank's own extracts arrive (loans, deposits and securities from
+BaNCS or Finacle, curves and spots from Bloomberg, budget figures from Finance),
+`treasury-recon alm-synth` (also run at the end of `synth`) generates an NBB-scale balance sheet of
+about ninety cohorts across six currencies, snapshotted daily for the last 35 days and at the
+previous 13 month-ends, with 400 days of daily curves, spots, twenty depositor groups and monthly
+actual and budget income. It is deterministic by seed, written in bulk, and a snapshot becomes
+visible only once complete.
+
 ## Security model
 
 Three database roles, none a superuser:
@@ -106,8 +146,15 @@ Three database roles, none a superuser:
   functions that check `can_resolve`. It cannot read credentials, write entitlements, or touch the
   event log, source state or breaks directly.
 - `treasury_recon` is the worker role. It appends to the event log, owns source state and breaks,
-  creates and annotates external-origin deals, and may never change the economics of an internal
-  booking or reach identity tables.
+  creates and annotates external-origin deals, writes the synthetic banking book and market data,
+  and may never change the economics of an internal booking, reach identity tables or touch the
+  ALM parameter set.
+
+Bank-wide ALM data (the banking book, depositor groups, income, parameters) is readable only by
+users entitled to the ALM or HEAD desk; market data is readable by every desk. Parameters are saved
+only through `alm_parameters_save`, which checks the entitlement, validates the document, swaps the
+active flag under a row lock and notifies clients. Recent activity comes through `recent_activity`,
+a definer function that applies desk entitlement to the history and break tables.
 
 Everything from phase 1 still holds: argon2id passwords in a separate table, hashed session tokens
 with absolute and idle expiry, per-username lockout and per-IP throttling, event streams that close
@@ -170,9 +217,10 @@ TREASURY_SNAPSHOT_TAB=overview TREASURY_SNAPSHOT_THEME=light TREASURY_SNAPSHOT_A
 cargo run -q -p client
 ```
 
-`TREASURY_SNAPSHOT_BELL=1` opens the attention popup, `TREASURY_SNAPSHOT_SIZE=680x410` sets the window
-and `TREASURY_SNAPSHOT_ZOOM=0.5` counters a scaled display (WSLg reports 2x). The window closes itself
-once the PNG is written.
+`TREASURY_SNAPSHOT_BELL=1` opens the attention popup, `TREASURY_SNAPSHOT_TOOL=stress` opens an ALM
+tool (`TREASURY_SNAPSHOT_DRAFT=1` with `setup` starts a draft), `TREASURY_SNAPSHOT_SIZE=680x410` sets
+the window and `TREASURY_SNAPSHOT_ZOOM=0.5` counters a scaled display (WSLg reports 2x). The window
+closes itself once the PNG is written.
 
 ## Tests
 
@@ -181,12 +229,18 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-62 tests. Recon: 20 unit tests (calendar, tolerances, normaliser, matcher, SLA maths, generator
-determinism and scenario coverage) and 12 pipeline scenarios on a fresh database each (three-way
-match, reversed quote within tolerance, mismatch then correction, missing after SLA then late
-arrival, orphan then manual link, ambiguity, duplicates at every layer, amend before new, cancel
-propagation, internal anchor and merge, poisoned event, rebuild). Server: 14 phase-1 tests, 7 on
-the reconciliation privilege boundary, 3 on the reconciliation endpoints.
+88 tests. Recon: 18 unit tests (tolerances, normaliser, matcher, SLA maths, generator determinism
+and scenario coverage), 12 pipeline scenarios on a fresh database each (three-way match, reversed
+quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
+manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
+anchor and merge, poisoned event, rebuild) and 3 on the synthetic banking book. Domain: 2 on the
+calendar. ALM: 14 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
+schedules by amortisation profile, curves and shocks with the floor, NSFR factors and bands, gap
+slotting and limits, NII by cohort type, EVE on the shocked curve, stress across scenarios with the
+survival horizon and FX, attribution adding up exactly, covered interest parity, funding
+concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
+reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary and 5 on the
+ALM endpoints.
 
 `./scripts/verify.sh` runs the whole thing from a clean database and checks the behaviour over HTTP,
 including a rebuild. `cargo audit` checks the lockfile against RustSec.
@@ -201,5 +255,7 @@ C:\dev\targets\treasury\release\treasury-client.exe http://localhost:8787
 ## Not yet built
 
 Real Kondor, Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and
-database engines), real nostro statement feeds, OIDC against the bank's directory, settlement-date
-SLAs, allocations, code-signing. See `docs/implementation-plan.html` for the full picture.
+database engines), real nostro statement feeds, the real banking-book extract and market-data feed
+behind the ALM workbench, the CBB calibration of the ALM parameters, OIDC against the bank's
+directory, settlement-date SLAs, allocations, code-signing. See `docs/implementation-plan.html` for
+the full picture.

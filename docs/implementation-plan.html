@@ -104,8 +104,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div class="meta">
     <span>Status as of <b>4 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
-    <span>Tests passing <b>62</b></span>
-    <span>Phases complete <b>5 of 10</b></span>
+    <span>Tests passing <b>88</b></span>
+    <span>Phases complete <b>6 of 10</b></span>
   </div>
 </header>
 
@@ -115,15 +115,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p1h" class="is-done"><span class="num">Phase 1H</span><span class="name">Security hardening</span><span class="badge done">Done</span></a>
   <a href="#p2a" class="is-done"><span class="num">Phase 2A</span><span class="name">Reconciliation core</span><span class="badge done">Done</span></a>
   <a href="#p2b" class="is-done"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge done">Done</span></a>
-  <a href="#p2c" class="is-ready"><span class="num">Phase 2C</span><span class="name">Dashboard and ALM workbench</span><span class="badge ready">In progress</span></a>
+  <a href="#p2c" class="is-done"><span class="num">Phase 2C</span><span class="name">Dashboard and ALM workbench</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>5</b> phases done</span>
-  <span><b>1</b> in progress</span>
+  <span><b>6</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -134,7 +133,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div>
     <h3><span class="badge ready">Not blocked</span> Can start today</h3>
     <ul>
-      <li>Dashboard shell and ALM workbench, phase 2C, in progress<small>Tabs, an overview after login, an attention panel, light and dark mode; LCR, NSFR, NII and NIM, stress testing, variance attribution, interest rate differential, repricing gap and funding concentration on a synthetic banking book with bank-editable parameters.</small></li>
+      <li>Tuning the synthetic banking book and the ALM defaults with the desk<small>Phase 2C shipped on Basel defaults; the bank's own limits, the CBB calibration and a realistic cohort mix are a parameter version and a generator config away.</small></li>
       <li>Login against a local Keycloak to prove the OIDC shape<small>The real directory is swapped in once the bank confirms Active Directory or Entra.</small></li>
       <li>Continuous integration: tests and dependency audit on every push<small>58 tests and <code>cargo audit</code> already run locally.</small></li>
       <li>Packaging the server and reconciler as services, log files for the client, settlement-date SLAs, allocations, a shared store for the login limiter<small>Engineering backlog with no external dependency.</small></li>
@@ -259,8 +258,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </ul></div></div>
 </section>
 
-<section class="phase is-ready" id="p2c">
-  <div class="phase-head"><span class="num">Phase 2C</span><h3>Dashboard and ALM workbench</h3><span class="badge ready">In progress</span><span class="when">Started 4 November 2026</span></div>
+<section class="phase is-done" id="p2c">
+  <div class="phase-head"><span class="num">Phase 2C</span><h3>Dashboard and ALM workbench</h3><span class="badge done">Done</span><span class="when">4 November 2026</span></div>
   <p class="goal">Turn the client into a dashboard: an overview after login, tabs per view, an attention panel, light and dark mode, and an ALM workbench with the analysis tools the desk needs. Built on a synthetic banking book and bank-editable parameters until the bank's own data arrives.</p>
   <div class="tablewrap"><table>
     <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
@@ -281,6 +280,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <li>4 Nov, afternoon: all the maths is in the pure library with hand-worked tests (14 in all). Rate curves with tenor interpolation, the six Basel standardised shocks with their short and long shapes and the post-shock floor that rises with tenor; NSFR with factors per class and residual-maturity band; the repricing gap with floating cohorts at their reset, fixed cohorts at each principal date and administered deposits over their behavioural life, against cumulative limits; the NII projection over the horizon on a constant balance sheet with rollover at the scenario curve, repricing at resets and deposit betas; economic value of equity on the base and shocked curves with the Basel aggregation across currencies; stress testing across the six scenarios plus a custom parallel shock, a liquidity stress with a day-by-day survival horizon, and FX revaluation; NII variance attribution into days, pure volume, mix, rate and residual effects that add up to the change exactly, with assets and liabilities as separate portfolios; the interest rate differential calculator under covered interest parity; and funding concentration. The generator now also writes monthly actual and budget income per book, side and currency.</li>
     <li>4 Nov, late afternoon: the API serves every tool. NSFR, gap, NII with a scenario, EVE, stress with a custom shock, attribution against the prior month or the budget, funding, a 30-day trend of LCR, NSFR or NII, the aggregated book, and an ALM overview block (headline ratios, income month and year to date against budget, the worst EVE scenario, eight limit rows with breach and warning flags, the LCR trend, twelve months of actual against budget, the gap buckets) that answers in under a quarter of a second on the synthetic book. Any ALM user can save a new parameter version: validated in Rust, then by the database function, audited, announced to every open client over the live stream. Market curves and spots are served to every desk. The activity feed and the attention list are computed on the server: open breaks (a few individually, many as one line per kind), stale feeds and the reconciler's lag, deals unconfirmed beyond a business day, large settlements on the next business day, limit breaches and warnings for ALM users, and a parameter change in the last day; items are sorted by severity and carry the place to open. 10 new tests; 88 across the workspace.</li>
     <li>4 Nov, evening: the client is complete. Every tool has its page: NSFR with editable factors per class and band; NII and NIM with the scenario chips, shocks per currency and the monthly projection; stress testing with the scenario table, the two sensitivity charts, the liquidity stress and its 90-day survival line, and the FX revaluations; attribution with the waterfall, the effects and every line; the interest rate differential calculator running on the latest curves without a server round trip; the repricing gap with its two charts and limits; funding concentration with the depositor groups; and Setup, where a draft starts from the active version or the current what-if, every number is editable, and a note saves a new audited version. The Overview shows the balance-sheet block for ALM and treasury-head users (eight tiles, the limits with gauges, the LCR trend, actual against budget by month, the gap by bucket), the attention bell and the activity feed now come from the server, and a tile, item or row opens the right tool, deal or break.</li>
+    <li>4 Nov, evening: phase complete. The end-to-end script from a clean database now also loads the banking book, checks the parameters, the LCR and every other tool over HTTP for an ALM user and their refusal for a trader, saves a parameter version that pushes the LCR below its new floor and sees it surface as a critical attention item for the ALM user only, and reads the activity feed and market data. 88 tests across the workspace, dependency audit clean, Windows executable rebuilt, README updated.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">
@@ -352,6 +352,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <tr><td>Who signs off the desk list and data-sharing matrix?</td><td>Treasury management</td><td>Phase 6 entitlements and the first slice</td></tr>
     <tr><td>Can we receive nostro intraday statements and BaNCS customer flows?</td><td>Operations, core banking</td><td>Phase 5</td></tr>
     <tr><td>Who provisions on-premises servers, network paths and certificates?</td><td>Infrastructure</td><td>Phase 4 environment, certificates, code signing</td></tr>
+    <tr><td>Can the ALM workbench receive a daily extract of loans, deposits, securities and commitments from the core banking system, and curves and spots from Bloomberg?</td><td>Core banking, market data</td><td>Replacing the synthetic banking book and market data behind the ALM workbench</td></tr>
+    <tr><td>What are the bank's internal limits, and how does the CBB LM-11 and LM-12 calibration differ from Basel III?</td><td>Treasury management, risk</td><td>The first real version of the ALM parameter set; until then the Basel defaults apply</td></tr>
   </tbody>
 </table></div>
 

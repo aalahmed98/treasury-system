@@ -88,6 +88,54 @@ curl -s -o /dev/null -w "  fx1 amend -> %{http_code}\n" -X PATCH "$BASE/deals/$D
 curl -s -o /dev/null -w "  mm1 amend -> %{http_code} (expect 404)\n" -X PATCH "$BASE/deals/$DEAL" -H "authorization: Bearer $MM" -H 'content-type: application/json' -d '{"counterparty":"X"}'
 curl -s "$BASE/deals/$DEAL/history" -H "authorization: Bearer $FX" | python3 -c 'import sys,json; h=json.load(sys.stdin); print("  history versions:", [e["version"] for e in h], "| last change:", [(c["field"], c["to"]) for c in h[-1]["changes"]])'
 
+echo "--- ALM workbench: synthetic banking book, parameters, calculators, scoping ---"
+ALM=$(tok alm1)
+echo "  snapshots $(psql "$DATABASE_URL" -Atc "select count(*) from bs_snapshots where complete") · cohorts $(psql "$DATABASE_URL" -Atc "select count(*) from bs_positions") · curve points $(psql "$DATABASE_URL" -Atc "select count(*) from market_rates") · income rows $(psql "$DATABASE_URL" -Atc "select count(*) from alm_period")"
+ALM_TOKEN=$ALM FX_TOKEN=$FX BASE=$BASE python3 -I - <<'PYALM'
+import json, os, urllib.request, urllib.error
+base, A, F = os.environ["BASE"], os.environ["ALM_TOKEN"], os.environ["FX_TOKEN"]
+def call(method, path, tok, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(base + path, data=data, method=method, headers={"authorization": "Bearer " + tok, "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.load(r)
+    except urllib.error.HTTPError as e:
+        return e.code, None
+ok = True
+st, params = call("GET", "/alm/params", A); ok &= st == 200 and params["active"]["version"] >= 1
+print("  alm1 parameters: HTTP", st, "| active version", params and params["active"]["version"])
+st, _ = call("GET", "/alm/params", F); ok &= st == 404
+print("  fx1 parameters: HTTP", st, "(expect 404)")
+st, lcr = call("POST", "/alm/lcr", A, {}); ratio = lcr and lcr["total"]["ratio"]
+ok &= st == 200 and ratio is not None and 50 <= ratio <= 400
+print("  alm1 LCR: HTTP", st, "| ratio %.1f%%" % ratio if ratio else "", "| by currency", [c["ccy"] for c in lcr["by_ccy"]] if lcr else None)
+st, _ = call("POST", "/alm/lcr", F, {}); ok &= st == 404
+print("  fx1 LCR: HTTP", st, "(expect 404)")
+for tool in ["nsfr", "gap", "nii", "stress", "funding", "attribution"]:
+    st, r = call("POST", "/alm/" + tool, A, {}); ok &= st == 200
+    print("  alm1 %s: HTTP %s" % (tool, st))
+st, o = call("GET", "/alm/overview", A); ok &= st == 200 and len(o["limits"]) >= 8 and len(o["lcr_trend"]) >= 1
+print("  alm1 overview: HTTP", st, "| limits", o and len(o["limits"]), "| trend points", o and len(o["lcr_trend"]), "| NII 12m %.1fm" % (o["nii_12m"] / 1e6) if o else "")
+st, _ = call("GET", "/alm/overview", F); ok &= st == 404
+print("  fx1 overview: HTTP", st, "(expect 404)")
+p = params["params"]; p["lcr"]["internal_minimum"] = 500.0
+st, _ = call("POST", "/alm/params", F, {"params": p, "note": "verify"}); ok &= st == 404
+print("  fx1 save parameters: HTTP", st, "(expect 404)")
+st, v = call("POST", "/alm/params", A, {"params": p, "note": "verify: internal minimum raised to 500%"}); ok &= st == 201
+print("  alm1 save parameters: HTTP", st, "| new version", v and v["version"])
+st, items = call("GET", "/attention", A); alm_items = [i for i in (items or []) if i["target"].get("kind") == "alm"]
+ok &= st == 200 and any(i["title"].startswith("LCR") and i["severity"] == "CRITICAL" for i in alm_items)
+print("  alm1 attention: HTTP", st, "|", len(items or []), "items |", [i["title"] for i in alm_items][:3])
+st, fitems = call("GET", "/attention", F); ok &= st == 200 and not any(i["target"].get("kind") == "alm" for i in (fitems or []))
+print("  fx1 attention: HTTP", st, "|", len(fitems or []), "items, none about ALM")
+st, acts = call("GET", "/activity?limit=10", A); ok &= st == 200 and any(a["kind"] == "parameters" for a in (acts or []))
+print("  alm1 activity: HTTP", st, "|", [a["kind"] for a in (acts or [])][:5])
+st, m = call("GET", "/market/rates", F); ok &= st == 200 and len(m["curves"]) >= 1
+print("  fx1 market rates: HTTP", st, "|", len(m["curves"]) if m else 0, "curves,", len(m["spots"]) if m else 0, "spots")
+print("  checks:", "ok" if ok else "FAILED")
+PYALM
+
 echo "--- rebuild reproduces the projection ---"
 BEFORE=$(psql "$DATABASE_URL" -Atc "select (select count(*) from deals where merged_into is null) || '/' || (select count(*) from source_deals where deal_id is not null)")
 kill $RECON_PID; wait $RECON_PID 2>/dev/null || true
