@@ -100,12 +100,12 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
 <header>
   <div class="eyebrow">National Bank of Bahrain · Treasury system</div>
   <h1>Implementation plan</h1>
-  <p class="lede">A reconciliation-first golden record for treasury deals, built as a native desktop application over Postgres. This page lists every phase, what each one delivers, what has shipped, what can start today, and what is waiting on an answer from the bank.</p>
+  <p class="lede">A reconciliation-first golden record for treasury deals, built as a web client over a Rust server and Postgres, delivered in the browser or as a Windows application of its own. This page lists every phase, what each one delivers, what has shipped, what can start today, and what is waiting on an answer from the bank.</p>
   <div class="meta">
     <span>Status as of <b>4 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
-    <span>Tests passing <b>88</b></span>
-    <span>Phases complete <b>7 of 11</b></span>
+    <span>Tests passing <b>116</b> (88 Rust, 6 Vitest, 22 Playwright)</span>
+    <span>Phases complete <b>8 of 12</b></span>
   </div>
 </header>
 
@@ -117,13 +117,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2b" class="is-done"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge done">Done</span></a>
   <a href="#p2c" class="is-done"><span class="num">Phase 2C</span><span class="name">Dashboard and ALM workbench</span><span class="badge done">Done</span></a>
   <a href="#p2d" class="is-done"><span class="num">Phase 2D</span><span class="name">Web client and desktop shell</span><span class="badge done">Done</span></a>
+  <a href="#p2e" class="is-done"><span class="num">Phase 2E</span><span class="name">Redesign, hardening, one interface</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>6</b> phases done</span>
+  <span><b>8</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -306,6 +307,26 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <li>4 Nov, evening: the trading pages are in the browser. The blotter (virtualised rows, sorting, resizable columns, filters, the booking ticket, the detail with summary, amendment, provenance and history), breaks with their actions, the liquidity ladder with its drill-down, positions beside each, CSV export on every table, row flashes from the live stream. Playwright books a deal, filters, opens provenance, selects a break and drills into a ladder date.</li>
     <li>4 Nov, evening: the ALM workbench is in the browser. The tool strip grouped by purpose with the snapshot picker, the nine tools with the assumptions panel (what-if edits with a debounced recompute, reset, and a notice when the bank's set changes underneath) and their results, Setup with the version history and the audited save, the IRD maths and curve interpolation ported with the crate's test cases, and a print stylesheet for the ALCO pack. Playwright opens every tool, edits and resets an assumption, opens a draft and checks the trader is sent back.</li>
     <li>4 Nov, night: phase complete. The desktop shell is a Tauri 2 application of a few hundred lines of Rust: the NBB icon in the taskbar, a tray entry, a remembered window, a first-run page for the server address, and then the pages from the server in the WebView2 engine Windows already ships, so a desk never reinstalls for an interface change. Built on Windows into a per-user installer and a portable exe under <code>dist/</code>, launched against the local server from the build machine, where the process and its window titled NBB Treasury were confirmed; a look at the window itself waits for an unlocked Windows session, so the first visual check belongs to the desk test. The verification script now checks the pages at <code>/app</code> with a deep link, the README documents the three ways in (browser, desktop application, native client) and the Windows tooling, and the design document maps the tokens to the CSS. Code signing and the bank's packaging remain the bank's step; the native client stays until the web pages are accepted on the desk.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2e">
+  <div class="phase-head"><span class="num">Phase 2E</span><h3>Redesign, hardening, one interface</h3><span class="badge done">Done</span><span class="when">4 November 2026</span></div>
+  <p class="goal">Make the web pages the one interface and make them good to work in: a redesign around the user's tasks rather than a port of the native screens, with a speed budget (the first load smaller than before, nothing waiting on the network when moving between pages), the browser-side hardening the security review asked for, and the native egui client retired so there is one front end to maintain and one to review.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Shell and navigation</td><td>A command palette (Ctrl K, <code>/</code>) over pages, ALM tools, actions and every deal or break the user can see; <code>g</code>-then-letter page keys and a shortcuts sheet; a reconnect banner; a live freshness clock in the status bar; a skip link; the positions panel that closes and is remembered.</td><td>Phase 2D</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Overview</td><td>"Needs attention" first, the server's list worst first with each row a link and a calm empty state; the trading strip; the balance sheet in a grid that fills the width; reconciliation as labelled bars; the last ten changes.</td><td>Shell</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Trading pages</td><td>The selected deal or break in the address; arrow-key selection, Enter and Esc; a View menu for columns and row density; filter chips with counts; empty states; the booking ticket as a side sheet; the breaks page as a queue that moves on after an action; the ladder's cumulative line with today marked, a horizon and a flows-only filter.</td><td>Shell</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">ALM workbench</td><td>The assumptions rail closes for full-width results; a what-if shows how many parameters differ from the bank's version, lists them with both values and reverts any one of them.</td><td>Shell</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Speed</td><td>The trading pages and the ALM workbench as chunks fetched when their tab is hovered or opened (the first load falls from 453 KB to 350 KB, 134 KB to 112 KB compressed); lists fresh for a minute between pages; memoised table rows; deferred search.</td><td>Shell</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Hardening</td><td>A Content Security Policy and the other browser hardening headers on every server response, HSTS under TLS; the theme bootstrap as a file so the policy has no exceptions; the seeded-user hint only in development builds; the desktop shell refuses to navigate anywhere but its server, and a bank build fixes the server at compile time.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">One interface</td><td>The native egui client, its build script and its exe removed; the workspace, the README, the design and product briefs updated.</td><td>All above</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2e">
+    <li>4 Nov, night: the redesign is in, reviewed from screenshots of every page in both themes. Playwright grew from 14 to 22 scenarios on Edge (the palette, keyboard selection, the side sheet and its toast, the positions preference, the attention list, the ALM rail and the change list, a console watch for policy violations); every one passes against the hardened server, and the Rust suite passes with a new test that every response carries the headers.</li>
+    <li>4 Nov, night: the native client is retired. It had served as the proof of the server and the design; its screens live on as the React pages, which are now the whole interface. Open for the desk test: the desktop shell's first visual check on an unlocked Windows session, and the bank's code signing.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

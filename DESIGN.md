@@ -1,15 +1,15 @@
 # NBB Treasury client: visual system
 
-The egui client reads this file as its design system. Tokens live in `crates/client/src/ui/theme.rs`
-(`Palette`, one per theme) and are applied to egui's `Style` once at start-up; feature code never
-holds a colour or a size of its own.
+The web client reads this file as its design system. Tokens live in `web/src/styles/tokens.css` as
+custom properties (one set per theme) and the components in `web/src/components/` wear them; feature
+code never holds a colour or a size of its own.
 
 ## Scene and theme
 
 An ALM analyst at NBB head office at 08:30, two 24-inch monitors under office light, Excel open
 beside the client. Light is the default and the primary design. Dark is a selected set for the
-dealing room and evening work: warmer and lighter than egui's default dark, with depth from surface
-lightness rather than shadow.
+dealing room and evening work: warmer and lighter than a toolkit's default dark, with depth from
+surface lightness rather than shadow.
 
 ## Colour
 
@@ -43,10 +43,9 @@ dot or a word sits beside them.
 
 ## Typography
 
-One family: Inter (OFL), bundled as `crates/client/assets/fonts/InterTreasury-*.ttf`, a static build
-with tabular figures on by default so every column of numbers aligns. Three weights carry the
-hierarchy (regular, medium, semibold); egui's `strong` is not a weight, so weight is chosen by
-family.
+One family: Inter (OFL), bundled as `assets/fonts/InterTreasury-*.ttf`, a static build with tabular
+figures on by default so every column of numbers aligns. Three weights carry the hierarchy (regular,
+medium, semibold).
 
 | Style | Size | Weight | Use |
 |---|---|---|---|
@@ -78,6 +77,22 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
   tabular digits, selected row in selection.
 - **Limit gauge**: 8 px track in hairline, fill in the standing colour, limit tick in text.
 - **Charts**: thin marks, 2 px gaps, hairline baseline, labels in muted, values in text_2.
+
+- **Attention list**: one surface, a heading row on `surface_alt`, then rows of dot, title, detail,
+  age and a chevron; the first thing on the Overview, and a calm one-line empty state when nothing
+  needs the user.
+- **Command palette**: a `raised` panel over a dimmed page; one input, results grouped by eyebrow,
+  the active row in `hover_wash`, key hints as `kbd` caps. Opened by Ctrl K or `/`.
+- **Keyboard hint (`kbd`)**: `surface`, hairline border with a 2 px bottom, radius 4, 11 px medium
+  in `text_2`.
+- **Toast**: `raised`, hairline, radius 8, the popup shadow, a tone dot, a title, an optional detail
+  and one link; bottom right above the status bar; gone after six seconds, ten for an error.
+- **Skeleton**: a still block in `hover_wash` where text will be. Nothing shimmers; nothing moves
+  on load.
+- **Empty state**: a tone dot, a medium title, a small line that says why, and at most one action.
+- **Sheet**: a form in the side column, under its own heading row, above the positions; the page
+  behind it stays live. Used for the booking ticket instead of a modal.
+- **Banner**: one line under the top bar on `warn_soft` while the live stream is reconnecting.
 
 ## Motion
 

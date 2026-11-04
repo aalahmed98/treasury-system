@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start the whole stack for development from WSL: Postgres, migrations, the reconciler and the API.
-# Run it from a WSL terminal, then start the Windows client from dist\treasury-client.exe.
+# Run it from a WSL terminal, then open http://localhost:8787/app/ or the desktop shell on Windows.
 # Logs: /tmp/treasury-recon.log and /tmp/treasury-server.log. Stop with: ./scripts/stop-dev.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -31,5 +31,5 @@ echo
 echo "API:         http://${BIND_ADDR}   (healthz: $(curl -s "http://localhost:${BIND_ADDR##*:}/healthz" || echo down))"
 echo "Reconciler:  running (log /tmp/treasury-recon.log)"
 echo "Browser:     http://localhost:8787/app/   (after scripts\\build-web.cmd on Windows)"
-echo "Desktop:     dist\\NBB-Treasury-Setup.exe (web client in a window) or dist\\treasury-client.exe (native)"
+echo "Desktop:     dist\\NBB-Treasury-Setup.exe (the web client in a window of its own)"
 echo "Log in as:   fx1, fx2, mm1, alm1 or head1   password: password"

@@ -14,7 +14,7 @@ goes out; the head of treasury wants one page that says whether anything needs t
 
 ## Product Purpose
 
-A native desktop client over the treasury server: a golden deal blotter reconciled against Kondor,
+A web client over the treasury server, in the browser or in its own Windows window: a golden deal blotter reconciled against Kondor,
 Bloomberg and Quantum, breaks and their resolution, the intraday liquidity ladder, and the ALM
 workbench (LCR, NSFR, repricing gap, NII and NIM, EVE and stress, variance attribution, interest rate
 differentials, funding concentration) against the bank's own parameters. Success is a screen a
@@ -32,7 +32,7 @@ a risk screen red must keep meaning "breach".
 - Bloomberg-terminal cosplay: black screens, orange text, dense monospace everywhere.
 - SaaS dashboard templates: identical card grids, big gradient numbers, icons on every tile.
 - Consumer banking app styling: rounded pastel tiles, illustrations, marketing copy.
-- Default egui: Ubuntu Light at one size, grey boxes, blue selection.
+- Toolkit defaults: one font at one size, grey boxes, blue selection, modals for everything.
 
 ## Design Principles
 

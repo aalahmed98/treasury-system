@@ -7,18 +7,21 @@ executed → booked → confirmed → settled, held to expected-lag SLAs, and su
 its breaks and provenance. Nothing is ever written back to a source system. Entitlement is enforced
 by Postgres row-level security, not by application code.
 
-Phase 1 built the foundation (database, hardened login, native client, live updates). Phase 2A built
+Phase 1 built the foundation (database, hardened login, a first native client, live updates). Phase 2A built
 the reconciliation core with synthetic feeds that reproduce real failure modes. Phase 2B added the
 intraday liquidity ladder with synthetic nostro statements, a booking ticket with amendments, and the
 deal history view. Phase 2C, the current state, turned the client into a dashboard (overview, tabs,
 attention panel, light and dark mode) and added the ALM workbench: LCR, NSFR, NII and NIM, stress
 testing, variance attribution, an interest rate differential calculator, the repricing gap and funding
 concentration, on a synthetic banking book with the bank's limits as a versioned parameter set.
-Phase 2D, the current state, rebuilt the interface as a web client in TypeScript served by the same
-server at `/app` (the same screens, richer tables and charts, printing and CSV export) and wrapped it
-in a small Windows desktop application with its own icon; the native client stays until the web
-pages are accepted. The implementation plan with what is blocked and what is not lives in
-`docs/implementation-plan.html`.
+Phase 2D rebuilt the interface as a web client in TypeScript served by the same server at `/app`
+(the same screens, richer tables and charts, printing and CSV export) and wrapped it in a small
+Windows desktop application with its own icon. Phase 2E, the current state, redesigned those pages
+around the user's work (a command palette, keyboard selection, an attention-first overview, side
+sheets instead of modals, a break queue, toasts and skeletons), split them into chunks that load on
+demand, hardened the server's responses and the desktop shell, and retired the native egui client:
+the React pages are now the whole interface. The implementation plan with what is blocked and what
+is not lives in `docs/implementation-plan.html`.
 
 ## Layout
 
@@ -28,14 +31,13 @@ pages are accepted. The implementation plan with what is blocked and what is not
 | `crates/alm` | Pure ALM maths: contractual schedules, LCR, NSFR, curves and Basel shocks, repricing gap, NII projection, EVE, stress, attribution, IRD, funding concentration |
 | `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
 | `crates/recon` | Reconciliation core (normaliser, matcher, SLA, pipeline, synthetic world, synthetic banking book). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `nostro`, `alm-synth`, `status` |
-| `crates/client` | egui desktop client (Windows `.exe`): overview, blotter with match status and provenance, breaks, liquidity ladder, ALM workbench |
 | `web/` | the web client: Vite, React and TypeScript pages served by the server at `/app`; `e2e/` holds the Playwright checks and the screenshot runner |
 | `web/src-tauri` | the Windows desktop shell (Tauri 2): the web client in a window of its own, with a tray entry and a remembered server; built on Windows only |
-| `assets/fonts` | the bundled typeface for both clients: Inter (OFL 1.1) as a static build with tabular figures |
+| `assets/` | the bundled typeface, Inter (OFL 1.1) as a static build with tabular figures, the favicon and the theme bootstrap script; served by the server under `/app` |
 | `DESIGN.md`, `PRODUCT.md` | the visual system and the product brief it serves |
 | `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
-| `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `build-windows.cmd` (native client), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
+| `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
 
 ## How reconciliation works
 
@@ -126,11 +128,11 @@ The look is a small design system, written up in `DESIGN.md` (the tokens and com
 `PRODUCT.md` (who it is for and what it must never look like). Warm-tinted neutrals lean toward the
 NBB red, which itself appears only in the wordmark so that red keeps meaning breach on every data
 surface; one ink accent carries selection and the primary action; status colours always travel with
-a dot or a word. One typeface, Inter (OFL, bundled under `crates/client/assets/fonts` as a static
-build with tabular figures on by default), in three weights carries the hierarchy. Metrics sit in a
-stat strip rather than a grid of tiles, tools and filters are chips, counts are badges, and every
-table, card and gauge is drawn by the same few functions in `crates/client/src/ui/widgets.rs` from
-the palette in `crates/client/src/ui/theme.rs`, so both themes are designed rather than inverted.
+a dot or a word. One typeface, Inter (OFL, bundled under `assets/fonts` as a static build with
+tabular figures on by default), in three weights carries the hierarchy. Metrics sit in a stat strip
+rather than a grid of tiles, tools and filters are chips, counts are badges, and every table, card
+and gauge comes from the same few components in `web/src/components/` styled by the tokens in
+`web/src/styles/tokens.css`, so both themes are designed rather than inverted.
 
 The **ALM** tab is a tool strip: Dashboard, LCR, NSFR, NII / NIM, Stress, Attribution, IRD, Gap,
 Funding and Setup. Each tool shows the bank's saved assumptions on the left, editable as an unsaved
@@ -156,19 +158,32 @@ visible only once complete.
 
 ## Web client and desktop app
 
-The same screens as the native client, as web pages: `web/` is a Vite, React and TypeScript project
-built from `DESIGN.md` (the tokens are CSS variables in `web/src/styles/tokens.css`, both themes
-designed). The Rust server serves the built pages at `/app` and redirects `/` there; every deep link
+The interface is `web/`: a Vite, React and TypeScript project built from `DESIGN.md` (the tokens are
+CSS variables in `web/src/styles/tokens.css`, both themes designed). The Rust server serves the built pages at `/app` and redirects `/` there; every deep link
 such as `/app/alm/lcr` falls back to the page so the router inside it takes over. The pages carry no
 data: they sign in against `/auth/login`, hold the bearer session for the tab, send the passive
 header on background polls (feeds every 5 s, attention 15 s, activity 30 s, the ALM overview 15 s),
 read the live event stream with `fetch` so the bearer header travels, and send one real request a
-minute while the user is active, like the native client. A deal or break event refetches the lists,
-an ALM event the parameter-driven views, a resync everything.
+minute while the user is active. A deal or break event refetches the lists, an ALM event the
+parameter-driven views, a resync everything; lists stay fresh for a minute in between, so moving
+between pages never waits on the network.
 
-What the browser adds over the native client: virtualised, sortable, resizable tables with CSV
-export, charts with hover tooltips, a print stylesheet for the ALM pages (the ALCO pack), keyboard
-reachability, and no installation. Tooling runs on Windows where Node is installed (`node_modules`
+How the pages work for the person using them: the Overview opens with "Needs attention", the
+server's list of what is wrong on the user's desks, each row a link, before any figure. A command
+palette (Ctrl K or `/`) jumps to a page, an ALM tool, an action or any deal or break by reference,
+counterparty or pair; `g` then a letter changes page; `?` lists the shortcuts. In the blotter and
+the breaks the selected row is in the address (shareable, back-button safe), the arrow keys move
+it, Enter opens it, Esc closes it; a View menu chooses columns and row density and the page
+remembers both; filter chips carry counts; empty states say why nothing is there. The booking
+ticket is a sheet beside the blotter, not a dialog over it, so the book stays in view; the breaks
+page is a queue that moves to the next open break after an acknowledge, dismiss or link. The ladder
+draws the cumulative balance with today marked and a horizon switch. The ALM assumptions rail
+closes to give results the width, and a what-if lists every changed parameter against the bank's
+version with a revert on each. Every action answers with a toast, every first load with a skeleton,
+and a banner says when the live stream is reconnecting. Tables are virtualised, sortable and
+resizable with CSV export; charts have hover tooltips; the ALM pages print as the ALCO pack. The
+trading pages and the ALM workbench are separate chunks fetched when their tab is hovered, so the
+first load is the shell and the Overview. Tooling runs on Windows where Node is installed (`node_modules`
 lives under `C:\dev` through a junction, off OneDrive, like the cargo target directory):
 
 ```
@@ -220,12 +235,11 @@ From a WSL terminal in the project folder:
 ./scripts/start-dev.sh      # database, migrations, seed, a synthetic world if the database is empty, reconciler, API
 ```
 
-Then on Windows, either open `http://localhost:8787/app/` in a browser (after `scripts\build-web.cmd`),
-install `dist\NBB-Treasury-Setup.exe` (built by `scripts\build-desktop.cmd`) and point it at
-`http://localhost:8787`, or open the native `dist\treasury-client.exe` (built by
-`scripts\build-windows.cmd`; the raw build output lives in `C:\dev\targets\`, outside the OneDrive
-folder). Log in as `fx1`, `mm1`, `alm1` or `head1` with password `password`. `./scripts/stop-dev.sh`
-stops the services.
+Then on Windows, either open `http://localhost:8787/app/` in a browser (after `scripts\build-web.cmd`)
+or install `dist\NBB-Treasury-Setup.exe` (built by `scripts\build-desktop.cmd`; the raw build output
+lives in `C:\dev\targets\`, outside the OneDrive folder) and point it at `http://localhost:8787`.
+Log in as `fx1`, `mm1`, `alm1` or `head1` with password `password`. `./scripts/stop-dev.sh` stops
+the services.
 
 ## Run it step by step (WSL / Linux dev loop)
 
@@ -284,7 +298,7 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-88 tests. Recon: 18 unit tests (tolerances, normaliser, matcher, SLA maths, generator determinism
+88 Rust tests. Recon: 18 unit tests (tolerances, normaliser, matcher, SLA maths, generator determinism
 and scenario coverage), 12 pipeline scenarios on a fresh database each (three-way match, reversed
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
@@ -294,14 +308,16 @@ schedules by amortisation profile, curves and shocks with the floor, NSFR factor
 slotting and limits, NII by cohort type, EVE on the shocked curve, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
-reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary and 5 on the
-ALM endpoints.
+reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 5 on the
+ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 14 Playwright checks on the installed Edge: sign-in and its errors, the ALM entitlement
-of the tab and the address, the overview strips per desk, booking a deal and finding it, filters,
-provenance, a break's actions, the ladder drill-down, every ALM tool's headline, a what-if edit and
-its reset, and a Setup draft.
+cases) and 22 Playwright checks on the installed Edge: sign-in and its errors, the ALM entitlement
+of the tab and the address, the overview strips per desk and the attention list, booking a deal from
+the side sheet and its toast, filters, provenance, keyboard selection with the address following, the
+positions panel preference, a break's actions, the ladder drill-down, every ALM tool's headline, a
+what-if edit with its change list and reset, the assumptions rail, a Setup draft, the command palette
+and the page keys, and a console watch for Content Security Policy violations across the pages.
 
 `./scripts/verify.sh` runs the whole thing from a clean database and checks the behaviour over HTTP,
 including a rebuild and, when `web/dist` exists, the pages at `/app`. `cargo audit` checks the
@@ -310,15 +326,21 @@ lockfile against RustSec.
 ## Windows builds
 
 ```
-scripts\build-windows.cmd        # native client  -> dist\treasury-client.exe
 scripts\build-web.cmd            # web client     -> web\dist, served at /app
 scripts\build-desktop.cmd        # desktop shell  -> dist\NBB-Treasury-Setup.exe and dist\NBB-Treasury.exe
 ```
+
+For the bank's build of the shell, set `TREASURY_FIXED_SERVER=https://treasury.nbb.internal` before
+`build-desktop.cmd`: the shell then opens that server and nothing else, never asks for an address
+and has no change-server menu. Every build refuses to navigate anywhere but its server and its own
+first-run page. The server adds a Content Security Policy and the other browser hardening headers to
+every response (HSTS once it speaks TLS or sits behind a terminator that says so). Code signing of
+the installer is the bank's step.
 
 ## Not yet built
 
 Real Kondor, Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and
 database engines), real nostro statement feeds, the real banking-book extract and market-data feed
 behind the ALM workbench, the CBB calibration of the ALM parameters, OIDC against the bank's
-directory, settlement-date SLAs, allocations, code-signing, retiring the native client once the web
-pages are accepted on the desk. See `docs/implementation-plan.html` for the full picture.
+directory, settlement-date SLAs, allocations, code-signing. See `docs/implementation-plan.html` for
+the full picture.
