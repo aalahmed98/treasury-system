@@ -12,6 +12,15 @@ const routes: [string, string][] = [
   ['breaks', '/app/breaks'],
   ['liquidity', '/app/liquidity'],
   ['alm', '/app/alm'],
+  ['alm-lcr', '/app/alm/lcr'],
+  ['alm-nsfr', '/app/alm/nsfr'],
+  ['alm-gap', '/app/alm/gap'],
+  ['alm-nii', '/app/alm/nii'],
+  ['alm-stress', '/app/alm/stress'],
+  ['alm-attribution', '/app/alm/attribution'],
+  ['alm-ird', '/app/alm/ird'],
+  ['alm-funding', '/app/alm/funding'],
+  ['alm-setup', '/app/alm/setup'],
 ];
 
 for (const theme of ['light', 'dark'] as const) {

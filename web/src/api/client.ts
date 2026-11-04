@@ -1,7 +1,7 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -139,5 +139,8 @@ export const endpoints = {
   attention: () => api<AttentionItem[]>('/attention', { passive: true }),
   almOverview: () => api<AlmOverview>('/alm/overview', { passive: true }),
   almSnapshots: () => api<AlmSnapshot[]>('/alm/snapshots', { passive: true }),
-  almTool: <T>(tool: string, req: unknown) => api<T>(`/alm/${tool}`, { method: 'POST', body: req, passive: true }),
+  almTool: <T>(tool: string, req: AlmRequest) => api<T>(`/alm/${tool}`, { method: 'POST', body: req, passive: true }),
+  almParams: () => api<AlmParamsResponse>('/alm/params', { passive: true }),
+  almSave: (params: AlmParams, note: string) => api<AlmParamsVersion>('/alm/params', { method: 'POST', body: { params, note } }),
+  marketRates: () => api<MarketResponse>('/market/rates', { passive: true }),
 };

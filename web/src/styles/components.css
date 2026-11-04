@@ -761,3 +761,124 @@ dialog.ticket::backdrop {
 .form-grid .k {
   color: var(--text-2);
 }
+
+/* ALM workbench */
+.alm-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+.alm-strip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 38px;
+  padding: 4px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
+}
+.alm-strip .vsep {
+  width: 1px;
+  height: 18px;
+  background: var(--hairline);
+  margin: 0 6px;
+}
+.alm-strip .t-eyebrow {
+  margin-right: 2px;
+}
+.alm-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.alm-layout.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.assumptions {
+  background: var(--surface-alt);
+  border-right: 1px solid var(--hairline);
+  padding: 14px 12px 14px 16px;
+  overflow: auto;
+}
+.alm-results {
+  padding: 14px 20px 12px;
+  overflow: auto;
+}
+.arow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.arow .k {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.numwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.factor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 3px 6px;
+  align-items: center;
+}
+.factor-grid .k {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.factor-grid .h {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: right;
+}
+.versions {
+  display: grid;
+  gap: 6px;
+}
+.version {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+@media print {
+  .topbar,
+  .statusbar,
+  .assumptions,
+  .alm-strip,
+  .noprint,
+  .btn {
+    display: none !important;
+  }
+  html,
+  body,
+  #root,
+  .app,
+  .app > main,
+  .alm-page,
+  .alm-layout,
+  .alm-results {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+  body {
+    background: white;
+    color: black;
+  }
+  .card {
+    break-inside: avoid;
+  }
+}

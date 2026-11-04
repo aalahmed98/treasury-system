@@ -348,3 +348,302 @@ export interface AlmSnapshot {
   generated_at: string;
   positions: number;
 }
+
+// ---- ALM workbench ----------------------------------------------------------------------------
+
+export type Factors3 = [number, number, number];
+export interface LcrParams {
+  minimum: number;
+  internal_minimum: number;
+  early_warning: number;
+  significant_ccys: string[];
+  haircuts: Record<string, number>;
+  cap_l2_total_pct: number;
+  cap_l2b_pct: number;
+  inflow_cap_pct: number;
+  outflow_rates: Record<string, number>;
+  inflow_rates: Record<string, number>;
+}
+export interface NsfrParams {
+  minimum: number;
+  internal_minimum: number;
+  asf: Record<string, Factors3>;
+  rsf: Record<string, Factors3>;
+  hqla_rsf: Record<string, number>;
+  off_balance_rsf_pct: number;
+  encumbered_rsf_pct: number;
+}
+export interface GapParams {
+  nmd_behavioural_months: Record<string, number>;
+  cumulative_gap_limit_pct_assets: Record<string, number>;
+  eve_limit_pct_tier1: number;
+  nii_sensitivity_limit_pct: number;
+}
+export interface RateShock {
+  parallel: number;
+  short: number;
+  long: number;
+}
+export interface LiquidityStress {
+  outflow_multiplier: number;
+  extra_hqla_haircut_pct: number;
+  inflow_multiplier: number;
+}
+export interface StressParams {
+  shocks: Record<string, RateShock>;
+  floor_bp: number;
+  floor_slope_bp_per_year: number;
+  liquidity: LiquidityStress;
+  fx_shock_pct: Record<string, number>;
+}
+export interface NiiParams {
+  horizon_months: number;
+  constant_balance_sheet: boolean;
+  default_beta: number;
+}
+export interface FundingParams {
+  top1_limit_pct: number;
+  top10_limit_pct: number;
+  wholesale_share_limit_pct: number;
+}
+export interface AlmParams {
+  reporting_ccy: string;
+  tier1_capital: number;
+  lcr: LcrParams;
+  nsfr: NsfrParams;
+  gap: GapParams;
+  stress: StressParams;
+  nii: NiiParams;
+  funding: FundingParams;
+}
+export interface AlmParamsVersion {
+  version: number;
+  created_at: string;
+  created_by: string | null;
+  note: string | null;
+  is_active: boolean;
+}
+export interface AlmParamsResponse {
+  active: AlmParamsVersion;
+  params: AlmParams;
+  history: AlmParamsVersion[];
+}
+export interface AlmRequest {
+  as_of?: string | null;
+  params?: AlmParams | null;
+  scenario?: RateScenario | null;
+  custom_shock_bp?: number | null;
+  compare_to?: CompareTo | null;
+  period?: string | null;
+}
+export interface LcrLine {
+  class: string;
+  amount: number;
+  rate: number;
+  weighted: number;
+}
+export interface LcrFigures {
+  ccy: string;
+  hqla_l1: number;
+  hqla_l2a: number;
+  hqla_l2b: number;
+  adjustment_l2b_cap: number;
+  adjustment_l2_cap: number;
+  stock: number;
+  outflows: LcrLine[];
+  total_outflows: number;
+  inflows: LcrLine[];
+  total_inflows: number;
+  capped_inflows: number;
+  net_outflows: number;
+  ratio: number | null;
+}
+export interface LcrResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  minimum: number;
+  internal_minimum: number;
+  early_warning: number;
+  total: LcrFigures;
+  by_ccy: LcrFigures[];
+}
+export interface NsfrLine {
+  class: string;
+  bucket: string;
+  amount: number;
+  factor: number;
+  weighted: number;
+}
+export interface NsfrResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  minimum: number;
+  internal_minimum: number;
+  asf_lines: NsfrLine[];
+  rsf_lines: NsfrLine[];
+  asf: number;
+  rsf: number;
+  ratio: number | null;
+}
+export interface GapCurrency {
+  ccy: string;
+  buckets: GapBucket[];
+}
+export interface GapResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  total_assets: number;
+  buckets: GapBucket[];
+  by_ccy: GapCurrency[];
+}
+export interface NiiMonth {
+  period: string;
+  income: number;
+  expense: number;
+  nii: number;
+}
+export interface NiiBreakdown {
+  key: string;
+  nii: number;
+}
+export interface NiiResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  scenario: RateScenario;
+  horizon_months: number;
+  months: NiiMonth[];
+  income: number;
+  expense: number;
+  nii: number;
+  earning_assets: number;
+  nim: number | null;
+  by_book: NiiBreakdown[];
+  by_ccy: NiiBreakdown[];
+  base_nii: number | null;
+}
+export interface StressScenarioRow {
+  scenario: RateScenario;
+  label: string;
+  nii: number;
+  nii_delta: number;
+  nii_delta_pct: number | null;
+  eve_delta: number;
+  eve_loss: number;
+  eve_loss_pct_tier1: number | null;
+  nii_breach: boolean;
+  eve_breach: boolean;
+}
+export interface SurvivalPoint {
+  day: number;
+  cumulative_net_outflow: number;
+}
+export interface LiquidityStressResult {
+  lcr_base: number | null;
+  lcr_stressed: number | null;
+  stock_stressed: number;
+  net_outflows_stressed: number;
+  survival_days: number | null;
+  horizon: SurvivalPoint[];
+}
+export interface FxStressRow {
+  ccy: string;
+  shock_pct: number;
+  exposure: number;
+  pnl: number;
+}
+export interface StressResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  base_nii: number;
+  base_eve: number;
+  tier1_capital: number;
+  nii_limit_pct: number;
+  eve_limit_pct_tier1: number;
+  rate_scenarios: StressScenarioRow[];
+  worst_eve: RateScenario | null;
+  liquidity: LiquidityStressResult;
+  fx: FxStressRow[];
+}
+export interface AttributionLine {
+  book: string;
+  side: 'ASSET' | 'LIABILITY' | 'OFF_BALANCE';
+  ccy: string;
+  nii_a: number;
+  nii_b: number;
+  volume_a: number;
+  volume_b: number;
+  rate_a: number;
+  rate_b: number;
+  days_effect: number;
+  volume_effect: number;
+  rate_effect: number;
+  residual: number;
+}
+export interface AttributionStep {
+  label: string;
+  value: number;
+}
+export interface AttributionResult {
+  period_a: string;
+  period_b: string;
+  compare_to: CompareTo;
+  reporting_ccy: string;
+  nii_a: number;
+  nii_b: number;
+  delta: number;
+  days_effect: number;
+  pure_volume_effect: number;
+  mix_effect: number;
+  rate_effect: number;
+  residual: number;
+  steps: AttributionStep[];
+  lines: AttributionLine[];
+}
+export interface FundingGroup {
+  name: string;
+  segment: string;
+  balance: number;
+  share_pct: number;
+}
+export interface FundingResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  total_deposits: number;
+  total_funding: number;
+  wholesale_funding: number;
+  top1_pct: number;
+  top10_pct: number;
+  wholesale_pct: number;
+  top1_limit_pct: number;
+  top10_limit_pct: number;
+  wholesale_limit_pct: number;
+  breaches: string[];
+  groups: FundingGroup[];
+  by_segment: NiiBreakdown[];
+}
+export interface CurvePoint {
+  tenor: string;
+  tenor_days: number;
+  rate: number;
+}
+export interface RateCurve {
+  ccy: string;
+  index_code: string;
+  as_of: string;
+  points: CurvePoint[];
+}
+export interface FxSpot {
+  pair: string;
+  as_of: string;
+  mid: number;
+}
+export interface MarketResponse {
+  curves: RateCurve[];
+  spots: FxSpot[];
+}
