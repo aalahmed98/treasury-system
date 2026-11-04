@@ -19,7 +19,7 @@ test('an edited assumption becomes a what-if and reset restores the bank set', a
   await expect(page.getByText(/bank v\d+/)).toBeVisible();
   const input = page.locator('.assumptions input[type=number]').nth(1);
   await input.fill('115');
-  await expect(page.getByText('what-if', { exact: true })).toBeVisible();
+  await expect(page.getByText(/what-if · 1 change/)).toBeVisible();
   await page.getByRole('button', { name: 'Reset' }).click();
   await expect(page.getByText(/bank v\d+/)).toBeVisible();
 });

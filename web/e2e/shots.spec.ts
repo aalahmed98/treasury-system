@@ -41,5 +41,21 @@ for (const theme of ['light', 'dark'] as const) {
     await page.locator('.bell').click();
     await page.waitForTimeout(300);
     await page.screenshot({ path: join(dir, `bell-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+k');
+    await page.getByRole('combobox', { name: 'Command' }).fill('qatar');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: join(dir, `palette-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await page.goto('/app/blotter');
+    await ready(page);
+    await page.getByTestId('blotter').locator('tbody tr[data-key]').first().click();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: join(dir, `blotter-detail-${theme}.png`) });
+    await page.goto('/app/breaks');
+    await ready(page);
+    await page.getByTestId('breaks').locator('tbody tr[data-key]').first().click();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: join(dir, `breaks-detail-${theme}.png`) });
   });
 }

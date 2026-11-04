@@ -1,6 +1,7 @@
 // The deal blotter: every deal the user's desks may see, with match status and provenance, a
-// detail pane, booking and amendment.
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+// detail pane, booking in a side sheet and amendment. The selected deal lives in the address, so a
+// link to it can be shared and the back button returns to it.
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, endpoints } from '../api/client';
@@ -12,11 +13,12 @@ import { PRODUCT_LABEL, isFx } from '../api/types';
 import { fmtAmount, fmtDateShort, fmtLocal } from '../lib/fmt';
 import { breakKindClass, dealRow, fmtRate, isTerminal, matchClass, matchLabel, statusClass, type DealRow } from '../lib/deals';
 import { Badge, Chip } from '../components/ui';
-import { DataTable, byNumber, byString, exportCsv, useSort, type Col } from '../components/table';
-import { WithPositions } from '../components/positions';
+import { DataTable, byNumber, byString, exportCsv, useSort, useTableView, type Col } from '../components/table';
+import { SideToggle, WithSide } from '../components/positions';
+import { Empty, Kbd, useToast } from '../components/feedback';
 
 const COLS: Col<DealRow>[] = [
-  { id: 'ref', header: 'Ref', width: 96, sort: byString((r) => r.ref), cell: (r) => r.ref },
+  { id: 'ref', header: 'Ref', width: 96, fixed: true, sort: byString((r) => r.ref), cell: (r) => r.ref },
   { id: 'desk', header: 'Desk', width: 52, sort: byString((r) => r.desk), cell: (r) => r.desk },
   { id: 'match', header: 'Match', width: 92, sort: byString((r) => r.match), cell: (r) => <span className={matchClass(r.deal.match_status)}>{r.match}</span>, csv: (r) => r.match },
   { id: 'cf', header: 'Cf', width: 34, title: 'confirmed by the back office', cell: (r) => (r.deal.confirmed ? <span className="t-good">✔</span> : <span className="t-muted">·</span>), csv: (r) => (r.deal.confirmed ? 'yes' : 'no') },
@@ -33,39 +35,112 @@ const COLS: Col<DealRow>[] = [
   { id: 'updated', header: 'Updated', width: 130, sort: byString((r) => r.deal.updated_at), cell: (r) => <span className="t-muted">{r.updated}</span>, csv: (r) => r.updated },
 ];
 
+type Filter = 'breaks' | 'provisional' | 'unmatched';
+const FILTERS: [Filter, string, string][] = [
+  ['breaks', 'with breaks', 'deals with an open break'],
+  ['provisional', 'provisional', 'not yet confirmed by the back office'],
+  ['unmatched', 'unmatched', 'not yet seen in every expected source'],
+];
+const passes = (r: DealRow, f: Filter) => (f === 'breaks' ? r.deal.match_status === 'BREAK' : f === 'provisional' ? !r.deal.confirmed && r.deal.status !== 'CANCELLED' : r.deal.match_status === 'UNMATCHED' || r.deal.match_status === 'PARTIAL');
+
 export function Blotter() {
   const { desks, bookableDesks } = useSession();
   const deals = useDeals();
   const live = useLive();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [desk, setDesk] = useState<number | null>(null);
   const [search, setSearch] = useState('');
-  const [onlyBreaks, setOnlyBreaks] = useState(false);
-  const [onlyProvisional, setOnlyProvisional] = useState(params.get('filter') === 'provisional');
-  const [selected, setSelected] = useState<string | null>(params.get('deal'));
+  const needle = useDeferredValue(search.trim().toLowerCase());
+  const [filters, setFilters] = useState<Set<Filter>>(() => new Set());
   const [sort, setSort] = useSort({ id: 'updated', desc: true });
   const [ticket, setTicket] = useState(false);
+  const { columns, rowHeight, menu } = useTableView('blotter', COLS);
+  const selected = params.get('deal');
 
-  // A deep link or an attention item selects a deal and clears itself from the address.
+  const select = useCallback(
+    (id: string | null) => {
+      setParams(
+        (p) => {
+          const n = new URLSearchParams(p);
+          if (id) n.set('deal', id);
+          else n.delete('deal');
+          return n;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+
+  // One-shot instructions in the address: a filter from the overview, the ticket from the palette.
   useEffect(() => {
-    const id = params.get('deal');
-    const filter = params.get('filter');
-    if (id || filter) {
-      if (id) setSelected(id);
-      if (filter === 'provisional') setOnlyProvisional(true);
-      setParams({}, { replace: true });
+    const filter = params.get('filter') as Filter | null;
+    const book = params.get('book');
+    if (filter || book) {
+      if (filter && FILTERS.some(([f]) => f === filter)) setFilters(new Set([filter]));
+      if (book) setTicket(true);
+      setParams(
+        (p) => {
+          const n = new URLSearchParams(p);
+          n.delete('filter');
+          n.delete('book');
+          return n;
+        },
+        { replace: true },
+      );
     }
   }, [params, setParams]);
 
+  // `n` books a deal when the user is not typing.
+  useEffect(() => {
+    if (!bookableDesks.length) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== 'n' || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'))) return;
+      e.preventDefault();
+      setTicket(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bookableDesks.length]);
+
   const rows = useMemo(() => (deals.data?.deals ?? []).map(dealRow), [deals.data]);
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => (desk === null || r.deal.desk_id === desk) && (!q || r.search.includes(q)) && (!onlyBreaks || r.deal.match_status === 'BREAK') && (!onlyProvisional || (!r.deal.confirmed && r.deal.status !== 'CANCELLED')));
-  }, [rows, desk, search, onlyBreaks, onlyProvisional]);
+  const counts = useMemo(() => Object.fromEntries(FILTERS.map(([f]) => [f, rows.filter((r) => passes(r, f)).length])) as Record<Filter, number>, [rows]);
+  const filtered = useMemo(() => rows.filter((r) => (desk === null || r.deal.desk_id === desk) && (!needle || r.search.includes(needle)) && [...filters].every((f) => passes(r, f))), [rows, desk, needle, filters]);
   const current = selected ? rows.find((r) => r.deal.id === selected) : undefined;
+  const toggleFilter = (f: Filter) =>
+    setFilters((s) => {
+      const n = new Set(s);
+      if (n.has(f)) n.delete(f);
+      else n.add(f);
+      return n;
+    });
+  const clear = () => {
+    setFilters(new Set());
+    setSearch('');
+    setDesk(null);
+  };
+  const narrowed = filters.size > 0 || needle !== '' || desk !== null;
 
   return (
-    <WithPositions ready={deals.data !== undefined}>
+    <WithSide
+      page="blotter"
+      ready={deals.data !== undefined}
+      sheet={
+        ticket ? (
+          <Ticket
+            desks={bookableDesks}
+            onClose={() => setTicket(false)}
+            onBooked={(d) => {
+              setTicket(false);
+              select(d.id);
+              toast({ tone: 'good', title: `Booked ${d.deal_ref}`, detail: `${PRODUCT_LABEL[d.product]} ${d.side} ${d.ccy2 ? `${d.ccy1}/${d.ccy2}` : d.ccy1} ${fmtAmount(d.notional)} with ${d.counterparty}. It is in the reconciliation log now.` });
+            }}
+          />
+        ) : undefined
+      }
+    >
       <div className="toolbar">
         <h1 className="t-title" style={{ marginRight: 4 }}>
           Deal blotter
@@ -78,39 +153,62 @@ export function Blotter() {
             </option>
           ))}
         </select>
-        <input className="input input-sm" style={{ width: 260 }} placeholder="search ref, pair, counterparty, match…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search deals" />
-        <Chip outlined selected={onlyBreaks} onClick={() => setOnlyBreaks((v) => !v)} title="deals with an open break">
-          breaks only
-        </Chip>
-        <Chip outlined selected={onlyProvisional} onClick={() => setOnlyProvisional((v) => !v)} title="not yet confirmed by the back office">
-          provisional only
-        </Chip>
-        <button type="button" className="btn btn-primary" disabled={bookableDesks.length === 0 || ticket} onClick={() => setTicket(true)} title="open a booking ticket">
-          Book deal
-        </button>
+        <input className="input input-sm" style={{ width: 250 }} placeholder="search ref, pair, counterparty, match…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search deals" />
+        {FILTERS.map(([f, label, title]) => (
+          <Chip key={f} outlined selected={filters.has(f)} onClick={() => toggleFilter(f)} title={title}>
+            {label}
+            {counts[f] > 0 && <span className="t-small" style={{ marginLeft: 5, color: 'inherit', opacity: 0.75 }}>{counts[f]}</span>}
+          </Chip>
+        ))}
+        {bookableDesks.length > 0 && (
+          <button type="button" className="btn btn-primary" disabled={ticket} onClick={() => setTicket(true)} title="open a booking ticket (n)">
+            Book deal
+          </button>
+        )}
         <span className="spacer" />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => exportCsv('blotter', COLS, filtered)}>
+        {menu}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => exportCsv('blotter', columns, filtered)} disabled={filtered.length === 0}>
           Export CSV
         </button>
-        <span className="t-small">
-          {filtered.length} of {rows.length} deals
-        </span>
+        <SideToggle />
       </div>
       <DataTable
-        columns={COLS}
+        columns={columns}
         rows={filtered}
         rowKey={(r) => r.deal.id}
         selected={selected}
-        onSelect={(r) => setSelected((s) => (s === r.deal.id ? null : r.deal.id))}
+        onSelect={(r, via) => select(via === 'click' && selected === r.deal.id ? null : r.deal.id)}
+        onEscape={() => select(null)}
         rowClass={(r) => (live.flash.deals.has(r.deal.id) ? 'flash' : '')}
         sort={sort}
         onSort={setSort}
+        rowHeight={rowHeight}
         testId="blotter"
-        empty={deals.isLoading ? 'loading…' : 'no deals match'}
+        loading={deals.isLoading}
+        empty={
+          narrowed ? (
+            <Empty title="No deals match" detail="Widen the search or drop a filter.">
+              <button type="button" className="btn btn-sm" onClick={clear}>
+                Clear filters
+              </button>
+            </Empty>
+          ) : (
+            <Empty title="No deals on your desks yet" detail={bookableDesks.length ? 'Book the first one with the button above, or press n.' : 'Deals arrive from Kondor, Bloomberg and Quantum as the reconciler sees them.'} />
+          )
+        }
       />
-      {current && <Detail row={current} onClose={() => setSelected(null)} />}
-      {ticket && <Ticket desks={bookableDesks} onClose={() => setTicket(false)} />}
-    </WithPositions>
+      {current ? (
+        <Detail row={current} onClose={() => select(null)} />
+      ) : (
+        <div className="hint t-small">
+          <span className="t-secondary">
+            {filtered.length} of {rows.length} deals
+          </span>
+          {' · '}
+          <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>Enter</Kbd> or click opens a deal · <Kbd>Esc</Kbd> closes it
+        </div>
+      )}
+    </WithSide>
   );
 }
 
@@ -122,15 +220,19 @@ function Detail({ row, onClose }: { row: DealRow; onClose: () => void }) {
   return (
     <div className="detail" data-testid="deal-detail">
       <div className="head">
-        <span className="t-medium">{row.ref}</span>
+        <span className="t-heading">{row.ref}</span>
         <span>
           {row.product} {row.side} {row.pair}
         </span>
-        <span>{row.notional}</span>
+        <span className="t-medium">{row.notional}</span>
         <span className="t-muted">@</span>
         <span>{row.rate}</span>
-        <span className={`t-medium ${statusClass(d.status)}`}>{row.status}</span>
-        <span className={`t-medium ${matchClass(d.match_status)}`}>{matchLabel(d.match_status)}</span>
+        <Badge tone={d.status === 'CONFIRMED' ? 'good' : d.status === 'CANCELLED' ? 'bad' : d.status === 'EXECUTED' ? 'warn' : 'info'} dot>
+          {row.status.toLowerCase()}
+        </Badge>
+        <Badge tone={d.match_status === 'MATCHED' ? 'good' : d.match_status === 'BREAK' ? 'bad' : d.match_status === 'PARTIAL' ? 'warn' : 'neutral'} dot>
+          {matchLabel(d.match_status)}
+        </Badge>
         {d.confirmed ? <Badge tone="good">confirmed</Badge> : <Badge tone="warn">provisional</Badge>}
         <span className="t-small">origin {d.origin}</span>
         <span className="t-small">v{d.version}</span>
@@ -142,7 +244,7 @@ function Detail({ row, onClose }: { row: DealRow; onClose: () => void }) {
             </Chip>
           ))}
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="close">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="close" title="close (Esc)">
           ✕
         </button>
       </div>
@@ -191,23 +293,26 @@ function Summary({ row }: { row: DealRow }) {
 function Amend({ deal }: { deal: Deal }) {
   const { canBook } = useSession();
   const qc = useQueryClient();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ counterparty: '', rate: '', notional: '', value_date: '', maturity_date: '', confirmCancel: false });
   const [error, setError] = useState<string | null>(null);
   const editable = deal.origin === 'INTERNAL' && canBook(deal.desk_id) && !isTerminal(deal.status);
   const amend = useMutation({
     mutationFn: (req: Parameters<typeof endpoints.amend>[1]) => endpoints.amend(deal.id, req),
-    onSuccess: () => {
+    onSuccess: (d) => {
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['deals'] });
+      toast({ tone: 'good', title: `Amended ${d.deal_ref}`, detail: `Now version ${d.version}; the reconciler re-checks it against its sources.` });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'the amendment failed'),
   });
   const cancel = useMutation({
     mutationFn: () => endpoints.cancel(deal.id),
-    onSuccess: () => {
+    onSuccess: (d) => {
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['deals'] });
+      toast({ tone: 'warn', title: `Cancelled ${d.deal_ref}` });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'the cancellation failed'),
   });
@@ -396,9 +501,9 @@ function History({ id }: { id: string }) {
 
 const PRODUCTS: Product[] = ['FX_SPOT', 'FX_FWD', 'MM_DEPO', 'MM_LOAN'];
 
-function Ticket({ desks, onClose }: { desks: DeskAccess[]; onClose: () => void }) {
+/** The booking ticket, in the side column so the blotter stays in view while it is filled in. */
+function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: () => void; onBooked: (d: Deal) => void }) {
   const qc = useQueryClient();
-  const ref = useRef<HTMLDialogElement>(null);
   const today = new Date().toISOString().slice(0, 10);
   const plus = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
   const first = desks[0];
@@ -418,14 +523,18 @@ function Ticket({ desks, onClose }: { desks: DeskAccess[]; onClose: () => void }
   });
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    ref.current?.showModal();
-  }, []);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   const book = useMutation({
     mutationFn: (deal: NewDeal) => endpoints.book(deal),
-    onSuccess: () => {
+    onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ['deals'] });
       void qc.invalidateQueries({ queryKey: ['positions'] });
-      onClose();
+      onBooked(d);
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'the booking failed'),
   });
@@ -470,14 +579,18 @@ function Ticket({ desks, onClose }: { desks: DeskAccess[]; onClose: () => void }
   };
   const sides: Side[] = fx ? ['BUY', 'SELL'] : ['LEND', 'BORROW'];
   return (
-    <dialog className="ticket" ref={ref} onClose={onClose} aria-label="Book a deal">
+    <section className="sheet" role="dialog" aria-label="Book a deal" data-testid="ticket">
       <form onSubmit={submit} noValidate>
-        <div className="t-heading" style={{ marginBottom: 12 }}>
-          Book a deal
+        <div className="head">
+          <span className="t-heading">Book a deal</span>
+          <span className="grow" />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="close" title="close (Esc)">
+            ✕
+          </button>
         </div>
         <div className="form-grid">
           <span className="k">Desk</span>
-          <select className="input input-sm" value={f.desk_id} onChange={(e) => setF({ ...f, desk_id: Number(e.target.value) })}>
+          <select className="input input-sm" value={f.desk_id} onChange={(e) => setF({ ...f, desk_id: Number(e.target.value) })} aria-label="Desk for the deal">
             {desks.map((d) => (
               <option key={d.desk_id} value={d.desk_id}>
                 {d.code}
@@ -488,6 +601,7 @@ function Ticket({ desks, onClose }: { desks: DeskAccess[]; onClose: () => void }
           <select
             className="input input-sm"
             value={f.product}
+            aria-label="Product"
             onChange={(e) => {
               const p = e.target.value as Product;
               setF({ ...f, product: p, side: isFx(p) ? 'BUY' : 'LEND', ccy2: isFx(p) ? f.ccy2 || 'BHD' : '' });
@@ -532,23 +646,25 @@ function Ticket({ desks, onClose }: { desks: DeskAccess[]; onClose: () => void }
             </>
           )}
           <span className="k">Counterparty</span>
-          <input className="input input-sm" value={f.counterparty} onChange={(e) => setF({ ...f, counterparty: e.target.value })} aria-label="Counterparty" />
+          <input className="input input-sm" value={f.counterparty} onChange={(e) => setF({ ...f, counterparty: e.target.value })} aria-label="Counterparty" autoFocus />
         </div>
         {error && (
           <div className="notice bad" role="alert" style={{ marginTop: 8 }}>
             {error}
           </div>
         )}
-        <div className="row" style={{ marginTop: 14 }}>
+        <div className="row" style={{ marginTop: 12 }}>
           <button type="submit" className="btn btn-primary" disabled={book.isPending}>
-            Book
+            {book.isPending ? 'Booking…' : 'Book'}
           </button>
           <button type="button" className="btn" onClick={onClose}>
             Discard
           </button>
-          <span className="t-small">Booked deals enter the reconciliation log immediately.</span>
+        </div>
+        <div className="t-small" style={{ marginTop: 8 }}>
+          Booked deals enter the reconciliation log immediately.
         </div>
       </form>
-    </dialog>
+    </section>
   );
 }

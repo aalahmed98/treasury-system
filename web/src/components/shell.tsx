@@ -1,5 +1,6 @@
-// The frame around every page: the top bar (wordmark, desk, tabs, feed health, the attention bell,
-// the theme switch, the user menu) and the status bar.
+// The frame around every page: the top bar (wordmark, desk, tabs, the search box that opens the
+// command palette, feed health, the attention bell, the theme switch, the user menu), the
+// connection banner, and the status bar with how fresh the data is.
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,6 +11,8 @@ import type { AttentionItem, AttentionTarget, FeedsResponse } from '../api/types
 import { SOURCE_SHORT } from '../api/types';
 import { fmtAge, fmtLocal, fmtTime, secondsBetween } from '../lib/fmt';
 import { Badge, Dot, type Tone, useOutsideClose } from './ui';
+import { Kbd, SkeletonStrip, useAgeSeconds } from './feedback';
+import { usePalette, warmFor } from './palette';
 
 export function targetPath(t: AttentionTarget): string {
   switch (t.kind) {
@@ -44,8 +47,21 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="app">
       <TopBar />
-      <main>{children}</main>
+      <ConnectionBanner />
+      <main id="main">{children}</main>
       <StatusBar />
+    </div>
+  );
+}
+
+/** What a page looks like for the moment its chunk or its first data is on the way. */
+export function PageSkeleton() {
+  return (
+    <div className="page" aria-busy>
+      <div className="page-title">
+        <span className="skeleton" style={{ width: 160, height: 20 }} />
+      </div>
+      <SkeletonStrip cells={6} />
     </div>
   );
 }
@@ -57,6 +73,9 @@ function TopBar() {
   const open = (breaks.data ?? []).filter((b) => b.status !== 'RESOLVED').length;
   return (
     <header className="topbar">
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
       <div className="wordmark">
         <span className="brand">NBB</span>
         <span>Treasury</span>
@@ -70,6 +89,7 @@ function TopBar() {
         {canSeeAlm && <Tab to="/alm" label="ALM" />}
       </nav>
       <div className="cluster">
+        <SearchButton />
         <Feeds />
         <Bell />
         <ThemeSwitch />
@@ -81,10 +101,24 @@ function TopBar() {
 
 function Tab({ to, label, count, tone = 'neutral', end }: { to: string; label: string; count?: string; tone?: Tone; end?: boolean }) {
   return (
-    <NavLink to={to} end={end} className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
+    <NavLink to={to} end={end} className={({ isActive }) => `tab${isActive ? ' active' : ''}`} onPointerEnter={warmFor(to)} onFocus={warmFor(to)}>
       {label}
       {count !== undefined && <Badge tone={tone}>{count}</Badge>}
     </NavLink>
+  );
+}
+
+function SearchButton() {
+  const { open } = usePalette();
+  return (
+    <button type="button" className="search-btn" onClick={() => open()} title="Jump to a page, a deal or a break (Ctrl K)">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+        <circle cx="7" cy="7" r="4.5" />
+        <path d="M10.5 10.5 14 14" />
+      </svg>
+      <span>Jump to…</span>
+      <Kbd>Ctrl K</Kbd>
+    </button>
   );
 }
 
@@ -209,26 +243,26 @@ function readTheme(): ThemePref {
 function ThemeSwitch() {
   const [pref, setPref] = useState<ThemePref>(readTheme);
   useEffect(() => {
-    if (pref === 'auto') {
-      delete document.documentElement.dataset.theme;
-      try {
-        localStorage.removeItem('nbb-theme');
-      } catch {
-        // ignore
-      }
-    } else {
-      document.documentElement.dataset.theme = pref;
-      try {
-        localStorage.setItem('nbb-theme', pref);
-      } catch {
-        // ignore
-      }
+    // The palette can change the theme too; follow it.
+    const sync = () => setPref(readTheme());
+    window.addEventListener('nbb-theme', sync);
+    return () => window.removeEventListener('nbb-theme', sync);
+  }, []);
+  const choose = (p: ThemePref) => {
+    if (p === 'auto') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = p;
+    try {
+      if (p === 'auto') localStorage.removeItem('nbb-theme');
+      else localStorage.setItem('nbb-theme', p);
+    } catch {
+      // ignore
     }
-  }, [pref]);
+    setPref(p);
+  };
   return (
     <div className="segmented" role="radiogroup" aria-label="Theme">
       {(['auto', 'light', 'dark'] as ThemePref[]).map((p) => (
-        <button key={p} type="button" role="radio" aria-checked={pref === p} className={`chip chip-sm${pref === p ? ' selected' : ''}`} onClick={() => setPref(p)}>
+        <button key={p} type="button" role="radio" aria-checked={pref === p} className={`chip chip-sm${pref === p ? ' selected' : ''}`} onClick={() => choose(p)}>
           {p === 'auto' ? 'Auto' : p === 'light' ? 'Light' : 'Dark'}
         </button>
       ))}
@@ -238,6 +272,7 @@ function ThemeSwitch() {
 
 function UserMenu() {
   const { current, desks, logout } = useSession();
+  const { open: openPalette } = usePalette();
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose<HTMLDivElement>(open, close);
@@ -260,6 +295,17 @@ function UserMenu() {
             </div>
           ))}
           <hr className="hr" />
+          <button
+            type="button"
+            className="menu-item"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              openPalette('shortcuts');
+            }}
+          >
+            Keyboard shortcuts <span className="t-small">?</span>
+          </button>
           <button type="button" className="menu-item" role="menuitem" onClick={() => void logout()}>
             Log out
           </button>
@@ -269,10 +315,33 @@ function UserMenu() {
   );
 }
 
+/** Shown only while the live stream is down for more than a moment. */
+function ConnectionBanner() {
+  const live = useLive();
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    if (live.state === 'connected') {
+      setStale(false);
+      return;
+    }
+    const t = window.setTimeout(() => setStale(true), 4000);
+    return () => window.clearTimeout(t);
+  }, [live.state]);
+  if (!stale) return null;
+  return (
+    <div className="banner" role="status">
+      <Dot tone="warn" />
+      <span className="t-medium">Reconnecting to the server.</span>
+      <span>Figures on screen are from {live.lastEvent ? fmtTime(live.lastEvent.toISOString()) : 'the last load'} and will catch up on their own.</span>
+    </div>
+  );
+}
+
 function StatusBar() {
   const live = useLive();
   const qc = useQueryClient();
   const deals = useDeals();
+  const age = useAgeSeconds(live.lastEvent);
   const tone: Tone = live.state === 'connected' ? 'good' : live.state === 'connecting' ? 'warn' : 'bad';
   const label = live.state === 'connected' ? 'live' : live.state;
   return (
@@ -281,7 +350,7 @@ function StatusBar() {
         <Dot tone={tone} />
         {label}
       </span>
-      {live.lastEvent && <span>last update {fmtTime(live.lastEvent.toISOString())}</span>}
+      {age !== null && <span>updated {age < 5 ? 'just now' : `${fmtAge(age)} ago`}</span>}
       {deals.data && <span title="server time of the last full load">snapshot {fmtLocal(deals.data.as_of)}</span>}
       <span className="right">
         <span>{window.location.origin}</span>

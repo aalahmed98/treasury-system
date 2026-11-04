@@ -1,15 +1,18 @@
-// The page after login: what matters on the user's desks right now, built from the data the page
-// already holds plus the server's balance-sheet block for ALM and treasury-head users.
+// The page after login. It answers one question first, "does anything need me", then shows the
+// desk's figures, the balance sheet for ALM and treasury-head users, the operations picture and
+// what changed recently. Everything on it is built from data the page already holds.
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useActivity, useAlmOverview, useBreaks, useDeals, useFeeds, useLadder, usePositions } from '../api/queries';
+import { useActivity, useAlmOverview, useAttention, useBreaks, useDeals, useFeeds, useLadder, usePositions } from '../api/queries';
 import { useSession } from '../api/session';
 import type { ActivityRow, BreakView, Deal } from '../api/types';
 import { PRODUCT_LABEL } from '../api/types';
-import { fmtAmount, fmtDate, fmtDateLong, fmtMoneyShort, fmtPct, fmtTime, titleCase } from '../lib/fmt';
+import { fmtAge, fmtAmount, fmtDate, fmtDateLong, fmtMoneyShort, fmtPct, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
 import { limitRows, overviewCells, standingTone } from '../lib/alm';
-import { Card, Dot, Gauge, Section, StatStrip, type StatCell, type Tone } from '../components/ui';
+import { Badge, Card, Dot, Gauge, Section, StatStrip, type StatCell, type Tone } from '../components/ui';
 import { Bars, BarsPair, LineChart } from '../components/charts';
-import { feedHealth, referenceNow } from '../components/shell';
+import { Empty, SkeletonLines, SkeletonStrip } from '../components/feedback';
+import { feedHealth, referenceNow, severityTone, targetPath } from '../components/shell';
 
 const KINDS = ['MISSING', 'MISMATCH', 'ORPHAN', 'AMBIGUOUS', 'DUPLICATE'] as const;
 const MATCH = ['UNMATCHED', 'PARTIAL', 'MATCHED', 'BREAK'] as const;
@@ -58,6 +61,84 @@ function localActivity(deals: Deal[], breaks: BreakView[]): Activity[] {
   return rows.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 14);
 }
 
+const SHOW = 6;
+
+/** The first thing on the page: the server's attention list, worst first, each row a link. */
+function Attention({ now }: { now: string }) {
+  const navigate = useNavigate();
+  const { data, isLoading } = useAttention();
+  const [all, setAll] = useState(false);
+  const items = data ?? [];
+  if (isLoading) {
+    return (
+      <div className="attention" aria-busy>
+        <div className="attention-head">
+          <span className="t-heading">Needs attention</span>
+        </div>
+        <div style={{ padding: '10px 14px' }}>
+          <SkeletonLines n={3} />
+        </div>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="attention" data-testid="attention">
+        <Empty tone="good" title="Nothing needs you right now" detail={`Checked at ${fmtTime(now)}. Breaks, limits outside their triggers, stale feeds and deals waiting on the back office appear here as they arise.`} />
+      </div>
+    );
+  }
+  const worst = severityTone(items[0].severity);
+  const critical = items.filter((i) => i.severity === 'CRITICAL').length;
+  const shown = all ? items : items.slice(0, SHOW);
+  return (
+    <div className="attention" data-testid="attention">
+      <div className="attention-head">
+        <span className="t-heading">Needs attention</span>
+        <Badge tone={worst}>{items.length}</Badge>
+        {critical > 0 && <span className="t-small">{critical} critical</span>}
+        <span className="grow" />
+        {items.length > SHOW && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAll((a) => !a)}>
+            {all ? 'Show fewer' : `Show all ${items.length}`}
+          </button>
+        )}
+      </div>
+      {shown.map((it, i) => (
+        <button key={i} type="button" className="attention-row" onClick={() => navigate(targetPath(it.target))}>
+          <Dot tone={severityTone(it.severity)} />
+          <span className="what">
+            <span className="t-medium">{it.title}</span>
+            <span className="t-small">{it.detail}</span>
+          </span>
+          <span className="t-small">{it.since ? fmtAge(secondsBetween(now, it.since)) : ''}</span>
+          <span className="arrow" aria-hidden>
+            ›
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Horizontal bars with a label and a count: one series, so no legend, the count is the label. */
+function HBars({ data, color }: { data: [string, number][]; color: string }) {
+  const max = Math.max(1, ...data.map((d) => d[1]));
+  return (
+    <div className="hbars">
+      {data.map(([k, n]) => (
+        <div key={k} style={{ display: 'contents' }}>
+          <span className="k">{k}</span>
+          <span>
+            <span className="bar" style={{ width: `${(n / max) * 100}%`, background: n > 0 ? color : 'var(--hairline)', display: 'block' }} />
+          </span>
+          <span className="n">{n}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Overview() {
   const navigate = useNavigate();
   const { canSeeAlm } = useSession();
@@ -86,9 +167,9 @@ export function Overview() {
     cells.push(
       { label: latest ? `Deals on ${fmtDate(latest)}` : 'Deals', value: String(onLatest), sub: `${rows.length} in the blotter`, onClick: () => navigate('/blotter') },
       { label: 'Provisional', value: String(provisional), sub: 'awaiting back-office confirmation', tone: provisional > 0 ? 'warn' : 'good', onClick: () => navigate('/blotter?filter=provisional') },
-      { label: 'Unmatched', value: String(unmatched), sub: `${withBreaks} with breaks`, tone: withBreaks > 0 ? 'bad' : unmatched > 0 ? 'warn' : 'good', onClick: () => navigate('/blotter') },
+      { label: 'Unmatched', value: String(unmatched), sub: `${withBreaks} with breaks`, tone: withBreaks > 0 ? 'bad' : unmatched > 0 ? 'warn' : 'good', onClick: () => navigate('/blotter?filter=unmatched') },
       { label: 'Open breaks', value: String(open.length), sub: kinds.length ? kinds.map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ') : 'none open', tone: open.length > 0 ? 'bad' : 'good', onClick: () => navigate('/breaks') },
-      { label: 'SLA breaches', value: String(sla), sub: 'sources missing past their expected lag', tone: sla > 0 ? 'bad' : 'good', onClick: () => navigate('/breaks') },
+      { label: 'SLA breaches', value: String(sla), sub: 'sources missing past their expected lag', tone: sla > 0 ? 'bad' : 'good', onClick: () => navigate('/breaks?kind=MISSING') },
     );
     if (feeds.data) {
       let healthy = 0;
@@ -113,7 +194,7 @@ export function Overview() {
     .map((r) => [fmtDate(r.date).slice(4), Number(r.net_expected)]);
   const ladderTitle = ladder.data ? `Expected net cash ${ladder.data.ccy} · next five value dates` : 'Expected net cash';
 
-  const acts: Activity[] = activity.data && activity.data.length ? activity.data.map(fromServer) : localActivity(rows, breaks.data ?? []);
+  const acts: Activity[] = (activity.data && activity.data.length ? activity.data.map(fromServer) : localActivity(rows, breaks.data ?? [])).slice(0, 10);
   const largest = [...(positions.data ?? [])].sort((a, b) => Math.abs(Number(b.net_notional)) - Math.abs(Number(a.net_notional))).slice(0, 8);
 
   return (
@@ -122,41 +203,40 @@ export function Overview() {
         <h1 className="t-title">Overview</h1>
         <span className="t-small">as of {fmtTime(now)}</span>
       </div>
-      {deals.data && breaks.data ? <StatStrip cells={cells} testId="trading-strip" /> : <p className="t-muted">loading…</p>}
+      <Attention now={now} />
+
+      <Section title="Trading" meta="your desks, from the blotter and the breaks" />
+      {deals.data && breaks.data ? <StatStrip cells={cells} testId="trading-strip" /> : <SkeletonStrip cells={6} />}
 
       {canSeeAlm && <AlmBlock />}
 
       <Section title="Operations" />
-      <div className="row-wrap">
-        <Card title="Open breaks by kind" width={300}>
-          <Bars data={breaksByKind} color="var(--s2)" fmt={(v) => v.toFixed(0)} />
+      <div className="ov-grid ov-ops">
+        <Card title="Reconciliation">
+          <div className="two-up">
+            <div>
+              <div className="t-label" style={{ marginBottom: 6 }}>
+                Open breaks by kind
+              </div>
+              <HBars data={breaksByKind} color="var(--s2)" />
+            </div>
+            <div>
+              <div className="t-label" style={{ marginBottom: 6 }}>
+                Match status, all deals
+              </div>
+              <HBars data={matchCounts} color="var(--s1)" />
+            </div>
+          </div>
         </Card>
-        <Card title="Match status" width={300}>
-          <Bars data={matchCounts} color="var(--s1)" fmt={(v) => v.toFixed(0)} />
-        </Card>
-        <Card title={ladderTitle} width={380}>
-          <Bars data={ladderBars} color="var(--s3)" fmt={fmtMoneyShort} />
+        <Card title={ladderTitle}>
+          {ladder.data ? <Bars data={ladderBars} color="var(--s3)" fmt={fmtMoneyShort} /> : <SkeletonLines n={4} />}
           <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--info)', marginTop: 4 }} onClick={() => navigate('/liquidity')}>
             open the liquidity ladder
           </button>
         </Card>
-      </div>
-
-      <div className="row-wrap" style={{ marginTop: 10 }}>
-        <Card title="Recent activity" width={560}>
-          {acts.length === 0 && <div className="t-muted">nothing yet</div>}
-          <div className="activity">
-            {acts.map((a, i) => (
-              <div key={i} className="row-a" role={a.to ? 'link' : undefined} tabIndex={a.to ? 0 : undefined} onClick={() => a.to && navigate(a.to)} onKeyDown={(e) => a.to && e.key === 'Enter' && navigate(a.to)}>
-                <span className="t-small">{a.when}</span>
-                <span className={`t-medium t-${a.tone === 'neutral' ? 'secondary' : a.tone}`}>{a.kind}</span>
-                <span className="text">{a.text}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-        <Card title="Largest positions" width={300}>
-          {largest.length === 0 && <div className="t-muted">no positions</div>}
+        <Card title="Largest positions">
+          {positions.isLoading && <SkeletonLines n={5} />}
+          {positions.data && largest.length === 0 && <div className="t-muted">no positions on your desks</div>}
           <div className="kv">
             {largest.map((p) => (
               <div key={`${p.desk_code}-${p.ccy}`} style={{ display: 'contents' }}>
@@ -169,6 +249,21 @@ export function Overview() {
           </div>
         </Card>
       </div>
+
+      <Section title="Recent activity" meta="the last ten changes on your desks" />
+      <Card>
+        {activity.isLoading && acts.length === 0 && <SkeletonLines n={5} />}
+        {!activity.isLoading && acts.length === 0 && <div className="t-muted">nothing yet</div>}
+        <div className="activity">
+          {acts.map((a, i) => (
+            <div key={i} className="row-a" role={a.to ? 'link' : undefined} tabIndex={a.to ? 0 : undefined} onClick={() => a.to && navigate(a.to)} onKeyDown={(e) => a.to && e.key === 'Enter' && navigate(a.to)}>
+              <span className="t-small">{a.when}</span>
+              <span className={`t-medium t-${a.tone === 'neutral' ? 'secondary' : a.tone}`}>{a.kind}</span>
+              <span className="text">{a.text}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
       <div style={{ height: 12 }} />
     </div>
   );
@@ -183,7 +278,7 @@ export function AlmBlock() {
     return (
       <>
         <Section title="Balance sheet" />
-        <p className="t-muted">{alm.isError ? 'the balance-sheet view is not available' : 'loading the balance-sheet view…'}</p>
+        {alm.isError ? <p className="t-muted">the balance-sheet view is not available</p> : <SkeletonStrip cells={8} />}
       </>
     );
   }
@@ -197,8 +292,8 @@ export function AlmBlock() {
     <>
       <Section title="Balance sheet" meta={`as of ${fmtDateLong(v.as_of)} · parameters v${v.params_version} · in ${v.reporting_ccy}`} />
       <StatStrip cells={cells} testId="alm-strip" />
-      <div className="row-wrap" style={{ marginTop: 10 }}>
-        <Card title="Limits" width={470}>
+      <div className="ov-grid ov-bs">
+        <Card title="Limits">
           <table className="table limits">
             <tbody>
               {limits.map((l) => (
@@ -217,13 +312,13 @@ export function AlmBlock() {
             </tbody>
           </table>
         </Card>
-        <Card title="LCR, last 30 snapshots" width={380}>
+        <Card title="LCR, last 30 snapshots">
           <LineChart series={[{ name: 'LCR', points: trend }]} yFmt={(y) => fmtPct(y, 0)} xFmt={(x) => labels[Math.round(x)] ?? ''} />
         </Card>
-        <Card title="NII by month, actual against budget" width={420}>
+        <Card title="NII by month, actual against budget">
           <BarsPair data={nii} names={['actual', 'budget']} fmt={fmtMoneyShort} />
         </Card>
-        <Card title="Repricing gap by bucket" width={380}>
+        <Card title="Repricing gap by bucket">
           <Bars data={gap} color="var(--s3)" fmt={fmtMoneyShort} />
         </Card>
       </div>

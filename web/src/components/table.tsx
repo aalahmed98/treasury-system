@@ -1,7 +1,10 @@
-// A virtualised, sortable, resizable table over pre-formatted rows, plus CSV export. Columns are
-// plain objects: the pages describe what to show, the table does the rest.
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+// A virtualised, sortable, resizable table over pre-formatted rows, with keyboard selection, a
+// column picker and density, plus CSV export. Columns are plain objects: the pages describe what
+// to show, the table does the rest.
+import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { usePref } from '../lib/prefs';
+import { useOutsideClose } from './ui';
 
 export interface Col<T> {
   id: string;
@@ -15,6 +18,8 @@ export interface Col<T> {
   /** The CSV value; defaults to the cell's text when it is a string. */
   csv?: (row: T) => string;
   title?: string;
+  /** Always shown; the column picker does not offer to hide it. */
+  fixed?: boolean;
 }
 
 export interface Sort {
@@ -22,18 +27,27 @@ export interface Sort {
   desc: boolean;
 }
 
+export type SelectVia = 'click' | 'key';
+
 export interface DataTableProps<T> {
   columns: Col<T>[];
   rows: T[];
   rowKey: (row: T) => string;
   selected?: string | null;
-  onSelect?: (row: T) => void;
+  /** A click toggles in the pages; the arrow keys always select. */
+  onSelect?: (row: T, via: SelectVia) => void;
+  /** Enter on the selected row. */
+  onActivate?: (row: T) => void;
+  onEscape?: () => void;
   rowClass?: (row: T) => string;
   sort: Sort | null;
   onSort: (s: Sort | null) => void;
   rowHeight?: number;
   testId?: string;
-  empty?: string;
+  /** Shown instead of rows when there are none; a node for a real empty state. */
+  empty?: ReactNode;
+  /** Shown instead of rows while the first load is on the way. */
+  loading?: boolean;
 }
 
 export function useSort(initial: Sort | null = null): [Sort | null, (s: Sort | null) => void] {
@@ -52,7 +66,30 @@ export function sortRows<T>(rows: T[], columns: Col<T>[], sort: Sort | null): T[
 export const byString = <T,>(f: (r: T) => string) => (a: T, b: T) => f(a).localeCompare(f(b));
 export const byNumber = <T,>(f: (r: T) => number) => (a: T, b: T) => f(a) - f(b);
 
-export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, rowClass, sort, onSort, rowHeight = 22, testId, empty = 'nothing to show' }: DataTableProps<T>) {
+interface RowProps<T> {
+  row: T;
+  dataKey: string;
+  columns: Col<T>[];
+  cls: string;
+  height: number;
+  onSelect?: (row: T, via: SelectVia) => void;
+}
+
+function RowInner<T>({ row, dataKey, columns, cls, height, onSelect }: RowProps<T>) {
+  return (
+    <tr className={cls} style={{ height }} onClick={onSelect ? () => onSelect(row, 'click') : undefined} data-key={dataKey} aria-selected={cls.includes('selected') || undefined}>
+      {columns.map((c) => (
+        <td key={c.id} className={c.num ? 'num' : ''}>
+          {c.cell(row)}
+        </td>
+      ))}
+    </tr>
+  );
+}
+// A row re-renders only when its data, its classes or the column set change, not on every scroll.
+const Row = memo(RowInner) as typeof RowInner;
+
+export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActivate, onEscape, rowClass, sort, onSort, rowHeight = 22, testId, empty = 'nothing to show', loading }: DataTableProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const sorted = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
@@ -78,8 +115,54 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, rowCla
     window.addEventListener('mouseup', up);
   };
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!sorted.length) return;
+      const idx = selected == null ? -1 : sorted.findIndex((r) => rowKey(r) === selected);
+      const pageStep = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 400) / rowHeight) - 1);
+      let next: number | null = null;
+      switch (e.key) {
+        case 'ArrowDown':
+          next = Math.min(sorted.length - 1, idx + 1);
+          break;
+        case 'ArrowUp':
+          next = Math.max(0, idx < 0 ? 0 : idx - 1);
+          break;
+        case 'PageDown':
+          next = Math.min(sorted.length - 1, idx + pageStep);
+          break;
+        case 'PageUp':
+          next = Math.max(0, idx - pageStep);
+          break;
+        case 'Home':
+          next = 0;
+          break;
+        case 'End':
+          next = sorted.length - 1;
+          break;
+        case 'Enter':
+          if (idx >= 0) {
+            e.preventDefault();
+            (onActivate ?? ((r: T) => onSelect?.(r, 'key')))(sorted[idx]);
+          }
+          return;
+        case 'Escape':
+          onEscape?.();
+          return;
+        default:
+          return;
+      }
+      e.preventDefault();
+      if (next !== null && next !== idx) {
+        onSelect?.(sorted[next], 'key');
+        virt.scrollToIndex(next, { align: 'auto' });
+      }
+    },
+    [sorted, selected, rowKey, rowHeight, onSelect, onActivate, onEscape, virt],
+  );
+
   return (
-    <div className="tablewrap" ref={scrollRef} data-testid={testId}>
+    <div className="tablewrap" ref={scrollRef} data-testid={testId} tabIndex={0} onKeyDown={onKeyDown} role="grid" aria-rowcount={sorted.length} aria-busy={loading || undefined}>
       <table className="table grid" style={{ width: tableWidth }}>
         <colgroup>
           {columns.map((c) => (
@@ -107,10 +190,23 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, rowCla
           </tr>
         </thead>
         <tbody>
-          {sorted.length === 0 && (
+          {loading && sorted.length === 0 && (
             <tr>
-              <td colSpan={columns.length} className="t-muted" style={{ height: 32 }}>
-                {empty}
+              <td colSpan={columns.length} style={{ padding: 0 }}>
+                <div className="skeleton-rows" aria-hidden>
+                  {Array.from({ length: 14 }, (_, i) => (
+                    <div key={i} className="skeleton-row" style={{ height: rowHeight }}>
+                      <span className="skeleton" style={{ width: `${30 + ((i * 29) % 45)}%`, height: 10 }} />
+                    </div>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          )}
+          {!loading && sorted.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} style={{ padding: 0, whiteSpace: 'normal' }}>
+                {typeof empty === 'string' ? <div className="empty t-muted">{empty}</div> : empty}
               </td>
             </tr>
           )}
@@ -123,15 +219,7 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, rowCla
             const row = sorted[vi.index];
             const key = rowKey(row);
             const cls = [vi.index % 2 ? 'odd' : '', selected === key ? 'selected' : '', onSelect ? 'selectable' : '', rowClass?.(row) ?? ''].filter(Boolean).join(' ');
-            return (
-              <tr key={key} className={cls} style={{ height: rowHeight }} onClick={() => onSelect?.(row)} data-key={key}>
-                {columns.map((c) => (
-                  <td key={c.id} className={c.num ? 'num' : ''}>
-                    {c.cell(row)}
-                  </td>
-                ))}
-              </tr>
-            );
+            return <Row key={key} row={row} dataKey={key} columns={columns} cls={cls} height={rowHeight} onSelect={onSelect} />;
           })}
           {after > 0 && (
             <tr aria-hidden style={{ height: after }}>
@@ -140,6 +228,60 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, rowCla
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export type Density = 'compact' | 'comfortable';
+export const ROW_HEIGHT: Record<Density, number> = { compact: 22, comfortable: 28 };
+
+/** Which columns a table shows and how tall its rows are, remembered per table, with the menu
+ * that changes them. */
+export function useTableView<T>(name: string, all: Col<T>[]) {
+  const [hidden, setHidden] = usePref<string[]>(`cols-${name}`, []);
+  const [density, setDensity] = usePref<Density>('density', 'compact');
+  const columns = useMemo(() => all.filter((c) => !hidden.includes(c.id)), [all, hidden]);
+  const menu = <ViewMenu all={all} hidden={hidden} setHidden={setHidden} density={density} setDensity={setDensity} />;
+  return { columns, rowHeight: ROW_HEIGHT[density], menu };
+}
+
+function ViewMenu<T>({ all, hidden, setHidden, density, setDensity }: { all: Col<T>[]; hidden: string[]; setHidden: (h: string[]) => void; density: Density; setDensity: (d: Density) => void }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useOutsideClose<HTMLDivElement>(open, close);
+  return (
+    <div className="anchor" ref={ref}>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="menu" title="columns and row height">
+        View
+      </button>
+      {open && (
+        <div className="popup" role="menu" style={{ minWidth: 200 }}>
+          <div className="t-eyebrow">Rows</div>
+          <div className="chips" style={{ margin: '4px 0 8px' }}>
+            {(['compact', 'comfortable'] as Density[]).map((d) => (
+              <button key={d} type="button" className={`chip chip-sm outlined${density === d ? ' selected' : ''}`} onClick={() => setDensity(d)} aria-pressed={density === d}>
+                {d}
+              </button>
+            ))}
+          </div>
+          <div className="t-eyebrow">Columns</div>
+          <div className="stack" style={{ marginTop: 4, gap: 2 }}>
+            {all
+              .filter((c) => !c.fixed)
+              .map((c) => (
+                <label key={c.id} className="row menu-check">
+                  <input type="checkbox" checked={!hidden.includes(c.id)} onChange={(e) => setHidden(e.target.checked ? hidden.filter((h) => h !== c.id) : [...hidden, c.id])} />
+                  {c.header}
+                </label>
+              ))}
+          </div>
+          {hidden.length > 0 && (
+            <button type="button" className="menu-item t-small" onClick={() => setHidden([])} style={{ marginTop: 6 }}>
+              Show all columns
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

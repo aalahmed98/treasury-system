@@ -162,7 +162,7 @@ export interface Series {
 }
 
 /** Lines over a numeric x axis with three gridlines, a crosshair and a tooltip. */
-export function LineChart({ series, height = 150, yFmt, xFmt }: { series: Series[]; height?: number; yFmt: Fmt; xFmt: (x: number) => string }) {
+export function LineChart({ series, height = 150, yFmt, xFmt, refY, markX, markLabel }: { series: Series[]; height?: number; yFmt: Fmt; xFmt: (x: number) => string; /** A reference level, e.g. zero, drawn when it is inside the range. */ refY?: number; /** A marked x position, e.g. today. */ markX?: number; markLabel?: string }) {
   const [ref, width] = useMeasure<HTMLDivElement>();
   const [hover, setHover] = useState<{ x: number; px: number; tipX: number; tipY: number } | null>(null);
   const pts = series.flatMap((s) => s.points);
@@ -175,8 +175,13 @@ export function LineChart({ series, height = 150, yFmt, xFmt }: { series: Series
   const ys = pts.map((p) => p[1]);
   const x0 = Math.min(...xs);
   const x1 = Math.max(...xs);
-  let y0 = Math.min(...ys);
-  let y1 = Math.max(...ys);
+  const dataLo = Math.min(...ys);
+  const dataHi = Math.max(...ys);
+  // The reference level joins the scale only when it is near the data; a zero line under a
+  // balance of 1.4bn would flatten the line into a ruler.
+  const showRef = refY !== undefined && refY >= dataLo - (dataHi - dataLo) * 1.5 - 1e-9 && refY <= dataHi + (dataHi - dataLo) * 1.5 + 1e-9;
+  let y0 = Math.min(...ys, showRef ? refY! : Infinity);
+  let y1 = Math.max(...ys, showRef ? refY! : -Infinity);
   if (y1 - y0 < 1e-9) {
     y0 -= 1;
     y1 += 1;
@@ -243,6 +248,17 @@ export function LineChart({ series, height = 150, yFmt, xFmt }: { series: Series
               {xFmt(t)}
             </text>
           ))}
+          {showRef && <line className="ref" x1={left} x2={width - right} y1={yOf(refY)} y2={yOf(refY)} />}
+          {markX !== undefined && (
+            <g>
+              <line className="mark" x1={xOf(markX)} x2={xOf(markX)} y1={top} y2={height - bottom} />
+              {markLabel && (
+                <text x={xOf(markX) + 4} y={top + 10} className="mark-label">
+                  {markLabel}
+                </text>
+              )}
+            </g>
+          )}
           {series.map((s, i) => (
             <polyline key={s.name} fill="none" stroke={colors[i]} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" points={s.points.map((p) => `${xOf(p[0])},${yOf(p[1])}`).join(' ')} />
           ))}

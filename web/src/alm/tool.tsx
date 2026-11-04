@@ -1,24 +1,81 @@
-// Pieces every ALM tool shares: the two-panel layout, the assumptions header with the what-if
-// state, numeric inputs, the headline with its standing, key-value rows, tables and scenario chips.
-import type { ReactNode } from 'react';
-import type { CompareTo, RateScenario } from '../api/types';
+// Pieces every ALM tool shares: the two-panel layout with a rail that closes, the assumptions
+// header with the what-if state and the list of what changed, numeric inputs, the headline with
+// its standing, key-value rows, tables and scenario chips.
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import type { AlmParams, CompareTo, RateScenario } from '../api/types';
 import { SCENARIO_LABEL, standingLabel, standingTone, type Standing } from '../lib/alm';
-import { Badge, Chip } from '../components/ui';
+import { nice } from '../lib/fmt';
+import { usePref } from '../lib/prefs';
+import { Badge, Chip, useOutsideClose } from '../components/ui';
 import { useAlm } from './state';
 
 export const BASEL: RateScenario[] = ['PARALLEL_UP', 'PARALLEL_DOWN', 'STEEPENER', 'FLATTENER', 'SHORT_UP', 'SHORT_DOWN'];
 
+interface Rail {
+  open: boolean;
+  toggle: () => void;
+}
+const RailCtx = createContext<Rail>({ open: true, toggle: () => {} });
+
 export function ToolLayout({ assumptions, children, ready }: { assumptions: ReactNode; children: ReactNode; ready?: boolean }) {
+  const [open, setOpen] = usePref<boolean>('alm-assumptions', true);
+  const rail = useMemo<Rail>(() => ({ open, toggle: () => setOpen((o) => !o) }), [open, setOpen]);
   return (
-    <div className="alm-layout" data-ready={ready ? '1' : undefined}>
-      <aside className="assumptions">{assumptions}</aside>
-      <section className="alm-results">{children}</section>
-    </div>
+    <RailCtx.Provider value={rail}>
+      <div className={`alm-layout${open ? '' : ' single'}`} data-ready={ready ? '1' : undefined}>
+        {open && <aside className="assumptions">{assumptions}</aside>}
+        <section className="alm-results">{children}</section>
+      </div>
+    </RailCtx.Provider>
   );
 }
 
+type Leaf = string | number | boolean | null;
+interface Change {
+  path: string[];
+  bank: Leaf;
+  now: Leaf;
+}
+
+function leaves(v: unknown, path: string[], out: Map<string, { path: string[]; value: Leaf }>) {
+  if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) leaves(x, [...path, k], out);
+  } else {
+    const value: Leaf = Array.isArray(v) ? JSON.stringify(v) : (v as Leaf);
+    out.set(path.join('\u0000'), { path, value });
+  }
+}
+
+/** Every leaf where the what-if differs from the bank's set. */
+export function diffParams(bank: AlmParams, working: AlmParams): Change[] {
+  const a = new Map<string, { path: string[]; value: Leaf }>();
+  const b = new Map<string, { path: string[]; value: Leaf }>();
+  leaves(bank, [], a);
+  leaves(working, [], b);
+  const out: Change[] = [];
+  for (const [k, w] of b) {
+    const base = a.get(k);
+    if (!base || base.value !== w.value) out.push({ path: w.path, bank: base?.value ?? null, now: w.value });
+  }
+  return out;
+}
+
+function setPath(obj: unknown, path: string[], value: Leaf) {
+  let cur = obj as Record<string, unknown>;
+  for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
+  const last = path[path.length - 1];
+  cur[last] = typeof value === 'string' && value.startsWith('[') ? JSON.parse(value) : value;
+}
+
+const fmtLeaf = (v: Leaf) => (v === null ? '—' : typeof v === 'number' ? String(Number(v.toFixed(4))) : String(v));
+
 export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string }) {
-  const { overrides, reset, bankVersion, bankChanged } = useAlm();
+  const { overrides, reset, bankVersion, bankChanged, bank, working, edit } = useAlm();
+  const { toggle } = useContext(RailCtx);
+  const changes = useMemo(() => (bank && working && overrides ? diffParams(bank, working) : []), [bank, working, overrides]);
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useOutsideClose<HTMLDivElement>(open, close);
   return (
     <>
       <div className="row" style={{ marginBottom: 4 }}>
@@ -26,9 +83,32 @@ export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string })
         <span style={{ flex: 1 }} />
         {overrides ? (
           <>
-            <Badge tone="warn" title="unsaved edits; Setup saves a version">
-              what-if
-            </Badge>
+            <div className="anchor" ref={ref}>
+              <button type="button" className="chip chip-sm" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }} onClick={() => setOpen((o) => !o)} aria-expanded={open} title="unsaved edits; Setup saves a version">
+                what-if · {changes.length} {changes.length === 1 ? 'change' : 'changes'}
+              </button>
+              {open && (
+                <div className="popup" role="dialog" aria-label="What changed" style={{ left: 0, right: 'auto', minWidth: 320 }}>
+                  <div className="t-eyebrow" style={{ marginBottom: 6 }}>
+                    Against bank v{bankVersion}
+                  </div>
+                  <div className="changes">
+                    {changes.map((c) => (
+                      <div key={c.path.join('.')} className="change">
+                        <span className="t-secondary">{c.path.map(nice).join(' › ')}</span>
+                        <span className="num">
+                          <span className="t-muted">{fmtLeaf(c.bank)}</span> → <span className="t-medium">{fmtLeaf(c.now)}</span>
+                        </span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => edit((p) => setPath(p, c.path, c.bank))} title="back to the bank's value">
+                          revert
+                        </button>
+                      </div>
+                    ))}
+                    {changes.length === 0 && <div className="t-muted">nothing differs from the bank's set</div>}
+                  </div>
+                </div>
+              )}
+            </div>
             <button type="button" className="btn btn-sm" onClick={reset} title="back to the bank's saved parameters">
               Reset
             </button>
@@ -36,6 +116,9 @@ export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string })
         ) : (
           <Badge title="the bank's active parameter set">bank v{bankVersion ?? '…'}</Badge>
         )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={toggle} aria-label="hide assumptions" title="hide the assumptions; results take the full width">
+          ✕
+        </button>
       </div>
       {bankChanged && <div className="notice warn">the bank's parameters changed while you were editing; reset to pick them up</div>}
     </>
@@ -184,9 +267,17 @@ export function ComparePicker() {
 }
 
 export function ResultsHeader({ title, loading, error }: { title: string; loading: boolean; error?: string | null }) {
+  const { open, toggle } = useContext(RailCtx);
+  const { overrides } = useAlm();
   return (
     <div className="row" style={{ marginBottom: 6 }}>
+      {!open && (
+        <button type="button" className="btn btn-sm noprint" onClick={toggle} title="show the assumptions">
+          Assumptions
+        </button>
+      )}
       <h1 className="t-title">{title}</h1>
+      {!open && overrides && <Badge tone="warn">what-if</Badge>}
       {loading && <span className="t-small">computing…</span>}
       {error && <span className="t-bad">{error}</span>}
       <span style={{ flex: 1 }} />

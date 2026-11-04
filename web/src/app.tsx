@@ -1,16 +1,21 @@
+import { lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { queryClient } from './api/queries';
 import { SessionProvider, useSession } from './api/session';
 import { LiveProvider } from './api/live';
-import { Shell } from './components/shell';
+import { Shell, PageSkeleton } from './components/shell';
+import { ToastProvider } from './components/feedback';
+import { PaletteProvider } from './components/palette';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
-import { Blotter } from './pages/Blotter';
-import { Breaks } from './pages/Breaks';
-import { Ladder } from './pages/Ladder';
-import { Alm } from './pages/alm/Alm';
 import { AlmProvider } from './alm/state';
+import { load } from './pages/routes';
+
+const Blotter = lazy(() => load.blotter().then((m) => ({ default: m.Blotter })));
+const Breaks = lazy(() => load.breaks().then((m) => ({ default: m.Breaks })));
+const Ladder = lazy(() => load.liquidity().then((m) => ({ default: m.Ladder })));
+const Alm = lazy(() => load.alm().then((m) => ({ default: m.Alm })));
 
 function Gate() {
   const { current, canSeeAlm } = useSession();
@@ -18,27 +23,33 @@ function Gate() {
   return (
     <LiveProvider>
       <BrowserRouter basename="/app">
-        <Shell>
-          <Routes>
-            <Route index element={<Overview />} />
-            <Route path="blotter" element={<Blotter />} />
-            <Route path="breaks" element={<Breaks />} />
-            <Route path="liquidity" element={<Ladder />} />
-            <Route
-              path="alm/:tool?"
-              element={
-                canSeeAlm ? (
-                  <AlmProvider>
-                    <Alm />
-                  </AlmProvider>
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Shell>
+        <ToastProvider>
+          <PaletteProvider>
+            <Shell>
+              <Suspense fallback={<PageSkeleton />}>
+                <Routes>
+                  <Route index element={<Overview />} />
+                  <Route path="blotter" element={<Blotter />} />
+                  <Route path="breaks" element={<Breaks />} />
+                  <Route path="liquidity" element={<Ladder />} />
+                  <Route
+                    path="alm/:tool?"
+                    element={
+                      canSeeAlm ? (
+                        <AlmProvider>
+                          <Alm />
+                        </AlmProvider>
+                      ) : (
+                        <Navigate to="/" replace />
+                      )
+                    }
+                  />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
+            </Shell>
+          </PaletteProvider>
+        </ToastProvider>
       </BrowserRouter>
     </LiveProvider>
   );
