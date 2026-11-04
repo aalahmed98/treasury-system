@@ -103,9 +103,9 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <p class="lede">A reconciliation-first golden record for treasury deals, built as a native desktop application over Postgres. This page lists every phase, what each one delivers, what has shipped, what can start today, and what is waiting on an answer from the bank.</p>
   <div class="meta">
     <span>Status as of <b>4 November 2026</b></span>
-    <span>Repository branch <b>main</b>, commit <b>574eef3</b></span>
-    <span>Tests passing <b>58</b></span>
-    <span>Phases complete <b>4 of 9</b></span>
+    <span>Repository branch <b>main</b></span>
+    <span>Tests passing <b>62</b></span>
+    <span>Phases complete <b>5 of 9</b></span>
   </div>
 </header>
 
@@ -114,27 +114,24 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p1" class="is-done"><span class="num">Phase 1</span><span class="name">Foundation</span><span class="badge done">Done</span></a>
   <a href="#p1h" class="is-done"><span class="num">Phase 1H</span><span class="name">Security hardening</span><span class="badge done">Done</span></a>
   <a href="#p2a" class="is-done"><span class="num">Phase 2A</span><span class="name">Reconciliation core</span><span class="badge done">Done</span></a>
-  <a href="#p2b" class="is-partial"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge partial">In progress</span></a>
+  <a href="#p2b" class="is-done"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>4</b> phases done</span>
-  <span><b>1</b> in progress</span>
+  <span><b>5</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
 
 <h2 id="summary">What is blocked and what is not</h2>
-<p class="lede" style="margin-top:10px">Nothing on the blocked list stops the next phase. Each item blocks one specific decision or integration, and the system has been built so that those pieces plug in later behind interfaces that already exist.</p>
+<p class="lede" style="margin-top:10px">Everything that could be built without the bank has been built. What remains on the ready list is engineering hygiene; everything that needs the bank is listed with its blocker and owner, and the system has been built so those pieces plug in later behind interfaces that already exist.</p>
 <div class="ledger">
   <div>
     <h3><span class="badge ready">Not blocked</span> Can start today</h3>
     <ul>
-      <li>Phase 2B: intraday liquidity ladder, booking ticket, deal history view<small>All derived from the golden record that already exists.</small></li>
-      <li>Synthetic nostro intraday statements for the ladder<small>Same approach as the synthetic Kondor, Bloomberg and Quantum feeds.</small></li>
       <li>Login against a local Keycloak to prove the OIDC shape<small>The real directory is swapped in once the bank confirms Active Directory or Entra.</small></li>
       <li>Continuous integration: tests and dependency audit on every push<small>58 tests and <code>cargo audit</code> already run locally.</small></li>
       <li>Packaging the server and reconciler as services, log files for the client, settlement-date SLAs, allocations, a shared store for the login limiter<small>Engineering backlog with no external dependency.</small></li>
@@ -237,8 +234,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <p class="evidence">Known limitation: a user action on a break raised by an SLA tick cannot be replayed by a rebuild, because the break returns with a new id. The rebuild reports how many such actions were skipped.</p>
 </section>
 
-<section class="phase is-partial" id="p2b">
-  <div class="phase-head"><span class="num">Phase 2B</span><h3>Liquidity ladder, booking ticket, history</h3><span class="badge partial">In progress</span><span class="when">Started 4 November 2026</span></div>
+<section class="phase is-done" id="p2b">
+  <div class="phase-head"><span class="num">Phase 2B</span><h3>Liquidity ladder, booking ticket, history</h3><span class="badge done">Done</span><span class="when">4 November 2026</span></div>
   <p class="goal">The trader's view the system exists for, plus the two pieces of desk workflow the foundation left out.</p>
   <div class="tablewrap"><table>
     <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
@@ -254,6 +251,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <li>4 Nov: milestone 1 done. Migration 0003 adds the expected-cash-flow view (FX legs on value date; money-market principal at start and principal plus interest at maturity), nostro accounts, statements and movements visible to ALM and HEAD users only, amendments restricted to internal bookings, and desk-scoped history access. Endpoints: ladder with confirmed and provisional splits and nostro actuals, flow and movement drill-downs, amend, cancel, history with per-version field changes. Four new HTTP tests pass.</li>
     <li>4 Nov: milestone 2 done. Synthetic nostro statements: an intraday and an end-of-day statement per account per business day, movements that follow the expected flows of booked deals with a small share missing or adjusted by fees, plus customer and fee movements treasury never booked. Generated for the replayed window as part of the synthetic feed and on demand with <code>treasury-recon nostro</code>. The ladder shows actuals and the difference against expected per value date for ALM and HEAD users; desk traders see expected flows only.</li>
     <li>4 Nov: milestone 3 done. Client: a Liquidity ladder tab (currency chips, opening balance from the latest statement, confirmed and provisional columns, signed net bars, cumulative balance, nostro actuals and differences for entitled users, drill-down into the flows and movements behind a date), a Book deal ticket that validates before sending, an Amend and Cancel panel on internal bookings the user may book on, and a History tab listing every version with the fields that changed and who changed them. Runs under WSLg; Windows build in progress.</li>
+    <li>4 Nov: milestone 4 done, phase complete. 62 tests pass across the workspace (4 new: ladder maths and desk scoping, nostro actuals visible to ALM and HEAD only, amendments following booking rights and trigger rules, history with field changes). The end-to-end script from a clean database now also checks the ladder scoping, an amendment, the history, and that a rebuild still reproduces the projection. Windows executable rebuilt. README and this page updated.</li>
   </ul></div></div>
 </section>
 
