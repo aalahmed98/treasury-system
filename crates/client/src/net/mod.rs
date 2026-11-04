@@ -9,7 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::{AlmParamsResponse, AlmRequest, AlmSnapshot, AmendDeal, BreakView, CashFlow, Deal, FeedsResponse, HistoryEntry, LadderResponse, LcrResult, LoginResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
+use domain::{ActivityRow, AlmOverview, AlmParamsResponse, AlmParamsVersion, AlmRequest, AlmSnapshot, AmendDeal, AttentionItem, BreakView, CashFlow, Deal, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, SaveParamsRequest};
+use crate::alm_state::{AlmPayload, AlmTool};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -42,7 +43,12 @@ pub enum Command {
     /// ALM requests carry a request id; the reply echoes it so late replies are dropped.
     FetchAlmParams { req: u64 },
     FetchAlmSnapshots { req: u64 },
-    AlmLcr { req: u64, body: Box<AlmRequest> },
+    AlmRun { req: u64, tool: AlmTool, body: Box<AlmRequest> },
+    FetchAlmOverview { req: u64 },
+    SaveAlmParams { req: u64, body: Box<SaveParamsRequest> },
+    FetchRates { req: u64 },
+    FetchActivity { req: u64, limit: i64 },
+    FetchAttention { req: u64 },
     /// The server announced a new parameter version or snapshot.
     AlmChanged,
 }
@@ -72,9 +78,19 @@ impl fmt::Debug for Command {
             Command::FetchHistory(id) => f.debug_tuple("FetchHistory").field(id).finish(),
             Command::FetchAlmParams { req } => f.debug_struct("FetchAlmParams").field("req", req).finish(),
             Command::FetchAlmSnapshots { req } => f.debug_struct("FetchAlmSnapshots").field("req", req).finish(),
-            Command::AlmLcr { req, body } => {
-                f.debug_struct("AlmLcr").field("req", req).field("as_of", &body.as_of).field("what_if", &body.params.is_some()).finish()
-            }
+            Command::AlmRun { req, tool, body } => f
+                .debug_struct("AlmRun")
+                .field("req", req)
+                .field("tool", tool)
+                .field("as_of", &body.as_of)
+                .field("what_if", &body.params.is_some())
+                .field("scenario", &body.scenario)
+                .finish(),
+            Command::FetchAlmOverview { req } => f.debug_struct("FetchAlmOverview").field("req", req).finish(),
+            Command::SaveAlmParams { req, body } => f.debug_struct("SaveAlmParams").field("req", req).field("note", &body.note).finish(),
+            Command::FetchRates { req } => f.debug_struct("FetchRates").field("req", req).finish(),
+            Command::FetchActivity { req, limit } => f.debug_struct("FetchActivity").field("req", req).field("limit", limit).finish(),
+            Command::FetchAttention { req } => f.debug_struct("FetchAttention").field("req", req).finish(),
             Command::AlmChanged => f.write_str("AlmChanged"),
         }
     }
@@ -106,7 +122,12 @@ pub enum NetEvent {
     History(Uuid, Vec<HistoryEntry>),
     AlmParams { req: u64, result: Result<AlmParamsResponse, String> },
     AlmSnapshots { req: u64, result: Result<Vec<AlmSnapshot>, String> },
-    AlmLcr { req: u64, result: Result<LcrResult, String> },
+    AlmResult { req: u64, tool: AlmTool, result: Result<AlmPayload, String> },
+    AlmOverview { req: u64, result: Result<AlmOverview, String> },
+    AlmSaved { req: u64, result: Result<AlmParamsVersion, String> },
+    Rates { req: u64, result: Result<MarketResponse, String> },
+    Activity { req: u64, result: Result<Vec<ActivityRow>, String> },
+    Attention { req: u64, result: Result<Vec<AttentionItem>, String> },
     AlmChanged,
 }
 
@@ -420,13 +441,82 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                     });
                 }
             }
-            Command::AlmLcr { req, body } => {
+            Command::AlmRun { req, tool, body } => {
                 if let Some(s) = &session {
                     let (api, emit) = (s.api.clone(), emit.clone());
                     tokio::spawn(async move {
-                        match api.alm_lcr(&body).await {
-                            Err(e) if is_unauthorized(&e) => emit.fail("lcr", e),
-                            r => emit.send(NetEvent::AlmLcr { req, result: r.map_err(|e| e.to_string()) }),
+                        let result: anyhow::Result<AlmPayload> = match tool {
+                            AlmTool::Lcr => api.alm_tool("lcr", &body).await.map(AlmPayload::Lcr),
+                            AlmTool::Nsfr => api.alm_tool("nsfr", &body).await.map(AlmPayload::Nsfr),
+                            AlmTool::Gap => api.alm_tool("gap", &body).await.map(AlmPayload::Gap),
+                            AlmTool::Nii => api.alm_tool("nii", &body).await.map(AlmPayload::Nii),
+                            AlmTool::Stress => api.alm_tool("stress", &body).await.map(AlmPayload::Stress),
+                            AlmTool::Attribution => api.alm_tool("attribution", &body).await.map(AlmPayload::Attribution),
+                            AlmTool::Funding => api.alm_tool("funding", &body).await.map(AlmPayload::Funding),
+                            AlmTool::Dashboard | AlmTool::Ird | AlmTool::Setup => Err(anyhow::anyhow!("nothing to compute on the server")),
+                        };
+                        match result {
+                            Err(e) if is_unauthorized(&e) => emit.fail("alm", e),
+                            r => emit.send(NetEvent::AlmResult { req, tool, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::FetchAlmOverview { req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.alm_overview().await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("alm overview", e),
+                            r => emit.send(NetEvent::AlmOverview { req, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::SaveAlmParams { req, body } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.alm_save_params(&body).await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("save parameters", e),
+                            Ok(v) => {
+                                emit.send(NetEvent::Notice(format!("ALM parameters saved as version {}", v.version)));
+                                emit.send(NetEvent::AlmSaved { req, result: Ok(v) });
+                            }
+                            Err(e) => emit.send(NetEvent::AlmSaved { req, result: Err(e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::FetchRates { req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.market_rates().await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("market rates", e),
+                            r => emit.send(NetEvent::Rates { req, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::FetchActivity { req, limit } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.activity(limit).await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("activity", e),
+                            r => emit.send(NetEvent::Activity { req, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::FetchAttention { req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.attention().await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("attention", e),
+                            r => emit.send(NetEvent::Attention { req, result: r.map_err(|e| e.to_string()) }),
                         }
                     });
                 }

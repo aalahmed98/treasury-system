@@ -502,6 +502,12 @@ text_enum! {
     }
 }
 
+impl Default for RateScenario {
+    fn default() -> Self {
+        RateScenario::Base
+    }
+}
+
 impl RateScenario {
     pub const BASEL: [RateScenario; 6] = [
         RateScenario::ParallelUp,

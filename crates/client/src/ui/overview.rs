@@ -7,7 +7,10 @@ use domain::{BreakKind, BreakStatus, DealStatus, MatchStatus};
 use egui::{Align, Layout, RichText, ScrollArea};
 use rust_decimal::prelude::ToPrimitive;
 
+use crate::alm_state::{AlmTool, Standing};
 use crate::app::{App, Tab, Target};
+use crate::ui::alm::common::standing_color;
+use crate::ui::fmt::fmt_pct;
 use crate::attention::reference_now;
 use crate::state::match_label;
 use crate::ui::charts;
@@ -48,8 +51,26 @@ pub struct ActivityRow {
     pub kind: String,
     pub tone: Tone,
     pub text: String,
-    pub target: Target,
+    pub target: Option<Target>,
     pub at: DateTime<Utc>,
+}
+
+impl ActivityRow {
+    /// A server activity row, formatted.
+    pub fn from_server(a: &domain::ActivityRow) -> Self {
+        let tone = match a.kind.as_str() {
+            "cancelled" => Tone::Negative,
+            k if k.starts_with("break ") && !k.contains("resolved") && !k.contains("ack") => Tone::Negative,
+            "booked" | "parameters" => Tone::Positive,
+            _ => Tone::Neutral,
+        };
+        let target = match (a.break_id, a.deal_id) {
+            (Some(b), _) => Some(Target::Break(b)),
+            (None, Some(d)) => Some(Target::Deal(d)),
+            _ => None,
+        };
+        Self { when: fmt_time(a.at), kind: a.kind.clone(), tone, text: format!("{} · {} · {}", a.summary, a.actor, a.desk_code), target, at: a.at }
+    }
 }
 
 #[derive(Default)]
@@ -176,7 +197,7 @@ pub fn build(app: &App) -> OverviewView {
                 _ => Tone::Neutral,
             },
             text: format!("{} {} {} {} · {}", d.deal_ref, r.product, r.pair, r.notional, match_label(d.match_status)),
-            target: Target::Deal(d.id),
+            target: Some(Target::Deal(d.id)),
             at: d.updated_at,
         });
     }
@@ -187,7 +208,7 @@ pub fn build(app: &App) -> OverviewView {
             kind: format!("break {}", v.status.as_str().to_lowercase()),
             tone: if v.status == BreakStatus::Resolved { Tone::Positive } else { Tone::Negative },
             text: format!("#{} {} {}{}", v.id, b.kind, b.deal_ref, if b.field.is_empty() { String::new() } else { format!(" · {}", b.field) }),
-            target: Target::Break(v.id),
+            target: Some(Target::Break(v.id)),
             at: v.updated_at,
         });
     }
@@ -248,6 +269,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
         ui.add_space(10.0);
 
+        if app.can_see_alm() {
+            if let Some(t) = alm_block(app, ui, &p) {
+                nav = Some(t);
+            }
+            ui.add_space(10.0);
+        }
+
         wrap_row(ui, |ui| {
             card(ui, &p, "Open breaks by kind", 300.0, |ui| charts::bars(ui, &app.overview.breaks_by_kind, p.series[1], 150.0, |v| format!("{v:.0}")));
             card(ui, &p, "Match status", 300.0, |ui| charts::bars(ui, &app.overview.match_counts, p.series[0], 150.0, |v| format!("{v:.0}")));
@@ -262,10 +290,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
         wrap_row(ui, |ui| {
             card(ui, &p, "Recent activity", 520.0, |ui| {
-                if app.overview.activity.is_empty() {
+                let rows: &[ActivityRow] = match &app.activity.view {
+                    Some(server) if !server.is_empty() => server,
+                    _ => &app.overview.activity,
+                };
+                if rows.is_empty() {
                     ui.label(RichText::new("nothing yet").color(p.muted));
                 }
-                for a in &app.overview.activity {
+                for a in rows {
                     let row = ui
                         .horizontal(|ui| {
                             ui.label(RichText::new(&a.when).color(p.muted).monospace().small());
@@ -275,7 +307,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         .response
                         .interact(egui::Sense::click());
                     if row.clicked() {
-                        nav = Some(a.target.clone());
+                        nav = a.target.clone();
                     }
                 }
             });
@@ -313,4 +345,78 @@ fn tile(ui: &mut egui::Ui, p: &Palette, t: &Tile) -> egui::Response {
         })
         .response;
     if t.target.is_some() { resp.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
+}
+
+
+/// The ALM tiles, limits and charts from the server's overview block. Returns a navigation when
+/// a tile is clicked. Shared by the Overview tab and the ALM dashboard.
+pub fn alm_block(app: &App, ui: &mut egui::Ui, p: &Palette) -> Option<Target> {
+    let mut nav = None;
+    let slot = &app.alm.overview;
+    let Some(v) = &slot.result.view else {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("ALM").color(p.muted).small().strong());
+            if slot.result.loading {
+                ui.spinner();
+            }
+            match &slot.result.error {
+                Some(e) => {
+                    ui.colored_label(p.warning, e);
+                }
+                None => {
+                    ui.label(RichText::new("loading the balance-sheet view…").color(p.muted).small());
+                }
+            }
+        });
+        return nav;
+    };
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Balance sheet").color(p.muted).small().strong());
+        ui.label(RichText::new(format!("as of {} · parameters v{} · in {}", v.raw.as_of.format("%d %b %Y"), v.raw.params_version, v.raw.reporting_ccy)).color(p.muted).small());
+    });
+    let tools = [AlmTool::Lcr, AlmTool::Nsfr, AlmTool::Nii, AlmTool::Attribution, AlmTool::Attribution, AlmTool::Gap, AlmTool::Stress, AlmTool::Funding];
+    wrap_row(ui, |ui| {
+        for (i, (title, value, sub, standing)) in v.tiles.iter().enumerate() {
+            let resp = ui
+                .allocate_ui_with_layout(egui::vec2(214.0, 10.0), Layout::top_down(Align::Min), |ui| {
+                    frame(p).show(ui, |ui| {
+                        ui.set_min_width(190.0);
+                        ui.label(RichText::new(title).color(p.muted).small());
+                        ui.label(RichText::new(value).size(24.0).strong().color(standing_color(p, *standing)));
+                        ui.label(RichText::new(sub).color(p.muted).small());
+                    });
+                })
+                .response
+                .interact(egui::Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked() {
+                nav = Some(Target::AlmTool(tools[i.min(tools.len() - 1)]));
+            }
+        }
+    });
+    ui.add_space(8.0);
+    wrap_row(ui, |ui| {
+        card(ui, p, "Limits", 440.0, |ui| {
+            egui::Grid::new("ov_limits").num_columns(5).spacing([10.0, 4.0]).striped(true).show(ui, |ui| {
+                for l in &v.limit_rows {
+                    let st = if l.breach { Standing::Breach } else if l.warn { Standing::Watch } else { Standing::Comfortable };
+                    ui.colored_label(standing_color(p, st), "●");
+                    ui.label(RichText::new(&l.metric).small());
+                    ui.monospace(RichText::new(&l.value).small());
+                    ui.label(RichText::new(&l.limit).color(p.muted).small());
+                    charts::limit_gauge(ui, l.gauge_value, l.gauge_limit, l.gauge_trigger, l.gauge_max, l.floor, p, 90.0);
+                    ui.end_row();
+                }
+            });
+        });
+        card(ui, p, "LCR, last 30 snapshots", 380.0, |ui| {
+            let labels = v.lcr_trend_labels.clone();
+            charts::lines(ui, "ov_lcr_trend", &[("LCR".to_string(), v.lcr_trend.clone())], 150.0, |y| fmt_pct(y, 0), move |x| {
+                labels.get(x.round() as usize).cloned().unwrap_or_default()
+            });
+        });
+        card(ui, p, "NII by month, actual against budget", 420.0, |ui| charts::bars_pair(ui, &v.nii_months, ("actual", "budget"), p, 150.0, fmt_money_short));
+        card(ui, p, "Repricing gap by bucket", 380.0, |ui| charts::bars(ui, &v.gap_bars, p.series[2], 150.0, fmt_money_short));
+    });
+    nav
 }

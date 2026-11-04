@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 domain.workspace = true
+alm.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true

@@ -6,7 +6,9 @@ use domain::{CashFlow, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, 
 use uuid::Uuid;
 
 use crate::ServerTarget;
-use crate::alm_state::{AlmState, AlmTool, LcrView};
+use crate::alm_state::{AlmState, AlmTool, OverviewAlmView};
+use crate::state::Fetched;
+use crate::ui::overview::ActivityRow;
 use crate::net::{self, Command, NetEvent, NetHandle, StreamState};
 use crate::state::{BreakStore, DealStore};
 use crate::ui;
@@ -49,8 +51,7 @@ pub enum Target {
     Break(i64),
     /// The blotter filtered to provisional deals.
     Provisional,
-#[allow(dead_code)]
-    Ladder(Option<String>),
+    AlmTool(AlmTool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,6 +118,12 @@ pub struct App {
     attention_key: Option<AttentionKey>,
     pub overview: OverviewView,
     overview_key: Option<OverviewKey>,
+    /// The server's attention list and activity feed; the local versions fill in until they arrive.
+    pub attention_server: Fetched<Vec<domain::AttentionItem>>,
+    last_attention: Instant,
+    pub activity: Fetched<Vec<ActivityRow>>,
+    last_activity: Instant,
+    last_alm_overview: Instant,
 
     // view state
     pub desk_filter: Option<i16>,
@@ -195,6 +202,11 @@ impl App {
             attention_key: None,
             overview: OverviewView::default(),
             overview_key: None,
+            attention_server: Fetched::default(),
+            last_attention: Instant::now() - Duration::from_secs(60),
+            activity: Fetched::default(),
+            last_activity: Instant::now() - Duration::from_secs(60),
+            last_alm_overview: Instant::now() - Duration::from_secs(60),
             desk_filter: None,
             search: String::new(),
             only_breaks: false,
@@ -253,6 +265,13 @@ impl App {
                 }
                 if let Some(t) = tab {
                     self.open_tab(t);
+                }
+                if let Some(tool) = std::env::var("TREASURY_SNAPSHOT_TOOL").ok().and_then(|t| AlmTool::from_name(&t)) {
+                    self.open_alm_tool(tool);
+                    if tool == AlmTool::Setup && std::env::var("TREASURY_SNAPSHOT_DRAFT").is_ok() {
+                        self.alm.setup.draft = Some(domain::AlmParams::default());
+                        self.alm.setup.note = "snapshot draft".into();
+                    }
                 }
                 ctx.request_repaint_after(after);
             }
@@ -318,14 +337,15 @@ impl App {
 
     /// Recompute the open ALM tool once its inputs settled; replies are matched by request id.
     fn alm_tick(&mut self) {
-        if self.screen != Screen::Main || self.tab != Tab::Alm || self.alm.bank.is_none() || !self.alm.take_due() {
+        if self.screen != Screen::Main || self.tab != Tab::Alm || self.alm.bank.is_none() {
             return;
         }
-        if self.alm.tool == AlmTool::Lcr {
+        let tool = self.alm.tool;
+        if tool.computed() && self.alm.due() {
             let body = Box::new(self.alm.request());
             let r = self.issue();
-            self.alm.lcr.begin(r);
-            self.net.send(Command::AlmLcr { req: r, body });
+            self.alm.begin(tool, r);
+            self.net.send(Command::AlmRun { req: r, tool, body });
         }
     }
 
@@ -344,13 +364,30 @@ impl App {
                 self.only_provisional = true;
                 self.open_tab(Tab::Blotter);
             }
-            Target::Ladder(ccy) => {
-                if let Some(c) = ccy {
-                    self.select_ladder_ccy(c);
-                }
-                self.open_tab(Tab::Ladder);
+            Target::AlmTool(tool) => {
+                self.open_tab(Tab::Alm);
+                self.open_alm_tool(tool);
             }
         }
+    }
+
+    pub fn open_alm_tool(&mut self, tool: AlmTool) {
+        self.alm.tool = tool;
+        if tool == AlmTool::Ird && self.alm.ird.rates.req == 0 {
+            let r = self.issue();
+            self.alm.ird.rates.begin(r);
+            self.net.send(Command::FetchRates { req: r });
+        }
+        if tool == AlmTool::Dashboard {
+            self.last_alm_overview = Instant::now() - Duration::from_secs(60);
+        }
+    }
+
+    fn fetch_alm_overview(&mut self) {
+        let r = self.issue();
+        self.alm.overview.result.begin(r);
+        self.net.send(Command::FetchAlmOverview { req: r });
+        self.last_alm_overview = Instant::now();
     }
 
     pub fn open_detail_tab(&mut self, tab: DetailTab) {
@@ -453,6 +490,8 @@ impl App {
         self.attention_key = None;
         self.overview = OverviewView::default();
         self.overview_key = None;
+        self.attention_server = Fetched::default();
+        self.activity = Fetched::default();
         self.selected = None;
         self.selected_break = None;
         self.desk_filter = None;
@@ -491,6 +530,9 @@ impl App {
                     self.last_input = Instant::now();
                     self.last_heartbeat = Instant::now();
                     self.last_feeds = Instant::now();
+                    self.last_attention = Instant::now() - Duration::from_secs(60);
+                    self.last_activity = Instant::now() - Duration::from_secs(60);
+                    self.last_alm_overview = Instant::now() - Duration::from_secs(60);
                 }
                 NetEvent::LoginFailed(msg) => {
                     self.logging_in = false;
@@ -506,6 +548,7 @@ impl App {
                     self.store.upsert(deal);
                     self.last_event = Some(Utc::now());
                     self.ladder_dirty = true;
+                    self.last_attention = self.last_attention.min(Instant::now() - Duration::from_secs(13));
                     if refresh {
                         if let Some(id) = self.selected {
                             self.net.send(Command::FetchProvenance(id));
@@ -555,6 +598,7 @@ impl App {
                     let touches_selected = b.deal_id.is_some() && b.deal_id == self.selected;
                     self.breaks.upsert(b);
                     self.last_event = Some(Utc::now());
+                    self.last_attention = self.last_attention.min(Instant::now() - Duration::from_secs(13));
                     if touches_selected {
                         if let Some(id) = self.selected {
                             self.net.send(Command::FetchProvenance(id));
@@ -590,7 +634,7 @@ impl App {
                             self.alm.bank_version = version;
                             self.alm.bank = Some(std::sync::Arc::new(params));
                             if self.alm.overrides.is_none() {
-                                self.alm.mark_dirty();
+                                self.alm.touch();
                             }
                         }
                     }
@@ -600,13 +644,44 @@ impl App {
                         if self.alm.as_of.is_none() {
                             self.alm.as_of = self.alm.snapshots.view.as_ref().and_then(|s| s.first()).map(|s| s.as_of);
                         }
-                        self.alm.mark_dirty();
+                        self.alm.touch();
                     }
                 }
-                NetEvent::AlmLcr { req, result } => {
-                    self.alm.lcr.accept(req, result.map(LcrView::new));
+                NetEvent::AlmResult { req, tool, result } => {
+                    self.alm.accept(tool, req, result);
+                }
+                NetEvent::AlmOverview { req, result } => {
+                    if self.alm.overview.result.accept(req, result.map(OverviewAlmView::new)) {
+                        self.overview_key = None;
+                    }
+                }
+                NetEvent::AlmSaved { req, result } => {
+                    if self.alm.setup.saving.accept(req, result) && self.alm.setup.saving.view.is_some() {
+                        self.alm.setup.draft = None;
+                        self.alm.setup.note.clear();
+                        self.alm.overrides = None;
+                        self.alm.touch();
+                    }
+                }
+                NetEvent::Rates { req, result } => {
+                    if self.alm.ird.rates.accept(req, result) {
+                        if let Some(m) = &self.alm.ird.rates.view {
+                            self.alm.ird.rates_as_of = m.curves.first().map(|c| c.as_of.format("%d %b %Y").to_string()).unwrap_or_default();
+                        }
+                        self.alm.ird.refresh_from_market();
+                    }
+                }
+                NetEvent::Activity { req, result } => {
+                    self.activity.accept(req, result.map(|rows| rows.iter().map(ActivityRow::from_server).collect()));
+                }
+                NetEvent::Attention { req, result } => {
+                    if self.attention_server.accept(req, result) {
+                        self.attention_key = None;
+                    }
                 }
                 NetEvent::AlmChanged => {
+                    self.last_alm_overview = Instant::now() - Duration::from_secs(60);
+                    self.last_attention = Instant::now() - Duration::from_secs(60);
                     // Only when the workbench has been opened: it reloads the parameters and the
                     // snapshot list, and the open tool recomputes unless a what-if is in progress.
                     if self.alm.params.req != 0 {
@@ -638,6 +713,26 @@ impl App {
         if self.screen == Screen::Main && self.last_feeds.elapsed() >= FEEDS_EVERY {
             self.last_feeds = Instant::now();
             self.net.send(Command::FetchFeeds);
+        }
+        // Server-computed lists: the bell on every tab, activity and the ALM block on the pages
+        // that show them. All passive: a dashboard never keeps an idle session alive.
+        if self.screen == Screen::Main && self.last_attention.elapsed() >= Duration::from_secs(15) {
+            self.last_attention = Instant::now();
+            let r = self.issue();
+            self.attention_server.begin(r);
+            self.net.send(Command::FetchAttention { req: r });
+        }
+        if self.screen == Screen::Main && self.tab == Tab::Overview && self.last_activity.elapsed() >= Duration::from_secs(30) {
+            self.last_activity = Instant::now();
+            let r = self.issue();
+            self.activity.begin(r);
+            self.net.send(Command::FetchActivity { req: r, limit: 20 });
+        }
+        let wants_alm = self.screen == Screen::Main
+            && self.can_see_alm()
+            && (self.tab == Tab::Overview || (self.tab == Tab::Alm && self.alm.tool == AlmTool::Dashboard));
+        if wants_alm && self.last_alm_overview.elapsed() >= Duration::from_secs(15) {
+            self.fetch_alm_overview();
         }
         // The ladder is recomputed on the server; refetch when deals changed, at most every 2 s.
         // The overview shows a slice of it, so it keeps the ladder fresh too.
@@ -691,7 +786,10 @@ impl App {
         let feeds_at = self.feeds.as_ref().map(|f| f.server_time);
         let akey = (self.store.version, self.breaks.version, feeds_at, self.stream);
         if self.attention_key != Some(akey) {
-            self.attention = crate::attention::build(self);
+            self.attention = match &self.attention_server.view {
+                Some(items) => crate::attention::from_server(self, items),
+                None => crate::attention::build(self),
+            };
             self.attention_key = Some(akey);
         }
         if self.tab == Tab::Overview {
@@ -723,7 +821,7 @@ impl eframe::App for App {
             self.refresh_filters();
             self.refresh_derived();
             self.alm_tick();
-            if self.alm.is_dirty() {
+            if self.alm.is_pending() {
                 ctx.request_repaint_after(Duration::from_millis(320));
             }
             // Wake up regularly so heartbeats, feed polls and freshness ages update without input.

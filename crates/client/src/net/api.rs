@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::{AlmParamsResponse, AlmRequest, AlmSnapshot, AmendDeal, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, ErrorBody, FeedsResponse, HistoryEntry, LadderResponse, LcrResult, LoginRequest, LoginResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
+use domain::{ActivityRow, AlmOverview, AlmParamsResponse, AlmParamsVersion, AlmRequest, AlmSnapshot, AmendDeal, AttentionItem, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, ErrorBody, FeedsResponse, HistoryEntry, LadderResponse, LoginRequest, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, SaveParamsRequest};
 use reqwest::{Certificate, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
@@ -176,8 +176,34 @@ impl Api {
         Ok(check(res).await?.json().await?)
     }
 
-    pub async fn alm_lcr(&self, req: &AlmRequest) -> anyhow::Result<LcrResult> {
-        let res = self.auth(self.http.post(format!("{}/alm/lcr", self.base)).json(req), true).send().await.map_err(connect_error)?;
+    /// Run one ALM calculator (`lcr`, `nsfr`, ...) on the server; passive, like every read.
+    pub async fn alm_tool<T: serde::de::DeserializeOwned>(&self, tool: &str, req: &AlmRequest) -> anyhow::Result<T> {
+        let res = self.auth(self.http.post(format!("{}/alm/{tool}", self.base)).json(req), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn alm_overview(&self) -> anyhow::Result<AlmOverview> {
+        let res = self.auth(self.http.get(format!("{}/alm/overview", self.base)), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn alm_save_params(&self, req: &SaveParamsRequest) -> anyhow::Result<AlmParamsVersion> {
+        let res = self.auth(self.http.post(format!("{}/alm/params", self.base)).json(req), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn market_rates(&self) -> anyhow::Result<MarketResponse> {
+        let res = self.auth(self.http.get(format!("{}/market/rates", self.base)), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn activity(&self, limit: i64) -> anyhow::Result<Vec<ActivityRow>> {
+        let req = self.http.get(format!("{}/activity", self.base)).query(&[("limit", limit.to_string())]);
+        Ok(check(self.auth(req, true).send().await.map_err(connect_error)?).await?.json().await?)
+    }
+
+    pub async fn attention(&self) -> anyhow::Result<Vec<AttentionItem>> {
+        let res = self.auth(self.http.get(format!("{}/attention", self.base)), true).send().await.map_err(connect_error)?;
         Ok(check(res).await?.json().await?)
     }
 

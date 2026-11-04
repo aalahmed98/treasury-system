@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use domain::calendar::Calendar;
 use domain::{BreakKind, BreakStatus, DealStatus};
 
+use crate::alm_state::AlmTool;
 use crate::app::{App, AttentionItem, Severity, Tab, Target};
 use crate::ui::fmt::{Health, feed_health, fmt_age, recon_health};
 
@@ -142,4 +143,31 @@ pub fn build(app: &App) -> Vec<AttentionItem> {
 
     items.sort_by(|a, b| a.severity.cmp(&b.severity).then_with(|| b.at.cmp(&a.at)));
     items
+}
+
+/// The server's list, formatted for the bell. Replaces the local one once it arrives.
+pub fn from_server(app: &App, items: &[domain::AttentionItem]) -> Vec<AttentionItem> {
+    let now = reference_now(app);
+    items
+        .iter()
+        .map(|i| AttentionItem {
+            severity: match i.severity {
+                domain::AttentionSeverity::Critical => Severity::Critical,
+                domain::AttentionSeverity::Warning => Severity::Warning,
+                domain::AttentionSeverity::Info => Severity::Info,
+            },
+            title: i.title.clone(),
+            detail: i.detail.clone(),
+            since: i.since.map(|t| fmt_age((now - t).num_seconds().max(0))).unwrap_or_else(|| "—".into()),
+            at: i.since.unwrap_or(now),
+            target: match &i.target {
+                domain::AttentionTarget::Deal { id } => Target::Deal(*id),
+                domain::AttentionTarget::Break { id } => Target::Break(*id),
+                domain::AttentionTarget::Breaks => Target::Tab(Tab::Breaks),
+                domain::AttentionTarget::Provisional => Target::Provisional,
+                domain::AttentionTarget::Overview => Target::Tab(Tab::Overview),
+                domain::AttentionTarget::Alm { tool } => Target::AlmTool(AlmTool::from_name(tool).unwrap_or(AlmTool::Dashboard)),
+            },
+        })
+        .collect()
 }
