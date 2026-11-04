@@ -2,23 +2,19 @@
 //! thresholds, editable as an unsaved what-if), the ratio against its thresholds and the full
 //! composition on the right.
 
-use egui::{Panel, RichText};
+use egui::RichText;
 
 use crate::alm_state::AlmState;
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, headline, pct, table, two_cols, with_view};
+use crate::ui::alm::common::{assumptions_header, group, headline, pct, results_panel, side_panel, table, two_cols, with_view};
 use crate::ui::charts;
 use crate::ui::theme::{Palette, pal};
 use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_lcr_assumptions").resizable(true).default_size(340.0).min_size(260.0).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_lcr_assumptions_scroll").show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_lcr_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_lcr_assumptions", 340.0, 260.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_lcr_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
@@ -28,7 +24,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     let lcr = &mut params.lcr;
 
     ui.add_space(4.0);
-    ui.label(RichText::new("Thresholds").color(p.muted).small());
+    group(ui, p, "Thresholds");
     egui::Grid::new("lcr_thresholds").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (label, v) in [("Regulatory minimum", &mut lcr.minimum), ("Internal minimum", &mut lcr.internal_minimum), ("Early warning", &mut lcr.early_warning)] {
             ui.label(label);
@@ -37,7 +33,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Liquid assets").color(p.muted).small());
+    group(ui, p, "Liquid assets");
     egui::Grid::new("lcr_hqla").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for level in ["L1", "L2A", "L2B"] {
             ui.label(format!("{level} haircut"));
@@ -55,7 +51,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Run-off rates").color(p.muted).small());
+    group(ui, p, "Run-off rates");
     egui::Grid::new("lcr_outflows").num_columns(2).spacing([12.0, 3.0]).striped(true).show(ui, |ui| {
         for (class, v) in lcr.outflow_rates.iter_mut() {
             ui.label(class.replace('_', " ").to_lowercase());
@@ -64,7 +60,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Inflow rates").color(p.muted).small());
+    group(ui, p, "Inflow rates");
     egui::Grid::new("lcr_inflows").num_columns(2).spacing([12.0, 3.0]).striped(true).show(ui, |ui| {
         for (class, v) in lcr.inflow_rates.iter_mut() {
             ui.label(class.replace('_', " ").to_lowercase());

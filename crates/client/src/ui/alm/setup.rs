@@ -8,44 +8,50 @@ use crate::app::App;
 use crate::net::Command;
 use crate::ui::alm::common::{bp, pct};
 use crate::ui::fmt::fmt_local;
-use crate::ui::theme::{Palette, pal};
+use crate::ui::theme::{Palette, medium, pal};
+use crate::ui::widgets::{Tone, badge, canvas_frame, primary, side_frame};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
     let Some(resp) = app.alm.params.view.as_ref() else {
-        ui.label(RichText::new("loading…").color(p.muted));
+        egui::CentralPanel::default().frame(canvas_frame(&p)).show(ui, |ui| {
+            ui.label(p.muted("loading…"));
+        });
         return;
     };
     let active = resp.active.clone();
     let history = resp.history.clone();
-    ui.horizontal(|ui| {
-        ui.strong(format!("Active parameters: version {}", active.version));
-        ui.label(RichText::new(format!("saved {} by {}", fmt_local(active.created_at), active.created_by.as_deref().unwrap_or("the application"))).color(p.muted));
-        if let Some(n) = &active.note {
-            ui.label(RichText::new(n).color(p.muted));
-        }
-    });
-    ui.add_space(6.0);
-    egui::Panel::right("alm_setup_history").resizable(true).default_size(360.0).min_size(240.0).show(ui, |ui| {
-        ui.label(RichText::new("Versions").strong());
+    egui::Panel::right("alm_setup_history").resizable(true).default_size(360.0).min_size(240.0).frame(side_frame(&p)).show(ui, |ui| {
+        ui.label(p.heading("Versions"));
+        ui.add_space(6.0);
         egui::ScrollArea::vertical().id_salt("alm_setup_versions").show(ui, |ui| {
             for v in &history {
                 ui.horizontal_wrapped(|ui| {
-                    ui.monospace(format!("v{}", v.version));
+                    ui.label(RichText::new(format!("v{}", v.version)).family(medium()).color(p.text));
                     if v.is_active {
-                        ui.colored_label(p.positive, "active");
+                        badge(ui, &p, "active", Tone::Good);
                     }
-                    ui.label(RichText::new(fmt_local(v.created_at)).color(p.muted).small());
-                    ui.label(RichText::new(v.created_by.as_deref().unwrap_or("application")).color(p.muted).small());
+                    ui.label(p.small(fmt_local(v.created_at)));
+                    ui.label(p.small(v.created_by.as_deref().unwrap_or("application")));
                     if let Some(n) = &v.note {
-                        ui.label(RichText::new(n).small());
+                        ui.label(RichText::new(n).small().color(p.text_2));
                     }
                 });
             }
         });
     });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_setup_editor").show(ui, |ui| editor(app, ui, &p));
+    egui::CentralPanel::default().frame(canvas_frame(&p)).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("alm_setup_editor").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(p.title(format!("Parameters, version {}", active.version)));
+                ui.label(p.small(format!("saved {} by {}", fmt_local(active.created_at), active.created_by.as_deref().unwrap_or("the application"))));
+            });
+            if let Some(n) = &active.note {
+                ui.label(p.small(n));
+            }
+            ui.add_space(10.0);
+            editor(app, ui, &p);
+        });
     });
 }
 
@@ -53,7 +59,7 @@ fn editor(app: &mut App, ui: &mut egui::Ui, p: &Palette) {
     let AlmState { setup, bank, overrides, .. } = &mut app.alm;
     let Some(bank) = bank.clone() else { return };
     ui.horizontal(|ui| {
-        ui.strong("New version");
+        ui.label(p.heading("New version"));
         if ui.small_button("Start from the active version").clicked() {
             setup.draft = Some((*bank).clone());
         }
@@ -74,7 +80,7 @@ fn editor(app: &mut App, ui: &mut egui::Ui, p: &Palette) {
         ui.label("Note");
         ui.add(egui::TextEdit::singleline(&mut setup.note).desired_width(380.0).hint_text("why this version"));
         let can = !setup.note.trim().is_empty() && !setup.saving.loading;
-        if ui.add_enabled(can, egui::Button::new("Save as a new version")).clicked() {
+        if primary(ui, p, can, "Save as a new version").clicked() {
             req = Some(());
         }
         if setup.saving.loading {
@@ -99,7 +105,7 @@ fn editor(app: &mut App, ui: &mut egui::Ui, p: &Palette) {
 
 fn section(ui: &mut egui::Ui, p: &Palette, title: &str) {
     ui.add_space(8.0);
-    ui.label(RichText::new(title).color(p.muted).small().strong());
+    ui.label(p.eyebrow(title));
 }
 
 fn draft_editor(d: &mut domain::AlmParams, ui: &mut egui::Ui, p: &Palette) {

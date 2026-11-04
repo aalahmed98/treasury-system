@@ -1,10 +1,10 @@
 //! Net interest income and margin projection under a rate scenario.
 
-use egui::{Panel, RichText};
+use egui::RichText;
 
 use crate::alm_state::{AlmState, Standing};
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, headline, pct, scenario_picker, table, with_view};
+use crate::ui::alm::common::{assumptions_header, group, headline, pct, results_panel, scenario_picker, side_panel, table, with_view};
 use crate::ui::charts;
 use crate::ui::fmt::fmt_money_short;
 use crate::ui::theme::{Palette, pal};
@@ -12,18 +12,14 @@ use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_nii_assumptions").resizable(true).default_size(320.0).min_size(260.0).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_nii_assumptions_scroll").show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_nii_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_nii_assumptions", 320.0, 260.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_nii_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     assumptions_header(alm, ui, p);
     ui.add_space(4.0);
-    ui.label(RichText::new("Rate scenario").color(p.muted).small());
+    group(ui, p, "Rate scenario");
     let (mut scenario, mut bp) = (alm.scenario, alm.custom_bp);
     if scenario_picker(ui, &mut scenario, &mut bp, true) {
         alm.scenario = scenario;
@@ -33,7 +29,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     let Some(mut params) = alm.working() else { return };
     let mut changed = false;
     ui.add_space(6.0);
-    ui.label(RichText::new("Projection").color(p.muted).small());
+    group(ui, p, "Projection");
     egui::Grid::new("nii_params").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         ui.label("Horizon (months)");
         changed |= ui.add(egui::DragValue::new(&mut params.nii.horizon_months).range(1..=60).speed(1.0)).changed();
@@ -50,8 +46,13 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Shocks by currency (basis points: parallel · short · long)").color(p.muted).small());
+    group(ui, p, "Rate shocks (bp)");
     egui::Grid::new("nii_shocks").num_columns(4).spacing([8.0, 3.0]).striped(true).show(ui, |ui| {
+        ui.label("");
+        for h in ["Parallel", "Short", "Long"] {
+            ui.label(p.label(h));
+        }
+        ui.end_row();
         for (ccy, s) in params.stress.shocks.iter_mut() {
             ui.label(ccy.as_str());
             for v in [&mut s.parallel, &mut s.short, &mut s.long] {

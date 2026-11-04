@@ -7,14 +7,15 @@ use uuid::Uuid;
 
 use crate::app::App;
 use crate::net::Command;
+use crate::ui::widgets::{chip_toggle, th};
 use crate::ui::{break_color, pal};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.heading("Breaks");
+        ui.label(pal(ui).title("Breaks"));
         ui.separator();
         ui.add(egui::TextEdit::singleline(&mut app.break_search).hint_text("search kind, deal, source, field…").desired_width(240.0));
-        if ui.toggle_value(&mut app.show_resolved, "show resolved").changed() {
+        if chip_toggle(ui, &pal(ui), &mut app.show_resolved, "show resolved").changed() {
             app.net.send(Command::FetchBreaks { all: app.show_resolved, passive: false });
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -70,14 +71,14 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> Option<i64> {
             .column(Column::initial(44.0).at_least(40.0))     // desk
             .column(Column::initial(120.0).at_least(100.0))   // detected
             .column(Column::remainder().at_least(110.0))      // status
-            .header(22.0, |mut h| {
+            .header(24.0, |mut h| {
                 h.col(|_| {});
                 for t in ["#", "Kind", "Deal", "Source", "Field", "Expected", "Observed", "Desk", "Detected", "Status"] {
-                    h.col(|ui| { ui.strong(t); });
+                    h.col(|ui| { th(ui, t); });
                 }
             })
             .body(|body| {
-                body.rows(19.0, filtered.len(), |mut row| {
+                body.rows(22.0, filtered.len(), |mut row| {
                     let r = &rows[filtered[row.index()]];
                     let id = r.view.id;
                     row.set_selected(selected == Some(id));

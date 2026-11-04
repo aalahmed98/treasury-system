@@ -3,33 +3,31 @@
 
 use chrono::Datelike;
 use domain::CompareTo;
-use egui::{Panel, RichText};
+use egui::RichText;
 
 use crate::alm_state::{AlmState, Standing};
 use crate::app::App;
-use crate::ui::alm::common::{headline, table, two_cols, with_view};
+use crate::ui::alm::common::{group, headline, results_panel, side_panel, table, two_cols, with_view};
 use crate::ui::charts;
 use crate::ui::theme::{Palette, pal};
-use crate::ui::widgets::{card, wrap_row};
+use crate::ui::widgets::{card, chip, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_attr_inputs").resizable(true).default_size(300.0).min_size(240.0).show(ui, |ui| inputs(&mut app.alm, ui, &p));
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_attr_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_attr_inputs", 300.0, 240.0, |ui| inputs(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_attr_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn inputs(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
-    ui.strong("Comparison");
+    ui.label(p.heading("Comparison"));
     ui.add_space(4.0);
     let current = alm.compare_to.unwrap_or(CompareTo::Prior);
     let mut pick = None;
     ui.horizontal(|ui| {
-        if ui.selectable_label(current == CompareTo::Prior, "Against the prior month").clicked() {
+        if chip(ui, p, current == CompareTo::Prior, "Prior month").clicked() {
             pick = Some(CompareTo::Prior);
         }
-        if ui.selectable_label(current == CompareTo::Budget, "Against the budget").clicked() {
+        if chip(ui, p, current == CompareTo::Budget, "Budget").clicked() {
             pick = Some(CompareTo::Budget);
         }
     });
@@ -40,7 +38,7 @@ fn inputs(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         }
     }
     ui.add_space(6.0);
-    ui.label(RichText::new("Month").color(p.muted).small());
+    group(ui, p, "Month");
     let shown = alm.period.or(alm.attribution.result.view.as_ref().map(|v| v.raw.period_b));
     ui.horizontal(|ui| {
         if ui.small_button("◀").clicked() {

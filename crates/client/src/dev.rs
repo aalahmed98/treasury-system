@@ -5,7 +5,8 @@
 //! `TREASURY_SNAPSHOT=/path/shot.png` saves the window as a PNG once the main screen has been up
 //! for `TREASURY_SNAPSHOT_AFTER` seconds (default 4) and then closes the window.
 //! `TREASURY_SNAPSHOT_TAB=overview|blotter|breaks|ladder|alm`, `TREASURY_SNAPSHOT_THEME=light|dark`
-//! `TREASURY_SNAPSHOT_BELL=1` (the attention popup open), `TREASURY_SNAPSHOT_SIZE=1360x820` and
+//! `TREASURY_SNAPSHOT_BELL=1` (the attention popup open), `TREASURY_SNAPSHOT_SCREEN=login` (the
+//! sign-in screen, without logging in), `TREASURY_SNAPSHOT_SIZE=1360x820` and
 //! `TREASURY_SNAPSHOT_ZOOM=0.5` (to counter a scaled display) shape what is captured.
 
 use std::time::{Duration, Instant};
@@ -18,6 +19,8 @@ pub struct DevSnapshot {
     pub tab: Option<Tab>,
     pub theme: Option<egui::ThemePreference>,
     pub bell: bool,
+    /// Capture the login screen instead of waiting for a session.
+    pub login: bool,
     pub size: Option<(f32, f32)>,
     pub zoom: Option<f32>,
     pub started: Option<Instant>,
@@ -48,6 +51,7 @@ pub fn from_env() -> Dev {
             _ => None,
         }),
         bell: std::env::var("TREASURY_SNAPSHOT_BELL").is_ok_and(|v| v == "1"),
+        login: std::env::var("TREASURY_SNAPSHOT_SCREEN").is_ok_and(|v| v == "login"),
         zoom: std::env::var("TREASURY_SNAPSHOT_ZOOM").ok().and_then(|v| v.parse().ok()),
         size: std::env::var("TREASURY_SNAPSHOT_SIZE").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
         started: None,

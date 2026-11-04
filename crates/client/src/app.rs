@@ -165,7 +165,7 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, target: ServerTarget) -> Self {
-        cc.egui_ctx.all_styles_mut(|style| style.spacing.item_spacing = egui::vec2(6.0, 4.0));
+        ui::theme::install(&cc.egui_ctx);
         if let Some(prefs) = cc.storage.and_then(|s| eframe::get_value::<ClientPrefs>(s, "prefs")) {
             cc.egui_ctx.set_theme(prefs.theme);
         }
@@ -246,10 +246,10 @@ impl App {
             self.password = p;
             self.submit_login();
         }
-        if self.screen != Screen::Main {
+        let Some(snap) = &mut self.dev.snapshot else { return };
+        if self.screen != Screen::Main && !snap.login {
             return;
         }
-        let Some(snap) = &mut self.dev.snapshot else { return };
         match snap.started {
             None => {
                 snap.started = Some(Instant::now());

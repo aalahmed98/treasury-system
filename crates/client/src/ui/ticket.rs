@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::app::App;
 use crate::net::Command;
 use crate::ui::pal;
+use crate::ui::widgets::primary;
 
 pub struct TicketForm {
     pub desk_id: i16,
@@ -231,7 +232,7 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.add_enabled(!t.submitting, egui::Button::new("Book")).clicked() {
+            if primary(ui, &pal(ui), !t.submitting, "Book").clicked() {
                 submit = true;
             }
             if t.submitting {
@@ -297,7 +298,7 @@ pub fn amend_panel(app: &mut App, ui: &mut egui::Ui, deal: &domain::Deal) {
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("Save amendment").clicked() {
+            if primary(ui, &pal(ui), true, "Save amendment").clicked() {
                 save = true;
             }
             if ui.button("Discard").clicked() {

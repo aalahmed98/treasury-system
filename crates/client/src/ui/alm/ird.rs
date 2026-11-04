@@ -1,11 +1,11 @@
 //! Interest rate differential calculator: covered interest parity on the latest curves, run here
 //! without a server round trip.
 
-use egui::{Panel, RichText};
+use egui::RichText;
 
 use crate::alm_state::IrdState;
 use crate::app::App;
-use crate::ui::alm::common::{table, two_cols};
+use crate::ui::alm::common::{results_panel, side_panel, table, two_cols};
 use crate::ui::fmt::fmt_amount;
 use crate::ui::theme::{Palette, pal};
 use crate::ui::widgets::{card, wrap_row};
@@ -15,10 +15,8 @@ const TENORS: [(&str, i64); 6] = [("1W", 7), ("1M", 30), ("3M", 91), ("6M", 182)
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_ird_inputs").resizable(true).default_size(320.0).min_size(260.0).show(ui, |ui| inputs(&mut app.alm.ird, ui, &p));
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_ird_results").show(ui, |ui| results(&app.alm.ird, ui, &p));
-    });
+    side_panel(ui, "alm_ird_inputs", 320.0, 260.0, |ui| inputs(&mut app.alm.ird, ui, &p));
+    results_panel(ui, "alm_ird_results", |ui| results(&app.alm.ird, ui, &p));
 }
 
 fn ccy_combo(ui: &mut egui::Ui, id: &str, value: &mut String) -> bool {
@@ -35,7 +33,7 @@ fn ccy_combo(ui: &mut egui::Ui, id: &str, value: &mut String) -> bool {
 }
 
 fn inputs(ird: &mut IrdState, ui: &mut egui::Ui, p: &Palette) {
-    ui.strong("Pair and tenor");
+    ui.label(p.heading("Pair and tenor"));
     ui.add_space(4.0);
     let mut market = false;
     ui.horizontal(|ui| {
@@ -90,9 +88,9 @@ fn results(ird: &IrdState, ui: &mut egui::Ui, p: &Palette) {
     let f = alm::ird::forward(ird.spot, ird.days, ird.base_rate, bb, ird.quote_rate, qb);
     let points = (f - ird.spot) * pip;
     let carry = alm::ird::carry_per_day(ird.notional, ird.spot, ird.base_rate, bb, ird.quote_rate, qb);
-    ui.strong(format!("{}/{} {} days", ird.base_ccy, ird.quote_ccy, ird.days));
+    ui.label(p.heading(format!("{}/{} {} days", ird.base_ccy, ird.quote_ccy, ird.days)));
     ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("{f:.5}")).size(34.0).strong().color(if points >= 0.0 { p.positive } else { p.negative }));
+        ui.label(p.hero(format!("{f:.5}")));
         ui.vertical(|ui| {
             ui.label(RichText::new(format!("forward outright · {points:+.1} pips")).color(p.muted).small());
             ui.label(RichText::new(format!("differential {:+.3}% ({} over {})", ird.quote_rate - ird.base_rate, ird.quote_ccy, ird.base_ccy)).color(p.muted).small());

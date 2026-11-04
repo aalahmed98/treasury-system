@@ -1,31 +1,26 @@
 //! Net stable funding ratio: factors per class and band on the left, the ratio and its lines on
 //! the right.
 
-use egui::{Panel, RichText};
 
 use crate::alm_state::AlmState;
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, headline, pct, table, two_cols, with_view};
+use crate::ui::alm::common::{assumptions_header, group, headline, pct, results_panel, side_panel, table, two_cols, with_view};
 use crate::ui::charts;
 use crate::ui::theme::{Palette, pal};
 use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_nsfr_assumptions").resizable(true).default_size(360.0).min_size(280.0).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_nsfr_assumptions_scroll").show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_nsfr_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_nsfr_assumptions", 360.0, 280.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_nsfr_results", |ui| results(&app.alm, ui, &p));
 }
 
-fn factor_grid(ui: &mut egui::Ui, id: &str, map: &mut std::collections::BTreeMap<String, [f64; 3]>) -> bool {
+fn factor_grid(ui: &mut egui::Ui, p: &Palette, id: &str, map: &mut std::collections::BTreeMap<String, [f64; 3]>) -> bool {
     let mut changed = false;
     egui::Grid::new(id).num_columns(4).spacing([10.0, 3.0]).striped(true).show(ui, |ui| {
         ui.label("");
         for h in ["< 6M", "6M-1Y", "≥ 1Y"] {
-            ui.label(RichText::new(h).small());
+            ui.label(p.label(h));
         }
         ui.end_row();
         for (class, f) in map.iter_mut() {
@@ -54,11 +49,11 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Available stable funding factors").color(p.muted).small());
-    changed |= factor_grid(ui, "nsfr_asf", &mut n.asf);
+    group(ui, p, "Available stable funding factors");
+    changed |= factor_grid(ui, p, "nsfr_asf", &mut n.asf);
     ui.add_space(6.0);
-    ui.label(RichText::new("Required stable funding factors").color(p.muted).small());
-    changed |= factor_grid(ui, "nsfr_rsf", &mut n.rsf);
+    group(ui, p, "Required stable funding factors");
+    changed |= factor_grid(ui, p, "nsfr_rsf", &mut n.rsf);
     egui::Grid::new("nsfr_other").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
         for level in ["L1", "L2A", "L2B"] {
             ui.label(format!("HQLA {level}"));

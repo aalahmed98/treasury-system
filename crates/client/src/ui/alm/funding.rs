@@ -1,20 +1,17 @@
 //! Funding concentration: the largest depositor groups and the wholesale share against limits.
 
-use egui::{Panel, RichText};
 
 use crate::alm_state::{AlmState, Standing};
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, headline, pct, table, two_cols, with_view};
+use crate::ui::alm::common::{assumptions_header, group, headline, pct, results_panel, side_panel, table, two_cols, with_view};
 use crate::ui::charts;
 use crate::ui::theme::{Palette, pal};
 use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_funding_assumptions").resizable(true).default_size(300.0).min_size(240.0).show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_funding_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_funding_assumptions", 300.0, 240.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_funding_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
@@ -22,7 +19,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     let Some(mut params) = alm.working() else { return };
     let mut changed = false;
     ui.add_space(4.0);
-    ui.label(RichText::new("Limits").color(p.muted).small());
+    group(ui, p, "Limits");
     egui::Grid::new("funding_limits").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         ui.label("Largest depositor (% of deposits)");
         changed |= pct(ui, &mut params.funding.top1_limit_pct, 100.0);

@@ -1,11 +1,10 @@
 //! Stress testing: the Basel rate scenarios through NII and EVE, the liquidity stress with its
 //! survival horizon, and FX shocks.
 
-use egui::{Panel, RichText};
 
 use crate::alm_state::{AlmState, Standing};
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, bp, headline, pct, table, two_cols, with_view};
+use crate::ui::alm::common::{assumptions_header, bp, group, headline, pct, results_panel, side_panel, table, two_cols, with_view};
 use crate::ui::charts;
 use crate::ui::fmt::fmt_money_short;
 use crate::ui::theme::{Palette, pal};
@@ -13,12 +12,8 @@ use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_stress_assumptions").resizable(true).default_size(330.0).min_size(260.0).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_stress_assumptions_scroll").show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_stress_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_stress_assumptions", 330.0, 260.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_stress_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
@@ -35,7 +30,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     let Some(mut params) = alm.working() else { return };
     let mut changed = false;
     ui.add_space(6.0);
-    ui.label(RichText::new("Limits").color(p.muted).small());
+    group(ui, p, "Limits");
     egui::Grid::new("stress_limits").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         ui.label("EVE loss (% of Tier 1)");
         changed |= pct(ui, &mut params.gap.eve_limit_pct_tier1, 100.0);
@@ -48,8 +43,13 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Shocks by currency (basis points: parallel · short · long)").color(p.muted).small());
+    group(ui, p, "Rate shocks (bp)");
     egui::Grid::new("stress_shocks").num_columns(4).spacing([8.0, 3.0]).striped(true).show(ui, |ui| {
+        ui.label("");
+        for h in ["Parallel", "Short", "Long"] {
+            ui.label(p.label(h));
+        }
+        ui.end_row();
         for (ccy, s) in params.stress.shocks.iter_mut() {
             ui.label(ccy.as_str());
             for v in [&mut s.parallel, &mut s.short, &mut s.long] {
@@ -67,7 +67,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Liquidity stress").color(p.muted).small());
+    group(ui, p, "Liquidity stress");
     egui::Grid::new("stress_liq").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
         let l = &mut params.stress.liquidity;
         ui.label("Run-off multiplier");
@@ -81,7 +81,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("FX shocks (% fall against BHD)").color(p.muted).small());
+    group(ui, p, "FX shocks (% fall against BHD)");
     egui::Grid::new("stress_fx").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
         for (ccy, v) in params.stress.fx_shock_pct.iter_mut() {
             ui.label(ccy.as_str());

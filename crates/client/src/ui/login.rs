@@ -1,70 +1,74 @@
-use egui::{Align, Key, Layout, RichText, TextEdit};
+//! The sign-in screen: the wordmark, one card, two fields and the primary action.
+
+use egui::{Align, Key, Layout, Margin, RichText, TextEdit};
 
 use crate::app::App;
-use crate::ui::pal;
+use crate::ui::theme::{pal, semibold};
+use crate::ui::widgets::{frame, primary_sized};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let enter = ui.input(|i| i.key_pressed(Key::Enter));
+    let p = pal(ui);
+    ui.painter().rect_filled(ui.max_rect(), 0.0, p.canvas);
 
     ui.with_layout(Layout::top_down(Align::Center), |ui| {
-        ui.add_space(ui.available_height() * 0.2);
-        ui.heading(RichText::new("NBB Treasury").size(28.0).strong());
-        ui.label(RichText::new("Position keeping and intraday liquidity").color(pal(ui).muted));
-        ui.add_space(20.0);
-
-        egui::Frame::group(ui.style()).inner_margin(20.0).show(ui, |ui| {
-            ui.set_width(380.0);
-
-            // The server is configured, not typed: a fixed target cannot be phished.
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Server").color(pal(ui).muted));
-                let secure = app.server_url.starts_with("https://");
-                ui.label(RichText::new(if secure { "🔒" } else { "⚠" }).color(if secure { pal(ui).muted } else { pal(ui).warning }))
-                    .on_hover_text(if secure { "TLS" } else { "plain HTTP (loopback only)" });
-                ui.monospace(&app.server_url);
-            });
-            if let Some(p) = &app.server_problem {
-                ui.label(RichText::new(p).color(pal(ui).negative));
-            }
+        ui.add_space(ui.available_height() * 0.18);
+        ui.horizontal(|ui| {
+            ui.add_space((ui.available_width() - 190.0) / 2.0);
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.label(RichText::new("NBB").family(semibold()).size(30.0).color(p.brand));
             ui.add_space(8.0);
+            ui.label(RichText::new("Treasury").family(semibold()).size(30.0).color(p.text));
+        });
+        ui.label(p.muted("Positions, reconciliation, liquidity and ALM"));
+        ui.add_space(24.0);
 
-            egui::Grid::new("login_grid").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
-                ui.label("Username");
-                let u = ui.add(TextEdit::singleline(&mut app.username).desired_width(240.0));
+        frame(&p).inner_margin(Margin::same(28)).corner_radius(12).show(ui, |ui| {
+            ui.set_width(340.0);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.label(p.label("Username"));
+                let u = ui.add(TextEdit::singleline(&mut app.username).desired_width(f32::INFINITY).margin(Margin::symmetric(10, 7)));
                 if app.username.is_empty() && app.user.is_none() && !app.logging_in {
                     u.request_focus();
                 }
-                ui.end_row();
+                ui.add_space(8.0);
+                ui.label(p.label("Password"));
+                ui.add(TextEdit::singleline(&mut app.password).password(true).desired_width(f32::INFINITY).margin(Margin::symmetric(10, 7)));
+                ui.add_space(16.0);
 
-                ui.label("Password");
-                ui.add(TextEdit::singleline(&mut app.password).password(true).desired_width(240.0));
-                ui.end_row();
-            });
-
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
                 let ready = app.can_login();
-                if ui.add_enabled(ready, egui::Button::new("Log in")).clicked() || (ready && enter) {
+                let b = primary_sized(ui, &p, ready, if app.logging_in { "Signing in…" } else { "Sign in" }, egui::vec2(ui.available_width(), 34.0));
+                if b.clicked() || (ready && enter && !app.logging_in) {
                     app.submit_login();
                 }
-                if app.logging_in {
-                    ui.spinner();
-                    ui.label("Signing in…");
+                if let Some(err) = &app.login_error {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(err).color(p.bad));
+                }
+                if let Some(n) = &app.notice {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(n).color(p.warn));
+                }
+                ui.add_space(14.0);
+                ui.separator();
+                ui.add_space(4.0);
+                // The server is configured, not typed: a fixed target cannot be phished.
+                ui.horizontal(|ui| {
+                    let secure = app.server_url.starts_with("https://");
+                    ui.label(RichText::new(if secure { "🔒" } else { "⚠" }).size(11.0).color(if secure { p.muted } else { p.warn }))
+                        .on_hover_text(if secure { "TLS" } else { "plain HTTP (loopback only)" });
+                    ui.label(p.small(&app.server_url));
+                });
+                if let Some(problem) = &app.server_problem {
+                    ui.label(RichText::new(problem).small().color(p.bad));
                 }
             });
-            if let Some(err) = &app.login_error {
-                ui.add_space(6.0);
-                ui.label(RichText::new(err).color(pal(ui).negative));
-            }
-            if let Some(n) = &app.notice {
-                ui.add_space(6.0);
-                ui.label(RichText::new(n).color(pal(ui).warning));
-            }
         });
 
         if cfg!(debug_assertions) {
             ui.add_space(16.0);
-            ui.label(RichText::new("dev build · seeded users fx1, fx2, mm1, alm1, head1").color(pal(ui).muted).small());
+            ui.label(p.small("dev build · seeded users fx1, fx2, mm1, alm1, head1 · password \"password\""));
         }
     });
 }

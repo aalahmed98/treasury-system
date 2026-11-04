@@ -1,10 +1,9 @@
 //! Repricing gap: behavioural lives and cumulative limits on the left, the buckets on the right.
 
-use egui::{Panel, RichText};
 
 use crate::alm_state::{AlmState, Standing};
 use crate::app::App;
-use crate::ui::alm::common::{assumptions_header, headline, pct, table, with_view};
+use crate::ui::alm::common::{assumptions_header, group, headline, pct, results_panel, side_panel, table, with_view};
 use crate::ui::charts;
 use crate::ui::fmt::fmt_money_short;
 use crate::ui::theme::{Palette, pal};
@@ -12,12 +11,8 @@ use crate::ui::widgets::{card, wrap_row};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let p = pal(ui);
-    Panel::left("alm_gap_assumptions").resizable(true).default_size(320.0).min_size(260.0).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_gap_assumptions_scroll").show(ui, |ui| assumptions(&mut app.alm, ui, &p));
-    });
-    egui::CentralPanel::default().show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("alm_gap_results").show(ui, |ui| results(&app.alm, ui, &p));
-    });
+    side_panel(ui, "alm_gap_assumptions", 320.0, 260.0, |ui| assumptions(&mut app.alm, ui, &p));
+    results_panel(ui, "alm_gap_results", |ui| results(&app.alm, ui, &p));
 }
 
 fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
@@ -26,7 +21,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
     let mut changed = false;
     let g = &mut params.gap;
     ui.add_space(4.0);
-    ui.label(RichText::new("Behavioural life of non-maturity deposits (months)").color(p.muted).small());
+    group(ui, p, "Behavioural life (months)");
     egui::Grid::new("gap_nmd").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
         for (product, v) in g.nmd_behavioural_months.iter_mut() {
             ui.label(product.replace('_', " ").to_lowercase());
@@ -35,7 +30,7 @@ fn assumptions(alm: &mut AlmState, ui: &mut egui::Ui, p: &Palette) {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new("Cumulative gap limits (% of total assets)").color(p.muted).small());
+    group(ui, p, "Cumulative gap limits (% assets)");
     egui::Grid::new("gap_limits").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
         // In bucket order, not alphabetical.
         let mut keys: Vec<String> = g.cumulative_gap_limit_pct_assets.keys().cloned().collect();

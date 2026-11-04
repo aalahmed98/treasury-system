@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::app::{App, DetailTab};
 use crate::state::{SortKey, fmt_amount, fmt_local};
+use crate::ui::widgets::{chip, chip_toggle, primary, th, th_sort};
 use crate::ui::{break_color, match_color, pal, status_color, ticket};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -30,7 +31,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
 fn toolbar(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.heading("Deal blotter");
+        ui.label(pal(ui).title("Deal blotter"));
         ui.separator();
 
         let label = match app.desk_filter.and_then(|id| app.desks.iter().find(|d| d.desk_id == id)) {
@@ -48,10 +49,10 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
         if !app.search.is_empty() && ui.small_button("✕").clicked() {
             app.search.clear();
         }
-        ui.toggle_value(&mut app.only_breaks, "breaks only").on_hover_text("deals with an open break");
-        ui.toggle_value(&mut app.only_provisional, "provisional only").on_hover_text("not yet confirmed by the back office");
+        chip_toggle(ui, &pal(ui), &mut app.only_breaks, "breaks only").on_hover_text("deals with an open break");
+        chip_toggle(ui, &pal(ui), &mut app.only_provisional, "provisional only").on_hover_text("not yet confirmed by the back office");
         let bookable = app.bookable_desks();
-        if ui.add_enabled(!bookable.is_empty() && app.ticket.is_none(), egui::Button::new("Book deal")).on_hover_text("open a booking ticket").clicked() {
+        if primary(ui, &pal(ui), !bookable.is_empty() && app.ticket.is_none(), "Book deal").on_hover_text("open a booking ticket").clicked() {
             let d = &bookable[0];
             app.ticket = Some(ticket::TicketForm::new(d.desk_id, &d.code));
         }
@@ -77,7 +78,7 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> (Option<Uuid>, Option<Sor
             Some((k, asc)) if k == key => (true, if asc { " ▲" } else { " ▼" }),
             _ => (false, ""),
         };
-        if ui.selectable_label(on, format!("{text}{arrow}")).clicked() { Some(key) } else { None }
+        if th_sort(ui, on, &format!("{text}{arrow}")).clicked() { Some(key) } else { None }
     };
 
     ui.push_id("blotter_scroll", |ui| {
@@ -104,18 +105,18 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> (Option<Uuid>, Option<Sor
             .column(Column::initial(160.0).at_least(100.0))    // counterparty
             .column(Column::initial(84.0).at_least(70.0))      // status
             .column(Column::remainder().at_least(110.0))       // updated
-            .header(22.0, |mut h| {
+            .header(24.0, |mut h| {
                 h.col(|_| {});
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Ref, "Ref").or(sort_clicked));
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Desk, "Desk").or(sort_clicked));
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Match, "Match").or(sort_clicked));
-                h.col(|ui| { ui.strong("Cf").on_hover_text("confirmed by the back office"); });
-                h.col(|ui| { ui.strong("Src").on_hover_text("K Kondor · B Bloomberg · Q Quantum · I internal booking"); });
+                h.col(|ui| { th(ui, "Cf").on_hover_text("confirmed by the back office"); });
+                h.col(|ui| { th(ui, "Src").on_hover_text("K Kondor · B Bloomberg · Q Quantum · I internal booking"); });
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Product, "Product").or(sort_clicked));
-                h.col(|ui| { ui.strong("Side"); });
+                h.col(|ui| { th(ui, "Side"); });
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Pair, "Pair").or(sort_clicked));
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Notional, "Notional").or(sort_clicked));
-                h.col(|ui| { ui.strong("Rate"); });
+                h.col(|ui| { th(ui, "Rate"); });
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::TradeDate, "Trade").or(sort_clicked));
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::ValueDate, "Value").or(sort_clicked));
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Counterparty, "Counterparty").or(sort_clicked));
@@ -123,7 +124,7 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> (Option<Uuid>, Option<Sor
                 h.col(|ui| sort_clicked = header_btn(ui, SortKey::Updated, "Updated").or(sort_clicked));
             })
             .body(|body| {
-                body.rows(19.0, filtered.len(), |mut row| {
+                body.rows(22.0, filtered.len(), |mut row| {
                     let r = &rows[filtered[row.index()]];
                     let id = r.deal.id;
                     row.set_selected(selected == Some(id));
@@ -170,7 +171,7 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
     );
 
     ui.horizontal(|ui| {
-        ui.monospace(RichText::new(&deal_ref).strong());
+        ui.monospace(RichText::new(&deal_ref).family(crate::ui::theme::medium()));
         ui.label(format!("{product} {side} {pair}"));
         ui.monospace(&notional);
         ui.label("@");
@@ -187,7 +188,7 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
         ui.label(RichText::new(format!("v{}", d.version)).color(pal(ui).muted));
         ui.separator();
         for (tab, name) in [(DetailTab::Summary, "Summary"), (DetailTab::Sources, "Sources"), (DetailTab::History, "History")] {
-            if ui.selectable_label(app.detail_tab == tab, name).clicked() {
+            if chip(ui, &pal(ui), app.detail_tab == tab, name).clicked() {
                 app.open_detail_tab(tab);
             }
         }
@@ -229,7 +230,7 @@ fn history(app: &App, ui: &mut egui::Ui, d: &domain::Deal) {
     egui::ScrollArea::vertical().max_height(150.0).id_salt("history").show(ui, |ui| {
         for e in entries.iter().rev() {
             ui.horizontal_wrapped(|ui| {
-                ui.monospace(RichText::new(format!("v{}", e.version)).strong());
+                ui.monospace(RichText::new(format!("v{}", e.version)).family(crate::ui::theme::medium()));
                 ui.label(RichText::new(e.op.to_lowercase()).color(pal(ui).muted));
                 ui.label(RichText::new(fmt_local(e.changed_at)).color(pal(ui).muted));
                 match &e.changed_by {
@@ -277,9 +278,9 @@ fn sources(app: &App, ui: &mut egui::Ui) {
             .column(Column::auto().at_least(74.0))
             .column(Column::auto().at_least(74.0))
             .column(Column::remainder().at_least(140.0))
-            .header(20.0, |mut h| {
+            .header(24.0, |mut h| {
                 for t in ["Source", "Ref", "Lifecycle", "Link", "Notional", "Rate", "Value", "Seen", "Counterparty (as sent → canonical)"] {
-                    h.col(|ui| { ui.strong(t); });
+                    h.col(|ui| { th(ui, t); });
                 }
             })
             .body(|mut body| {
@@ -288,8 +289,8 @@ fn sources(app: &App, ui: &mut egui::Ui) {
                     let rate_ok = (s.rate - g.rate).abs() <= if g.product.is_fx() { rust_decimal::Decimal::new(5, 5) } else { rust_decimal::Decimal::new(1, 2) };
                     let value_ok = s.value_date == g.value_date;
                     let cancelled_disagree = (s.lifecycle == domain::DealStatus::Cancelled) != (g.status == domain::DealStatus::Cancelled);
-                    body.row(19.0, |mut row| {
-                        row.col(|ui| { ui.strong(s.source.as_str()); });
+                    body.row(22.0, |mut row| {
+                        row.col(|ui| { ui.label(crate::ui::theme::strong(s.source.as_str())); });
                         row.col(|ui| { ui.monospace(&s.source_ref); });
                         row.col(|ui| { ui.colored_label(if cancelled_disagree { pal(ui).negative } else { status_color(&pal(ui), s.lifecycle) }, s.lifecycle.as_str()); });
                         row.col(|ui| { ui.label(RichText::new(s.link_kind.map(|k| k.as_str()).unwrap_or("—")).color(pal(ui).muted)); });

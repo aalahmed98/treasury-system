@@ -10,17 +10,18 @@ use rust_decimal::prelude::ToPrimitive;
 use crate::app::App;
 use crate::state::{fmt_amount, fmt_local};
 use crate::ui::fmt::right;
+use crate::ui::widgets::{chip, th};
 use crate::ui::{match_color, pal};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.heading("Liquidity ladder");
+        ui.label(pal(ui).title("Liquidity ladder"));
         ui.separator();
         let ccys: Vec<String> = app.ladder.as_ref().map(|l| l.currencies.clone()).unwrap_or_default();
         let current = app.ladder_ccy.clone();
         let mut pick: Option<String> = None;
         for c in &ccys {
-            if ui.selectable_label(current.as_deref() == Some(c.as_str()), c).clicked() {
+            if chip(ui, &pal(ui), current.as_deref() == Some(c.as_str()), c).clicked() {
                 pick = Some(c.clone());
             }
         }
@@ -98,18 +99,18 @@ fn table(app: &App, l: &domain::LadderResponse, ui: &mut egui::Ui, height: f32) 
             t = t.column(Column::initial(130.0).at_least(90.0)).column(Column::initial(110.0).at_least(80.0));
         }
         t.column(Column::remainder().at_least(50.0))
-            .header(22.0, |mut h| {
+            .header(24.0, |mut h| {
                 for s in ["Value date", "Confirmed in", "Confirmed out", "Provisional in", "Provisional out", "Net expected", "", "Cumulative"] {
-                    h.col(|ui| { ui.strong(s); });
+                    h.col(|ui| { th(ui, s); });
                 }
                 if show_actuals {
-                    h.col(|ui| { ui.strong("Actual (nostro)"); });
-                    h.col(|ui| { ui.strong("Difference"); });
+                    h.col(|ui| { th(ui, "Actual (nostro)"); });
+                    h.col(|ui| { th(ui, "Difference"); });
                 }
-                h.col(|ui| { ui.strong("Deals"); });
+                h.col(|ui| { th(ui, "Deals"); });
             })
             .body(|body| {
-                body.rows(19.0, l.rows.len(), |mut row| {
+                body.rows(22.0, l.rows.len(), |mut row| {
                     let r = &l.rows[row.index()];
                     row.set_selected(selected == Some(r.date));
                     let quiet = r.deals == 0 && r.actual_net.is_none();
@@ -119,7 +120,7 @@ fn table(app: &App, l: &domain::LadderResponse, ui: &mut egui::Ui, height: f32) 
                     row.col(|ui| {
                         let label = r.date.format("%a %d %b").to_string();
                         if r.date == today {
-                            ui.label(RichText::new(label).strong().color(pal(ui).warning)).on_hover_text("today");
+                            ui.label(RichText::new(label).family(crate::ui::theme::medium()).color(pal(ui).warning)).on_hover_text("today");
                         } else if r.date < today {
                             ui.label(RichText::new(label).color(pal(ui).muted));
                         } else {
@@ -133,7 +134,7 @@ fn table(app: &App, l: &domain::LadderResponse, ui: &mut egui::Ui, height: f32) 
                     row.col(|ui| {
                         right(ui, |ui| {
                             let color = if r.net_expected.is_sign_negative() { pal(ui).negative } else if r.net_expected.is_zero() { pal(ui).muted } else { pal(ui).positive };
-                            ui.monospace(RichText::new(fmt_amount(r.net_expected)).color(color).strong());
+                            ui.monospace(RichText::new(fmt_amount(r.net_expected)).color(color).family(crate::ui::theme::medium()));
                         });
                     });
                     row.col(|ui| bar(ui, r.net_expected, max_abs));
@@ -184,7 +185,7 @@ fn detail(app: &mut App, ui: &mut egui::Ui) {
     let Some(date) = app.ladder_date else { return };
     let ccy = app.ladder_ccy.clone().unwrap_or_default();
     ui.horizontal(|ui| {
-        ui.strong(format!("{ccy} on {}", date.format("%A %d %B %Y")));
+        ui.label(p.heading(format!("{ccy} on {}", date.format("%A %d %B %Y"))));
         ui.label(RichText::new(format!("{} expected flows · {} nostro movements", app.ladder_flows.len(), app.ladder_movements.len())).color(p.muted));
         if ui.small_button("✕").clicked() {
             app.select_ladder_date(None);
@@ -193,7 +194,7 @@ fn detail(app: &mut App, ui: &mut egui::Ui) {
     let mut open_deal = None;
     egui::ScrollArea::vertical().max_height(130.0).id_salt("ladder_detail").show(ui, |ui| {
         ui.columns(2, |cols| {
-            cols[0].label(RichText::new("Expected flows").strong().small());
+            cols[0].label(RichText::new("Expected flows").family(crate::ui::theme::medium()).small());
             for f in &app.ladder_flows {
                 cols[0].horizontal(|ui| {
                     if ui.link(RichText::new(&f.deal_ref).monospace()).clicked() {
@@ -206,7 +207,7 @@ fn detail(app: &mut App, ui: &mut egui::Ui) {
                     ui.colored_label(match_color(&p, f.match_status), RichText::new(crate::state::match_label(f.match_status)).small());
                 });
             }
-            cols[1].label(RichText::new("Nostro movements").strong().small());
+            cols[1].label(RichText::new("Nostro movements").family(crate::ui::theme::medium()).small());
             if app.ladder_movements.is_empty() {
                 cols[1].label(RichText::new(if app.ladder.as_ref().is_some_and(|l| l.liquidity_access) { "none reported" } else { "not visible to this user" }).color(p.muted).small());
             }

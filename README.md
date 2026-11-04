@@ -25,6 +25,8 @@ implementation plan with what is blocked and what is not lives in `docs/implemen
 | `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
 | `crates/recon` | Reconciliation core (normaliser, matcher, SLA, pipeline, synthetic world, synthetic banking book). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `nostro`, `alm-synth`, `status` |
 | `crates/client` | egui desktop client (Windows `.exe`): overview, blotter with match status and provenance, breaks, liquidity ladder, ALM workbench |
+| `crates/client/assets/fonts` | the bundled typeface: Inter (OFL 1.1) as a static build with tabular figures |
+| `DESIGN.md`, `PRODUCT.md` | the client's visual system and the product brief it serves |
 | `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `build-windows.cmd` |
@@ -112,7 +114,17 @@ the gap by bucket. The top bar carries the tabs, the feed ages, the attention be
 severity-sorted list: SLA breaches, breaks awaiting a decision, stale feeds, deals unconfirmed beyond
 a business day, large settlements on the next business day, limit breaches, parameter changes; each
 item opens the right place) and the System, Light or Dark theme switch, which is remembered between
-runs. Every colour comes from one palette resolved per theme.
+runs.
+
+The look is a small design system, written up in `DESIGN.md` (the tokens and components) and
+`PRODUCT.md` (who it is for and what it must never look like). Warm-tinted neutrals lean toward the
+NBB red, which itself appears only in the wordmark so that red keeps meaning breach on every data
+surface; one ink accent carries selection and the primary action; status colours always travel with
+a dot or a word. One typeface, Inter (OFL, bundled under `crates/client/assets/fonts` as a static
+build with tabular figures on by default), in three weights carries the hierarchy. Metrics sit in a
+stat strip rather than a grid of tiles, tools and filters are chips, counts are badges, and every
+table, card and gauge is drawn by the same few functions in `crates/client/src/ui/widgets.rs` from
+the palette in `crates/client/src/ui/theme.rs`, so both themes are designed rather than inverted.
 
 The **ALM** tab is a tool strip: Dashboard, LCR, NSFR, NII / NIM, Stress, Attribution, IRD, Gap,
 Funding and Setup. Each tool shows the bank's saved assumptions on the left, editable as an unsaved
@@ -218,9 +230,10 @@ cargo run -q -p client
 ```
 
 `TREASURY_SNAPSHOT_BELL=1` opens the attention popup, `TREASURY_SNAPSHOT_TOOL=stress` opens an ALM
-tool (`TREASURY_SNAPSHOT_DRAFT=1` with `setup` starts a draft), `TREASURY_SNAPSHOT_SIZE=680x410` sets
-the window and `TREASURY_SNAPSHOT_ZOOM=0.5` counters a scaled display (WSLg reports 2x). The window
-closes itself once the PNG is written.
+tool (`TREASURY_SNAPSHOT_DRAFT=1` with `setup` starts a draft), `TREASURY_SNAPSHOT_SCREEN=login`
+captures the sign-in screen without a session, `TREASURY_SNAPSHOT_SIZE=680x410` sets the window and
+`TREASURY_SNAPSHOT_ZOOM=0.5` counters a scaled display (WSLg reports 2x). The window closes itself
+once the PNG is written.
 
 ## Tests
 
