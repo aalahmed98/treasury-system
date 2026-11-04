@@ -607,3 +607,157 @@
   height: 24px;
   padding: 0 6px;
 }
+
+/* trading pages: page plus the positions panel */
+.layout-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  height: 100%;
+  min-height: 0;
+}
+.main-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 6px;
+}
+.side {
+  border-left: 1px solid var(--hairline);
+  background: var(--surface);
+  padding: 14px;
+  overflow: auto;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 6px;
+}
+.toolbar .spacer {
+  flex: 1;
+}
+.tablewrap {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.table.grid {
+  table-layout: fixed;
+  min-width: 100%;
+}
+.table.grid thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.table.grid tbody tr:nth-child(even) {
+  background: none;
+}
+.table.grid tbody tr.odd {
+  background: var(--surface-alt);
+}
+.table.grid td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.th-sort.active {
+  color: var(--text);
+}
+.resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+.table.grid th {
+  position: sticky;
+}
+.detail {
+  border-top: 1px solid var(--hairline);
+  margin-top: 8px;
+  padding-top: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+.detail .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+.facts .k {
+  color: var(--muted);
+  margin-right: 4px;
+}
+.t-violet {
+  color: var(--violet);
+}
+.t-magenta {
+  color: var(--magenta);
+}
+.bar-cell {
+  position: relative;
+  height: 12px;
+}
+.bar-cell .mid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--muted);
+}
+.bar-cell .bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 1px;
+}
+dialog.ticket {
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  min-width: 420px;
+}
+dialog.ticket::backdrop {
+  background: rgba(0, 0, 0, 0.25);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.form-grid .k {
+  color: var(--text-2);
+}

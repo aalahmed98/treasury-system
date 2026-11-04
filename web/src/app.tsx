@@ -7,6 +7,9 @@ import { Shell } from './components/shell';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
 import { Placeholder } from './pages/Placeholder';
+import { Blotter } from './pages/Blotter';
+import { Breaks } from './pages/Breaks';
+import { Ladder } from './pages/Ladder';
 
 function Gate() {
   const { current, canSeeAlm } = useSession();
@@ -17,9 +20,9 @@ function Gate() {
         <Shell>
           <Routes>
             <Route index element={<Overview />} />
-            <Route path="blotter" element={<Placeholder title="Deal blotter" />} />
-            <Route path="breaks" element={<Placeholder title="Breaks" />} />
-            <Route path="liquidity" element={<Placeholder title="Liquidity ladder" />} />
+            <Route path="blotter" element={<Blotter />} />
+            <Route path="breaks" element={<Breaks />} />
+            <Route path="liquidity" element={<Ladder />} />
             <Route path="alm/:tool?" element={canSeeAlm ? <Placeholder title="ALM" /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
