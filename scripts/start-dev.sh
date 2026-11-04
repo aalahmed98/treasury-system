@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Start the whole stack for development from WSL: Postgres, migrations, the reconciler and the API.
+# Run it from a WSL terminal, then start the Windows client from dist\treasury-client.exe.
+# Logs: /tmp/treasury-recon.log and /tmp/treasury-server.log. Stop with: ./scripts/stop-dev.sh
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ ! -f .env ]; then cp .env.example .env; echo "created .env from .env.example"; fi
+set -a; source .env; set +a
+
+echo "1/5 database"; docker compose up -d --wait >/dev/null
+echo "2/5 build";    cargo build -q --workspace
+echo "3/5 migrate";  cargo run -q -p server -- migrate 2>&1 | grep -oE "migrations applied|error.*" || true
+echo "4/5 seed";     cargo run -q -p server -- seed 2>&1 | grep -oE "users seeded|error.*" || true
+DEALS=$(psql "$DATABASE_URL" -Atc "select count(*) from deals" 2>/dev/null || echo 0)
+if [ "$DEALS" = "0" ]; then
+  echo "    no deals yet: replaying a 5-day synthetic world (about 40 s)"
+  cargo run -q -p recon -- synth --mode replay --speed 20000 --days 5 2>&1 | grep -E "deals by|^  " | sed -E 's/\x1b\[[0-9;]*m//g' || true
+fi
+echo "5/5 services"
+pkill -f "[t]reasury-recon serve" 2>/dev/null || true
+pkill -f "[t]reasury-server serve" 2>/dev/null || true
+nohup cargo run -q -p recon -- serve >/tmp/treasury-recon.log 2>&1 &
+nohup cargo run -q -p server -- serve >/tmp/treasury-server.log 2>&1 &
+for i in $(seq 1 60); do curl -sf "http://localhost:${BIND_ADDR##*:}/healthz" >/dev/null && break; sleep 1; done
+echo
+echo "API:         http://${BIND_ADDR}   (healthz: $(curl -s "http://localhost:${BIND_ADDR##*:}/healthz" || echo down))"
+echo "Reconciler:  running (log /tmp/treasury-recon.log)"
+echo "Client:      double-click dist\\treasury-client.exe on Windows, or from WSL: cargo run -p client"
+echo "Log in as:   fx1, fx2, mm1, alm1 or head1   password: password"

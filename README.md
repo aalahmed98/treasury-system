@@ -114,7 +114,19 @@ with absolute and idle expiry, per-username lockout and per-IP throttling, event
 on logout, plaintext HTTP only on loopback, audit rows with client IP and request id. See
 `db/migrations/0001_init.sql` and `0002_recon.sql` for the policies and grants.
 
-## Run it (WSL / Linux dev loop)
+## Quick start
+
+From a WSL terminal in the project folder:
+
+```bash
+./scripts/start-dev.sh      # database, migrations, seed, a synthetic world if the database is empty, reconciler, API
+```
+
+Then on Windows, open `dist\treasury-client.exe` (built by `scripts\build-windows.cmd`; the raw
+build output lives in `C:\dev\targets\treasury\release\`, outside the OneDrive folder). Log in as
+`fx1`, `mm1`, `alm1` or `head1` with password `password`. `./scripts/stop-dev.sh` stops the services.
+
+## Run it step by step (WSL / Linux dev loop)
 
 ```bash
 cp .env.example .env                      # dev passwords for the local Docker database
