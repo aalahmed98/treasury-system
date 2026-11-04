@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use domain::{BsSide, RateType};
-use recon::alm_synth::{AlmCfg, Book, Market, digest, generate, snapshot_dates};
+use recon::alm_synth::{AlmCfg, Book, Market, digest, generate, periods, snapshot_dates};
 
 fn d(s: &str) -> NaiveDate {
     s.parse().unwrap()
@@ -66,4 +66,25 @@ fn snapshots_and_cohorts_are_well_formed() {
     assert!(market.rate("BHD", d("2026-11-04"), 3650) > market.rate("BHD", d("2026-11-04"), 1));
     assert!((market.spot("USD", d("2026-11-04")) - 0.376).abs() < 1e-9);
     assert!(market.spot("EUR", d("2026-11-04")) > 0.3 && market.spot("EUR", d("2026-11-04")) < 0.55);
+}
+
+#[test]
+fn monthly_income_rows_are_signed_and_budgeted() {
+    let (book, _) = book(42);
+    let rows = periods(&book, 42);
+    assert!(!rows.is_empty());
+    let months: std::collections::BTreeSet<_> = rows.iter().map(|r| r.period).collect();
+    assert!(months.contains(&d("2026-11-01")) && months.contains(&d("2026-09-01")), "{months:?}");
+    for r in &rows {
+        match r.side {
+            BsSide::Asset => assert!(r.nii >= 0.0, "{:?}", r),
+            _ => assert!(r.nii <= 0.0, "{:?}", r),
+        }
+        assert!(r.avg_balance > 0.0);
+    }
+    let actual: f64 = rows.iter().filter(|r| r.period == d("2026-11-01") && r.kind == "ACTUAL").map(|r| r.nii).sum();
+    let budget: f64 = rows.iter().filter(|r| r.period == d("2026-11-01") && r.kind == "BUDGET").map(|r| r.nii).sum();
+    assert!(actual > 0.0, "the book earns a positive margin: {actual}");
+    assert!((budget - actual).abs() / actual < 0.15, "budget {budget} near actual {actual}");
+    assert_eq!(periods(&book, 42), rows, "deterministic");
 }

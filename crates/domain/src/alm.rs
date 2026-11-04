@@ -445,3 +445,368 @@ pub struct LcrResult {
     pub total: LcrFigures,
     pub by_ccy: Vec<LcrFigures>,
 }
+
+// ---------------------------------------------------------------------------------------------
+// Market data and scenarios
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CurvePoint {
+    pub tenor: String,
+    pub tenor_days: i32,
+    /// Percent.
+    pub rate: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RateCurve {
+    pub ccy: String,
+    pub index_code: String,
+    pub as_of: NaiveDate,
+    /// Sorted by tenor.
+    pub points: Vec<CurvePoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FxSpot {
+    pub pair: String,
+    pub as_of: NaiveDate,
+    pub mid: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarketResponse {
+    pub curves: Vec<RateCurve>,
+    pub spots: Vec<FxSpot>,
+}
+
+text_enum! {
+    /// The Basel standardised interest rate scenarios, plus a custom parallel shock.
+    RateScenario {
+        Base => "BASE",
+        ParallelUp => "PARALLEL_UP",
+        ParallelDown => "PARALLEL_DOWN",
+        Steepener => "STEEPENER",
+        Flattener => "FLATTENER",
+        ShortUp => "SHORT_UP",
+        ShortDown => "SHORT_DOWN",
+        Custom => "CUSTOM",
+    }
+}
+
+impl RateScenario {
+    pub const BASEL: [RateScenario; 6] = [
+        RateScenario::ParallelUp,
+        RateScenario::ParallelDown,
+        RateScenario::Steepener,
+        RateScenario::Flattener,
+        RateScenario::ShortUp,
+        RateScenario::ShortDown,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RateScenario::Base => "Base",
+            RateScenario::ParallelUp => "Parallel up",
+            RateScenario::ParallelDown => "Parallel down",
+            RateScenario::Steepener => "Steepener",
+            RateScenario::Flattener => "Flattener",
+            RateScenario::ShortUp => "Short rates up",
+            RateScenario::ShortDown => "Short rates down",
+            RateScenario::Custom => "Custom parallel",
+        }
+    }
+}
+
+text_enum! {
+    CompareTo {
+        Prior => "PRIOR",
+        Budget => "BUDGET",
+    }
+}
+
+text_enum! {
+    PeriodKind {
+        Actual => "ACTUAL",
+        Budget => "BUDGET",
+    }
+}
+
+/// One month of net interest income for a book, side and currency: the signed contribution to
+/// NII (assets positive, liabilities negative) and the average balance, in the currency's units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeriodLine {
+    pub period: NaiveDate,
+    pub book: String,
+    pub side: BsSide,
+    pub ccy: String,
+    pub kind: PeriodKind,
+    pub nii: f64,
+    pub avg_balance: f64,
+}
+
+/// Extra inputs some calculators take; everything optional so one request shape serves all.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlmOptions {
+    pub scenario: Option<RateScenario>,
+    /// Basis points for the custom parallel scenario.
+    pub custom_shock_bp: Option<f64>,
+    pub compare_to: Option<CompareTo>,
+    /// The later period of an attribution (first day of the month); defaults to the latest.
+    pub period: Option<NaiveDate>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Results
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NsfrLine {
+    pub class: String,
+    pub bucket: String,
+    pub amount: f64,
+    pub factor: f64,
+    pub weighted: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NsfrResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub minimum: f64,
+    pub internal_minimum: f64,
+    pub asf_lines: Vec<NsfrLine>,
+    pub rsf_lines: Vec<NsfrLine>,
+    pub asf: f64,
+    pub rsf: f64,
+    /// Percent.
+    pub ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GapBucket {
+    pub label: String,
+    pub assets: f64,
+    pub liabilities: f64,
+    pub gap: f64,
+    pub cumulative: f64,
+    pub cumulative_pct_assets: f64,
+    pub limit_pct: Option<f64>,
+    pub breach: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GapCurrency {
+    pub ccy: String,
+    pub buckets: Vec<GapBucket>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GapResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub total_assets: f64,
+    pub buckets: Vec<GapBucket>,
+    pub by_ccy: Vec<GapCurrency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiMonth {
+    pub period: NaiveDate,
+    pub income: f64,
+    pub expense: f64,
+    pub nii: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiBreakdown {
+    pub key: String,
+    pub nii: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub scenario: RateScenario,
+    pub horizon_months: u32,
+    pub months: Vec<NiiMonth>,
+    pub income: f64,
+    pub expense: f64,
+    pub nii: f64,
+    pub earning_assets: f64,
+    /// Annualised NII over earning assets, percent.
+    pub nim: Option<f64>,
+    pub by_book: Vec<NiiBreakdown>,
+    pub by_ccy: Vec<NiiBreakdown>,
+    /// The base scenario's NII when this is a shocked run.
+    pub base_nii: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EveCurrency {
+    pub ccy: String,
+    pub base: f64,
+    pub shocked: f64,
+    pub delta: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EveResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub scenario: RateScenario,
+    pub base: f64,
+    pub shocked: f64,
+    /// Shocked minus base, summed over currencies (negative is a loss).
+    pub delta: f64,
+    /// Basel aggregation: losses less half the gains, floored at zero.
+    pub basel_loss: f64,
+    pub by_ccy: Vec<EveCurrency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StressScenarioRow {
+    pub scenario: RateScenario,
+    pub label: String,
+    pub nii: f64,
+    pub nii_delta: f64,
+    pub nii_delta_pct: Option<f64>,
+    pub eve_delta: f64,
+    pub eve_loss: f64,
+    pub eve_loss_pct_tier1: Option<f64>,
+    pub nii_breach: bool,
+    pub eve_breach: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SurvivalPoint {
+    pub day: u32,
+    pub cumulative_net_outflow: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityStressResult {
+    pub lcr_base: Option<f64>,
+    pub lcr_stressed: Option<f64>,
+    pub stock_stressed: f64,
+    pub net_outflows_stressed: f64,
+    /// First day the cumulative stressed net outflow exceeds the stock; `None` means the stock
+    /// lasts the whole 90-day horizon.
+    pub survival_days: Option<u32>,
+    pub horizon: Vec<SurvivalPoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FxStressRow {
+    pub ccy: String,
+    pub shock_pct: f64,
+    /// Net assets in the currency, in the reporting currency.
+    pub exposure: f64,
+    /// Revaluation if the currency weakens by the shock.
+    pub pnl: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StressResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub base_nii: f64,
+    pub base_eve: f64,
+    pub tier1_capital: f64,
+    pub nii_limit_pct: f64,
+    pub eve_limit_pct_tier1: f64,
+    pub rate_scenarios: Vec<StressScenarioRow>,
+    pub worst_eve: Option<RateScenario>,
+    pub liquidity: LiquidityStressResult,
+    pub fx: Vec<FxStressRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttributionLine {
+    pub book: String,
+    pub side: BsSide,
+    pub ccy: String,
+    pub nii_a: f64,
+    pub nii_b: f64,
+    pub volume_a: f64,
+    pub volume_b: f64,
+    /// Percent.
+    pub rate_a: f64,
+    pub rate_b: f64,
+    pub days_effect: f64,
+    pub volume_effect: f64,
+    pub rate_effect: f64,
+    pub residual: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttributionStep {
+    pub label: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttributionResult {
+    pub period_a: NaiveDate,
+    pub period_b: NaiveDate,
+    pub compare_to: CompareTo,
+    pub reporting_ccy: String,
+    pub nii_a: f64,
+    pub nii_b: f64,
+    pub delta: f64,
+    pub days_effect: f64,
+    pub pure_volume_effect: f64,
+    pub mix_effect: f64,
+    pub rate_effect: f64,
+    pub residual: f64,
+    /// Waterfall: start, the effects, end.
+    pub steps: Vec<AttributionStep>,
+    pub lines: Vec<AttributionLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FundingGroup {
+    pub name: String,
+    pub segment: String,
+    pub balance: f64,
+    pub share_pct: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FundingResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub total_deposits: f64,
+    pub total_funding: f64,
+    pub wholesale_funding: f64,
+    pub top1_pct: f64,
+    pub top10_pct: f64,
+    pub wholesale_pct: f64,
+    pub top1_limit_pct: f64,
+    pub top10_limit_pct: f64,
+    pub wholesale_limit_pct: f64,
+    pub breaches: Vec<String>,
+    pub groups: Vec<FundingGroup>,
+    /// Deposits by segment.
+    pub by_segment: Vec<NiiBreakdown>,
+}
+
+/// Interest rate differential: a forward from two money-market rates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IrdQuote {
+    pub tenor: String,
+    pub days: i64,
+    pub base_rate: f64,
+    pub quote_rate: f64,
+    pub forward: f64,
+    /// In pips of the quote currency.
+    pub points: f64,
+}

@@ -10,15 +10,13 @@ use std::collections::BTreeMap;
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use domain::calendar::Calendar;
 use domain::{Amort, BsPosition, BsSide, DayCount, HqlaLevel, RateType};
+
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, QueryBuilder};
 
-use crate::alm_synth::schedule::add_months;
-mod schedule {
-    pub use alm::schedule::add_months;
-}
+use alm::schedule::add_months;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -540,6 +538,55 @@ pub fn digest(book: &Book) -> u64 {
     h
 }
 
+/// One month of net interest income for a book, side and currency: the actual from the last
+/// snapshot of the month, and a budget that differs a little in balance and rate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PeriodRow {
+    pub period: NaiveDate,
+    pub book: String,
+    pub side: BsSide,
+    pub ccy: String,
+    pub kind: &'static str,
+    pub nii: f64,
+    pub avg_balance: f64,
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// Interest at each cohort's rate over the month's days, signed (assets positive, liabilities
+/// negative), aggregated by book, side and currency from the last snapshot of every month.
+pub fn periods(book: &Book, seed: u64) -> Vec<PeriodRow> {
+    let mut last_in_month: BTreeMap<(i32, u32), NaiveDate> = BTreeMap::new();
+    for d in &book.dates {
+        let e = last_in_month.entry((d.year(), d.month())).or_insert(*d);
+        if d > e {
+            *e = *d;
+        }
+    }
+    let mut rows = Vec::new();
+    for ((y, m), d) in last_in_month {
+        let Some(period) = NaiveDate::from_ymd_opt(y, m, 1) else { continue };
+        let days = (add_months(period, 1) - period).num_days() as f64;
+        let mut agg: BTreeMap<(String, BsSide, String), (f64, f64)> = BTreeMap::new();
+        for p in book.positions.iter().filter(|p| p.as_of == d && p.side != BsSide::OffBalance && p.rate_type != RateType::NotSensitive) {
+            let sign = if p.side == BsSide::Asset { 1.0 } else { -1.0 };
+            let e = agg.entry((p.book.clone(), p.side, p.ccy.clone())).or_insert((0.0, 0.0));
+            e.0 += sign * p.balance * p.rate / 100.0 * days / p.day_count.basis();
+            e.1 += p.balance;
+        }
+        for ((b, side, ccy), (nii, balance)) in agg {
+            let mut rng = StdRng::seed_from_u64(seed ^ hash(&format!("{b}|{side}|{ccy}|{y}-{m}")) ^ 0xb0d6);
+            let balance_factor = 0.95 + 0.08 * rng.random_range(0.0..1.0);
+            let rate_factor = 0.97 + 0.06 * rng.random_range(0.0..1.0);
+            rows.push(PeriodRow { period, book: b.clone(), side, ccy: ccy.clone(), kind: "ACTUAL", nii: round2(nii), avg_balance: round2(balance) });
+            rows.push(PeriodRow { period, book: b, side, ccy, kind: "BUDGET", nii: round2(nii * balance_factor * rate_factor), avg_balance: round2(balance * balance_factor) });
+        }
+    }
+    rows
+}
+
 // ---------------------------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------------------------
@@ -552,6 +599,7 @@ pub struct AlmSummary {
     pub depositors: usize,
     pub rates: usize,
     pub spots: usize,
+    pub periods: usize,
 }
 
 /// Generate and persist. Snapshots already complete are left alone, so re-runs are cheap and a
@@ -666,6 +714,15 @@ pub async fn write(pool: &PgPool, market: &Market, book: &Book, business_date: N
         sqlx::query("UPDATE bs_snapshots SET complete = true WHERE as_of = $1").bind(as_of).execute(pool).await?;
         sqlx::query("SELECT pg_notify('alm_events', json_build_object('snapshot', $1::date)::text)").bind(as_of).execute(pool).await?;
         summary.snapshots += 1;
+    }
+    let rows = periods(book, seed);
+    for chunk in rows.chunks(1000) {
+        let mut qb = QueryBuilder::new("INSERT INTO alm_period (period, book, side, ccy, kind, nii, avg_balance) ");
+        qb.push_values(chunk, |mut b, r| {
+            b.push_bind(r.period).push_bind(&r.book).push_bind(r.side.as_str()).push_bind(&r.ccy).push_bind(r.kind).push_bind(r.nii).push_bind(r.avg_balance);
+        });
+        qb.push(" ON CONFLICT (period, book, side, ccy, kind) DO UPDATE SET nii = excluded.nii, avg_balance = excluded.avg_balance");
+        summary.periods += qb.build().execute(pool).await?.rows_affected() as usize;
     }
     Ok(summary)
 }
