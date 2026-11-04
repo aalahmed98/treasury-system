@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Method, Request, Response, StatusCode, header};
 use chrono::Utc;
-use domain::{AlmParams, AlmParamsResponse, AlmSnapshot, LcrResult, LoginResponse};
+use domain::{ActivityRow, AlmOverview, AlmParams, AlmParamsResponse, AlmSnapshot, AttentionItem, AttentionSeverity, AttentionTarget, AttributionResult, LcrResult, LoginResponse, MarketResponse, NiiResult, PositionsSummaryRow, StressResult, TrendResponse};
 use http_body_util::BodyExt;
 use server::config::Config;
 use server::{AppState, seed};
@@ -71,7 +71,25 @@ async fn fixture(owner: &PgPool) -> axum::Router {
     .execute(owner)
     .await
     .unwrap();
+    sqlx::query("INSERT INTO market_rates (as_of, ccy, index_code, tenor, tenor_days, rate) VALUES ($1, 'BHD', 'BHIBOR', 'ON', 1, 5.0), ($1, 'BHD', 'BHIBOR', '1Y', 365, 5.5)")
+        .bind(today)
+        .execute(owner)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO fx_spots (as_of, pair, mid) VALUES ($1, 'USD/BHD', 0.376)").bind(today).execute(owner).await.unwrap();
     server::app(AppState::new(app, Config::default()))
+}
+
+async fn post<T: serde::de::DeserializeOwned>(router: &axum::Router, tok: &str, uri: &str, body: &str) -> (StatusCode, Option<T>) {
+    let res = router.clone().oneshot(req(Method::POST, uri, Some(tok), Some(body.into()))).await.unwrap();
+    let status = res.status();
+    if status.is_success() { (status, Some(json(res).await)) } else { (status, None) }
+}
+
+async fn get<T: serde::de::DeserializeOwned>(router: &axum::Router, tok: &str, uri: &str) -> (StatusCode, Option<T>) {
+    let res = router.clone().oneshot(req(Method::GET, uri, Some(tok), None)).await.unwrap();
+    let status = res.status();
+    if status.is_success() { (status, Some(json(res).await)) } else { (status, None) }
 }
 
 #[sqlx::test(migrations = "../../db/migrations")]
@@ -136,4 +154,136 @@ async fn lcr_matches_the_hand_worked_case_and_accepts_what_ifs(owner: PgPool) {
     // An unknown or incomplete snapshot date is refused.
     let res = router.clone().oneshot(req(Method::POST, "/alm/lcr", Some(&head1), Some(r#"{"as_of":"2030-01-01"}"#.into()))).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn every_tool_answers_for_alm_users_only(owner: PgPool) {
+    let router = fixture(&owner).await;
+    let fx1 = token(&router, "fx1").await;
+    let alm1 = token(&router, "alm1").await;
+    for uri in ["/alm/nsfr", "/alm/gap", "/alm/nii", "/alm/eve", "/alm/stress", "/alm/funding"] {
+        let (status, _) = post::<serde_json::Value>(&router, &fx1, uri, "{}").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri} for fx1");
+        let (status, body) = post::<serde_json::Value>(&router, &alm1, uri, "{}").await;
+        assert_eq!(status, StatusCode::OK, "{uri} for alm1");
+        assert!(body.is_some());
+    }
+    let (status, nii) = post::<NiiResult>(&router, &alm1, "/alm/nii", r#"{"scenario":"PARALLEL_UP"}"#).await;
+    assert_eq!(status, StatusCode::OK);
+    let nii = nii.unwrap();
+    assert!(nii.base_nii.is_some(), "a shocked run carries the base");
+    assert_eq!(nii.months.len(), 12);
+    let (_, stress) = post::<StressResult>(&router, &alm1, "/alm/stress", r#"{"custom_shock_bp": 50}"#).await;
+    assert_eq!(stress.unwrap().rate_scenarios.len(), 7);
+
+    let (status, o) = get::<AlmOverview>(&router, &alm1, "/alm/overview").await;
+    assert_eq!(status, StatusCode::OK);
+    let o = o.unwrap();
+    assert!((o.lcr.unwrap() - 222.222222).abs() < 1e-5);
+    assert_eq!(o.params_version, 1);
+    assert!(o.limits.iter().any(|l| l.metric == "LCR" && !l.breach));
+    assert_eq!(o.lcr_trend.len(), 1);
+    let (status, _) = get::<AlmOverview>(&router, &fx1, "/alm/overview").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, t) = get::<TrendResponse>(&router, &alm1, "/alm/trend?metric=nsfr&days=30").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(t.unwrap().points.len(), 1);
+    let (status, _) = get::<TrendResponse>(&router, &alm1, "/alm/trend?metric=bogus").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, p) = get::<Vec<PositionsSummaryRow>>(&router, &alm1, "/alm/positions").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(p.unwrap().len() >= 3);
+
+    // Market data is for every desk.
+    let (status, m) = get::<MarketResponse>(&router, &fx1, "/market/rates").await;
+    assert_eq!(status, StatusCode::OK);
+    let m = m.unwrap();
+    assert_eq!(m.curves.len(), 1);
+    assert_eq!(m.curves[0].points.len(), 2);
+    assert_eq!(m.spots.len(), 1);
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn attribution_compares_months_and_budget(owner: PgPool) {
+    let router = fixture(&owner).await;
+    let alm1 = token(&router, "alm1").await;
+    sqlx::query(
+        "INSERT INTO alm_period (period, book, side, ccy, kind, nii, avg_balance) VALUES \
+         ('2026-09-01', 'LOANS', 'ASSET', 'BHD', 'ACTUAL', 4.1667, 1000), ('2026-10-01', 'LOANS', 'ASSET', 'BHD', 'ACTUAL', 6.2, 1200), \
+         ('2026-09-01', 'DEPOSITS', 'LIABILITY', 'BHD', 'ACTUAL', -1.3333, 800), ('2026-10-01', 'DEPOSITS', 'LIABILITY', 'BHD', 'ACTUAL', -1.7222, 800), \
+         ('2026-10-01', 'LOANS', 'ASSET', 'BHD', 'BUDGET', 5.0, 1100), ('2026-10-01', 'DEPOSITS', 'LIABILITY', 'BHD', 'BUDGET', -1.5, 800)",
+    )
+    .execute(&owner)
+    .await
+    .unwrap();
+    let (status, r) = post::<AttributionResult>(&router, &alm1, "/alm/attribution", r#"{"period":"2026-10-01"}"#).await;
+    assert_eq!(status, StatusCode::OK);
+    let r = r.unwrap();
+    assert_eq!(r.period_a.to_string(), "2026-09-01");
+    assert!((r.delta - ((6.2 - 1.72) - (4.17 - 1.33))).abs() < 1e-9, "delta {}", r.delta);
+    let sum = r.days_effect + r.pure_volume_effect + r.mix_effect + r.rate_effect + r.residual;
+    assert!((sum - r.delta).abs() < 1e-9);
+    let (status, b) = post::<AttributionResult>(&router, &alm1, "/alm/attribution", r#"{"period":"2026-10-01","compare_to":"BUDGET"}"#).await;
+    assert_eq!(status, StatusCode::OK);
+    let b = b.unwrap();
+    assert!((b.nii_a - 3.5).abs() < 1e-9, "budget is the starting point");
+    assert!((b.nii_b - (6.2 - 1.72)).abs() < 1e-9);
+    let (status, _) = post::<AttributionResult>(&router, &alm1, "/alm/attribution", r#"{"period":"2020-01-01"}"#).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn saving_parameters_shows_in_attention_and_activity(owner: PgPool) {
+    let router = fixture(&owner).await;
+    let fx1 = token(&router, "fx1").await;
+    let alm1 = token(&router, "alm1").await;
+    let mut p = AlmParams::default();
+    p.lcr.internal_minimum = 500.0;
+    let body = serde_json::json!({ "params": p, "note": "stress the floor" }).to_string();
+    let (status, _) = post::<serde_json::Value>(&router, &fx1, "/alm/params", &body).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "fx1 cannot save");
+    let bad = serde_json::json!({ "params": AlmParams::default(), "note": "" }).to_string();
+    let (status, _) = post::<serde_json::Value>(&router, &alm1, "/alm/params", &bad).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a note is required");
+    let mut broken = AlmParams::default();
+    broken.lcr.outflow_rates.insert("RET_STABLE".into(), 150.0);
+    let bad = serde_json::json!({ "params": broken, "note": "x" }).to_string();
+    let (status, _) = post::<serde_json::Value>(&router, &alm1, "/alm/params", &bad).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "percentages are checked before the database");
+    let (status, v) = post::<domain::AlmParamsVersion>(&router, &alm1, "/alm/params", &body).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let v = v.unwrap();
+    assert_eq!(v.version, 2);
+    assert_eq!(v.created_by.as_deref(), Some("ALM Analyst"));
+
+    let (_, p2) = get::<AlmParamsResponse>(&router, &alm1, "/alm/params").await;
+    let p2 = p2.unwrap();
+    assert_eq!(p2.active.version, 2);
+    assert_eq!(p2.params.lcr.internal_minimum, 500.0);
+    assert_eq!(p2.history.len(), 2);
+
+    let (status, items) = get::<Vec<AttentionItem>>(&router, &alm1, "/attention").await;
+    assert_eq!(status, StatusCode::OK);
+    let items = items.unwrap();
+    let lcr = items.iter().find(|i| i.title.starts_with("LCR")).expect("an LCR item: {items:?}");
+    assert_eq!(lcr.severity, AttentionSeverity::Critical);
+    assert_eq!(lcr.target, AttentionTarget::Alm { tool: "lcr".into() });
+    assert!(items.iter().any(|i| i.title.contains("parameters changed to v2")));
+    assert_eq!(items.first().map(|i| i.severity), Some(AttentionSeverity::Critical), "sorted by severity");
+    let (status, fx_items) = get::<Vec<AttentionItem>>(&router, &fx1, "/attention").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(fx_items.unwrap().iter().all(|i| !matches!(i.target, AttentionTarget::Alm { .. })), "no ALM items for a trader");
+
+    let (status, acts) = get::<Vec<ActivityRow>>(&router, &alm1, "/activity?limit=10").await;
+    assert_eq!(status, StatusCode::OK);
+    let acts = acts.unwrap();
+    assert!(acts.iter().any(|a| a.kind == "parameters" && a.summary.contains("v2")), "{acts:?}");
+    let (status, acts) = get::<Vec<ActivityRow>>(&router, &fx1, "/activity").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(acts.unwrap().iter().all(|a| a.kind != "parameters"));
+
+    let (audited,): (i64,) = sqlx::query_as("SELECT count(*) FROM audit_log WHERE action = 'alm_params_save'").fetch_one(&owner).await.unwrap();
+    assert_eq!(audited, 1);
 }

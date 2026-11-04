@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -29,13 +30,18 @@ pub enum ServerEvent {
     },
     /// The server may have missed notifications; clients should reload everything.
     Resync,
+    /// A new parameter version or banking-book snapshot; carries no desk data.
+    Alm {
+        params_version: Option<i32>,
+        snapshot: Option<NaiveDate>,
+    },
 }
 
 impl ServerEvent {
     pub fn desk_id(&self) -> Option<i16> {
         match self {
             ServerEvent::Deal { desk_id, .. } | ServerEvent::Break { desk_id, .. } => Some(*desk_id),
-            ServerEvent::Resync => None,
+            ServerEvent::Resync | ServerEvent::Alm { .. } => None,
         }
     }
 
@@ -44,6 +50,7 @@ impl ServerEvent {
             ServerEvent::Deal { .. } => "deal",
             ServerEvent::Break { .. } => "break",
             ServerEvent::Resync => "resync",
+            ServerEvent::Alm { .. } => "alm",
         }
     }
 }

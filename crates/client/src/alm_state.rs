@@ -183,6 +183,6 @@ impl AlmState {
     }
 
     pub fn request(&self) -> domain::AlmRequest {
-        domain::AlmRequest { as_of: self.as_of, params: self.overrides.clone() }
+        domain::AlmRequest { as_of: self.as_of, params: self.overrides.clone(), ..Default::default() }
     }
 }

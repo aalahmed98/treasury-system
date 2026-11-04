@@ -41,6 +41,8 @@ async fn pump(state: AppState, auth: AuthUser, tx: mpsc::Sender<Result<Event, In
             _ = tx.closed() => break,
             r = events.recv() => match r {
                 Ok(ServerEvent::Resync) | Err(RecvError::Lagged(_)) => Some(ServerEvent::Resync),
+                // Parameter and snapshot changes carry no desk data: every client may refresh.
+                Ok(ev @ ServerEvent::Alm { .. }) => Some(ev),
                 Ok(ev) => match ev.desk_id() {
                     Some(d) if desk_ids.contains(&d) => Some(ev),
                     _ => None,

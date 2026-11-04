@@ -398,6 +398,14 @@ pub struct AlmSnapshot {
 pub struct AlmRequest {
     pub as_of: Option<NaiveDate>,
     pub params: Option<AlmParams>,
+    /// Rate scenario for the NII and EVE tools.
+    pub scenario: Option<RateScenario>,
+    /// Basis points for the custom parallel scenario.
+    pub custom_shock_bp: Option<f64>,
+    /// Attribution: against the prior month or the budget.
+    pub compare_to: Option<CompareTo>,
+    /// Attribution: the later period (first day of the month); defaults to the latest.
+    pub period: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -543,18 +551,6 @@ pub struct PeriodLine {
     pub kind: PeriodKind,
     pub nii: f64,
     pub avg_balance: f64,
-}
-
-/// Extra inputs some calculators take; everything optional so one request shape serves all.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AlmOptions {
-    pub scenario: Option<RateScenario>,
-    /// Basis points for the custom parallel scenario.
-    pub custom_shock_bp: Option<f64>,
-    pub compare_to: Option<CompareTo>,
-    /// The later period of an attribution (first day of the month); defaults to the latest.
-    pub period: Option<NaiveDate>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -809,4 +805,84 @@ pub struct IrdQuote {
     pub forward: f64,
     /// In pips of the quote currency.
     pub points: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrendPoint {
+    pub as_of: NaiveDate,
+    pub value: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrendResponse {
+    pub metric: String,
+    pub points: Vec<TrendPoint>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrendQuery {
+    pub metric: Option<String>,
+    pub days: Option<i64>,
+}
+
+/// A metric against the bank's limit. `floor` means the value must stay above the limit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LimitRow {
+    pub metric: String,
+    pub value: Option<f64>,
+    pub unit: String,
+    pub limit: f64,
+    pub trigger: Option<f64>,
+    pub floor: bool,
+    pub breach: bool,
+    pub warn: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiPeriodRow {
+    pub period: NaiveDate,
+    pub actual: f64,
+    pub budget: f64,
+}
+
+/// The ALM block of the overview: headline ratios, income against budget, limits and trends.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmOverview {
+    pub as_of: NaiveDate,
+    pub params_version: i32,
+    pub reporting_ccy: String,
+    pub lcr: Option<f64>,
+    pub nsfr: Option<f64>,
+    pub nii_12m: f64,
+    pub nim: Option<f64>,
+    pub nii_mtd: f64,
+    pub budget_mtd: f64,
+    pub nii_ytd: f64,
+    pub budget_ytd: f64,
+    pub gap_1y_pct: f64,
+    pub worst_eve_scenario: Option<RateScenario>,
+    pub worst_eve_loss_pct_tier1: Option<f64>,
+    pub top10_pct: f64,
+    pub wholesale_pct: f64,
+    pub limits: Vec<LimitRow>,
+    pub lcr_trend: Vec<TrendPoint>,
+    pub nii_months: Vec<NiiPeriodRow>,
+    pub gap_buckets: Vec<GapBucket>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionsSummaryRow {
+    pub book: String,
+    pub side: BsSide,
+    pub ccy: String,
+    pub rate_type: RateType,
+    pub balance: f64,
+    /// Balance-weighted, percent.
+    pub avg_rate: f64,
+    pub cohorts: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AsOfQuery {
+    pub as_of: Option<NaiveDate>,
 }

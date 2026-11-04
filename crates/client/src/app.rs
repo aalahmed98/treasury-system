@@ -606,6 +606,18 @@ impl App {
                 NetEvent::AlmLcr { req, result } => {
                     self.alm.lcr.accept(req, result.map(LcrView::new));
                 }
+                NetEvent::AlmChanged => {
+                    // Only when the workbench has been opened: it reloads the parameters and the
+                    // snapshot list, and the open tool recomputes unless a what-if is in progress.
+                    if self.alm.params.req != 0 {
+                        let r = self.issue();
+                        self.alm.params.begin(r);
+                        self.net.send(Command::FetchAlmParams { req: r });
+                        let r = self.issue();
+                        self.alm.snapshots.begin(r);
+                        self.net.send(Command::FetchAlmSnapshots { req: r });
+                    }
+                }
             }
         }
     }

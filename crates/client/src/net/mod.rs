@@ -43,6 +43,8 @@ pub enum Command {
     FetchAlmParams { req: u64 },
     FetchAlmSnapshots { req: u64 },
     AlmLcr { req: u64, body: Box<AlmRequest> },
+    /// The server announced a new parameter version or snapshot.
+    AlmChanged,
 }
 
 impl fmt::Debug for Command {
@@ -73,6 +75,7 @@ impl fmt::Debug for Command {
             Command::AlmLcr { req, body } => {
                 f.debug_struct("AlmLcr").field("req", req).field("as_of", &body.as_of).field("what_if", &body.params.is_some()).finish()
             }
+            Command::AlmChanged => f.write_str("AlmChanged"),
         }
     }
 }
@@ -104,6 +107,7 @@ pub enum NetEvent {
     AlmParams { req: u64, result: Result<AlmParamsResponse, String> },
     AlmSnapshots { req: u64, result: Result<Vec<AlmSnapshot>, String> },
     AlmLcr { req: u64, result: Result<LcrResult, String> },
+    AlmChanged,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -427,6 +431,7 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                     });
                 }
             }
+            Command::AlmChanged => emit.send(NetEvent::AlmChanged),
             Command::ResolveBreak { id, req } => {
                 if let Some(s) = &session {
                     let (api, emit) = (s.api.clone(), emit.clone());

@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, NaiveDate, Utc};
 
-use domain::{LcrResult, ServerEvent};
+use domain::ServerEvent;
 use sqlx::PgPool;
 use tokio::sync::broadcast;
 
@@ -25,9 +25,25 @@ pub struct AppState {
     pub alm: Arc<AlmCache>,
 }
 
+/// Key: tool, snapshot date, snapshot generation time, parameter version, extra tag (scenario).
+pub type AlmKey = (&'static str, NaiveDate, DateTime<Utc>, i32, String);
+
 #[derive(Default)]
 pub struct AlmCache {
-    pub lcr: RwLock<HashMap<(NaiveDate, DateTime<Utc>, i32), Arc<LcrResult>>>,
+    pub results: RwLock<HashMap<AlmKey, Arc<serde_json::Value>>>,
+}
+
+impl AlmCache {
+    pub fn get<T: serde::de::DeserializeOwned>(&self, key: &AlmKey) -> Option<T> {
+        let hit = self.results.read().ok()?.get(key).cloned()?;
+        serde_json::from_value((*hit).clone()).ok()
+    }
+
+    pub fn put<T: serde::Serialize>(&self, key: AlmKey, value: &T) {
+        if let (Ok(v), Ok(mut w)) = (serde_json::to_value(value), self.results.write()) {
+            w.insert(key, Arc::new(v));
+        }
+    }
 }
 
 impl AppState {

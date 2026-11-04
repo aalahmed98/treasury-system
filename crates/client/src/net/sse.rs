@@ -42,7 +42,7 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                                 Ok(ServerEvent::Resync) => {
                                     let _ = cmds.send(Command::Refresh { passive: true });
                                 }
-                                Ok(ServerEvent::Break { .. }) => {} // breaks are handled by the "break" event name (M6)
+                                Ok(ServerEvent::Break { .. }) | Ok(ServerEvent::Alm { .. }) => {} // carried under their own event names
                                 Err(e) => tracing::warn!(error = %e, data = %ev.data, "bad deal event"),
                             },
                             "break" => match serde_json::from_str::<ServerEvent>(&ev.data) {
@@ -54,6 +54,10 @@ pub async fn run(api: Arc<Api>, emit: Emitter, cmds: UnboundedSender<Command>) {
                             },
                             "resync" => {
                                 let _ = cmds.send(Command::Refresh { passive: true });
+                            }
+                            // A new parameter version or banking-book snapshot: the ALM state refreshes itself.
+                            "alm" => {
+                                let _ = cmds.send(Command::AlmChanged);
                             }
                             other => tracing::debug!(event = other, "ignored event"),
                         },

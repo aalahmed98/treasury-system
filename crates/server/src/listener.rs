@@ -18,6 +18,14 @@ struct DealPayload {
 }
 
 #[derive(Deserialize)]
+struct AlmPayload {
+    #[serde(default)]
+    version: Option<i32>,
+    #[serde(default)]
+    snapshot: Option<chrono::NaiveDate>,
+}
+
+#[derive(Deserialize)]
 struct BreakPayload {
     id: i64,
     desk_id: i16,
@@ -30,6 +38,10 @@ fn parse(channel: &str, payload: &str) -> Result<ServerEvent, serde_json::Error>
         "break_events" => {
             let p: BreakPayload = serde_json::from_str(payload)?;
             Ok(ServerEvent::Break { id: p.id, desk_id: p.desk_id, deal_id: p.deal_id, status: p.status })
+        }
+        "alm_events" => {
+            let p: AlmPayload = serde_json::from_str(payload)?;
+            Ok(ServerEvent::Alm { params_version: p.version, snapshot: p.snapshot })
         }
         _ => {
             let p: DealPayload = serde_json::from_str(payload)?;
@@ -51,13 +63,13 @@ pub async fn run(pool: PgPool, tx: broadcast::Sender<ServerEvent>) {
             }
         };
         listener.eager_reconnect(false);
-        if let Err(e) = listener.listen_all(["deal_events", "break_events"]).await {
+        if let Err(e) = listener.listen_all(["deal_events", "break_events", "alm_events"]).await {
             tracing::warn!(error = %e, "LISTEN failed; retrying");
             tokio::time::sleep(backoff).await;
             continue;
         }
         backoff = Duration::from_secs(1);
-        tracing::info!("listening on deal_events and break_events");
+        tracing::info!("listening on deal_events, break_events and alm_events");
 
         loop {
             match listener.try_recv().await {

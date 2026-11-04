@@ -1,9 +1,11 @@
+pub mod activity;
 pub mod alm;
 pub mod audit;
 pub mod auth;
 pub mod deals;
 pub mod events;
 pub mod liquidity;
+pub mod market;
 pub mod positions;
 pub mod recon;
 
@@ -34,9 +36,22 @@ pub fn router(state: AppState) -> Router {
         .route("/breaks/{id}/resolve", post(recon::resolve_break))
         .route("/feeds", get(recon::feeds))
         .route("/positions", get(positions::list))
-        .route("/alm/params", get(alm::params))
+        .route("/alm/params", get(alm::params).post(alm::save_params))
         .route("/alm/snapshots", get(alm::snapshots))
+        .route("/alm/positions", get(alm::positions))
+        .route("/alm/overview", get(alm::overview))
+        .route("/alm/trend", get(alm::trend))
         .route("/alm/lcr", post(alm::lcr))
+        .route("/alm/nsfr", post(alm::nsfr))
+        .route("/alm/gap", post(alm::gap))
+        .route("/alm/nii", post(alm::nii))
+        .route("/alm/eve", post(alm::eve))
+        .route("/alm/stress", post(alm::stress))
+        .route("/alm/attribution", post(alm::attribution))
+        .route("/alm/funding", post(alm::funding))
+        .route("/market/rates", get(market::rates))
+        .route("/activity", get(activity::activity))
+        .route("/attention", get(activity::attention))
         .route("/events", get(events::stream))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

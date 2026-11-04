@@ -4,6 +4,7 @@
 #[macro_use]
 mod macros;
 
+pub mod activity;
 pub mod alm;
 pub mod api;
 pub mod calendar;
@@ -14,6 +15,7 @@ pub mod liquidity;
 pub mod recon;
 pub mod user;
 
+pub use activity::*;
 pub use alm::*;
 pub use api::*;
 pub use calendar::*;
