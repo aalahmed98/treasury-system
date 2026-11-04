@@ -159,6 +159,21 @@ TLS_CERT=certs/dev-server.pem TLS_KEY=certs/dev-server-key.pem cargo run -p serv
 cargo run -p client -- https://localhost:8787 --ca certs/dev-server.pem
 ```
 
+### Development snapshots
+
+Debug builds of the client accept a few environment variables so a layout can be checked from a
+script, in either theme, without anyone at the keyboard. Release builds ignore them.
+
+```bash
+TREASURY_DEV_LOGIN=alm1:password TREASURY_SNAPSHOT=/tmp/overview.png \
+TREASURY_SNAPSHOT_TAB=overview TREASURY_SNAPSHOT_THEME=light TREASURY_SNAPSHOT_AFTER=6 \
+cargo run -q -p client
+```
+
+`TREASURY_SNAPSHOT_BELL=1` opens the attention popup, `TREASURY_SNAPSHOT_SIZE=680x410` sets the window
+and `TREASURY_SNAPSHOT_ZOOM=0.5` counters a scaled display (WSLg reports 2x). The window closes itself
+once the PNG is written.
+
 ## Tests
 
 ```bash

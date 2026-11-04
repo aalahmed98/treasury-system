@@ -3,9 +3,8 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use domain::{BreakStatus, BreakView, Deal, DealStatus, MatchStatus, Product};
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 pub struct DealRow {
@@ -88,34 +87,7 @@ pub fn product_label(p: Product) -> &'static str {
     }
 }
 
-pub fn fmt_local(t: DateTime<Utc>) -> String {
-    t.with_timezone(&Local).format("%d-%b %H:%M:%S").to_string()
-}
-
-/// 1234567.5 -> "1,234,567.5"
-pub fn fmt_amount(d: Decimal) -> String {
-    let d = d.normalize();
-    let s = d.abs().to_string();
-    let (int, frac) = match s.split_once('.') {
-        Some((i, f)) => (i, Some(f)),
-        None => (s.as_str(), None),
-    };
-    let mut out = String::with_capacity(s.len() + s.len() / 3 + 1);
-    if d.is_sign_negative() {
-        out.push('-');
-    }
-    for (i, c) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    if let Some(f) = frac {
-        out.push('.');
-        out.push_str(f);
-    }
-    out
-}
+pub use crate::ui::fmt::{fmt_amount, fmt_local};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey {
@@ -346,5 +318,46 @@ fn status_rank(s: DealStatus) -> u8 {
         DealStatus::Confirmed => 2,
         DealStatus::Settled => 3,
         DealStatus::Cancelled => 4,
+    }
+}
+
+/// The last reply of one fetch, with the id of the newest request so late or foreign replies are
+/// dropped. `req` 0 means nothing was ever requested; ids come from `App::issue` and never repeat,
+/// so a reply from a previous login can never be accepted.
+#[allow(dead_code)]
+pub struct Fetched<V> {
+    pub view: Option<V>,
+    pub req: u64,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub at: Option<Instant>,
+}
+
+impl<V> Default for Fetched<V> {
+    fn default() -> Self {
+        Self { view: None, req: 0, loading: false, error: None, at: None }
+    }
+}
+
+#[allow(dead_code)]
+impl<V> Fetched<V> {
+    pub fn begin(&mut self, req: u64) {
+        self.req = req;
+        self.loading = true;
+        self.error = None;
+    }
+
+    /// Accept a reply if it answers the newest request; returns false when it was stale.
+    pub fn accept(&mut self, req: u64, result: Result<V, String>) -> bool {
+        if req != self.req {
+            return false;
+        }
+        self.loading = false;
+        self.at = Some(Instant::now());
+        match result {
+            Ok(v) => self.view = Some(v),
+            Err(e) => self.error = Some(e),
+        }
+        true
     }
 }

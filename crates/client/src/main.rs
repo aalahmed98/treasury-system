@@ -2,6 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod attention;
+#[cfg(debug_assertions)]
+mod dev;
 mod net;
 mod state;
 mod ui;
@@ -38,6 +41,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("NBB Treasury")
+            .with_app_id("nbb-treasury")
             .with_inner_size([1360.0, 820.0])
             .with_min_inner_size([960.0, 600.0]),
         ..Default::default()

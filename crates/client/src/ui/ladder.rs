@@ -9,7 +9,8 @@ use rust_decimal::prelude::ToPrimitive;
 
 use crate::app::App;
 use crate::state::{fmt_amount, fmt_local};
-use crate::ui::{AMBER, GREEN, MUTED, RED, match_color};
+use crate::ui::fmt::right;
+use crate::ui::{match_color, pal};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
@@ -31,27 +32,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 app.ladder_dirty = true;
             }
             if let Some(l) = &app.ladder {
-                ui.label(RichText::new(format!("as of {}", fmt_local(l.generated_at))).color(MUTED));
+                ui.label(RichText::new(format!("as of {}", fmt_local(l.generated_at))).color(pal(ui).muted));
             }
         });
     });
 
     let Some(l) = app.ladder.clone() else {
-        ui.label(RichText::new("loading…").color(MUTED));
+        ui.label(RichText::new("loading…").color(pal(ui).muted));
         return;
     };
     ui.horizontal_wrapped(|ui| {
         match &l.opening {
             Some(o) => {
-                ui.label(RichText::new("Opening").color(MUTED));
+                ui.label(RichText::new("Opening").color(pal(ui).muted));
                 ui.monospace(fmt_amount(o.balance));
-                ui.label(RichText::new(format!("{} {} of {} ({}, {})", l.ccy, o.kind, o.statement_date.format("%d-%b"), o.bank, o.account_no)).color(MUTED).small());
+                ui.label(RichText::new(format!("{} {} of {} ({}, {})", l.ccy, o.kind, o.statement_date.format("%d-%b"), o.bank, o.account_no)).color(pal(ui).muted).small());
             }
             None if l.liquidity_access => {
-                ui.label(RichText::new("No nostro statement on file for this currency; cumulative starts at zero.").color(MUTED).small());
+                ui.label(RichText::new("No nostro statement on file for this currency; cumulative starts at zero.").color(pal(ui).muted).small());
             }
             None => {
-                ui.label(RichText::new("Expected flows from your desks' deals. Nostro balances and actual movements need ALM or treasury-head access.").color(MUTED).small());
+                ui.label(RichText::new("Expected flows from your desks' deals. Nostro balances and actual movements need ALM or treasury-head access.").color(pal(ui).muted).small());
             }
         }
     });
@@ -113,42 +114,42 @@ fn table(app: &App, l: &domain::LadderResponse, ui: &mut egui::Ui, height: f32) 
                     row.set_selected(selected == Some(r.date));
                     let quiet = r.deals == 0 && r.actual_net.is_none();
                     let dim = |ui: &mut egui::Ui, s: String| {
-                        if quiet { ui.label(RichText::new(s).color(MUTED)); } else { ui.monospace(s); }
+                        if quiet { ui.label(RichText::new(s).color(pal(ui).muted)); } else { ui.monospace(s); }
                     };
                     row.col(|ui| {
                         let label = r.date.format("%a %d %b").to_string();
                         if r.date == today {
-                            ui.label(RichText::new(label).strong().color(AMBER)).on_hover_text("today");
+                            ui.label(RichText::new(label).strong().color(pal(ui).warning)).on_hover_text("today");
                         } else if r.date < today {
-                            ui.label(RichText::new(label).color(MUTED));
+                            ui.label(RichText::new(label).color(pal(ui).muted));
                         } else {
                             ui.label(label);
                         }
                     });
                     row.col(|ui| { right(ui, |ui| dim(ui, fmt_amount(r.confirmed_in))); });
                     row.col(|ui| { right(ui, |ui| dim(ui, fmt_amount(r.confirmed_out))); });
-                    row.col(|ui| { right(ui, |ui| { if r.provisional_in.is_zero() { dim(ui, "0".into()) } else { ui.monospace(RichText::new(fmt_amount(r.provisional_in)).color(AMBER)); } }); });
-                    row.col(|ui| { right(ui, |ui| { if r.provisional_out.is_zero() { dim(ui, "0".into()) } else { ui.monospace(RichText::new(fmt_amount(r.provisional_out)).color(AMBER)); } }); });
+                    row.col(|ui| { right(ui, |ui| { if r.provisional_in.is_zero() { dim(ui, "0".into()) } else { ui.monospace(RichText::new(fmt_amount(r.provisional_in)).color(pal(ui).warning)); } }); });
+                    row.col(|ui| { right(ui, |ui| { if r.provisional_out.is_zero() { dim(ui, "0".into()) } else { ui.monospace(RichText::new(fmt_amount(r.provisional_out)).color(pal(ui).warning)); } }); });
                     row.col(|ui| {
                         right(ui, |ui| {
-                            let color = if r.net_expected.is_sign_negative() { RED } else if r.net_expected.is_zero() { MUTED } else { GREEN };
+                            let color = if r.net_expected.is_sign_negative() { pal(ui).negative } else if r.net_expected.is_zero() { pal(ui).muted } else { pal(ui).positive };
                             ui.monospace(RichText::new(fmt_amount(r.net_expected)).color(color).strong());
                         });
                     });
                     row.col(|ui| bar(ui, r.net_expected, max_abs));
                     row.col(|ui| {
                         right(ui, |ui| {
-                            let color = if r.cumulative_expected.is_sign_negative() { RED } else { ui.visuals().text_color() };
+                            let color = if r.cumulative_expected.is_sign_negative() { pal(ui).negative } else { ui.visuals().text_color() };
                             ui.monospace(RichText::new(fmt_amount(r.cumulative_expected)).color(color));
                         });
                     });
                     if show_actuals {
-                        row.col(|ui| { right(ui, |ui| match r.actual_net { Some(a) => { ui.monospace(fmt_amount(a)); } None => { ui.label(RichText::new("—").color(MUTED)); } }); });
+                        row.col(|ui| { right(ui, |ui| match r.actual_net { Some(a) => { ui.monospace(fmt_amount(a)); } None => { ui.label(RichText::new("—").color(pal(ui).muted)); } }); });
                         row.col(|ui| {
                             right(ui, |ui| match r.difference {
-                                Some(d) if d.is_zero() => { ui.monospace(RichText::new("0").color(GREEN)); }
-                                Some(d) => { ui.monospace(RichText::new(fmt_amount(d)).color(if d.abs() > Decimal::from(1000) { RED } else { AMBER })); }
-                                None => { ui.label(RichText::new("—").color(MUTED)); }
+                                Some(d) if d.is_zero() => { ui.monospace(RichText::new("0").color(pal(ui).positive)); }
+                                Some(d) => { ui.monospace(RichText::new(fmt_amount(d)).color(if d.abs() > Decimal::from(1000) { pal(ui).negative } else { pal(ui).warning })); }
+                                None => { ui.label(RichText::new("—").color(pal(ui).muted)); }
                             });
                         });
                     }
@@ -162,10 +163,6 @@ fn table(app: &App, l: &domain::LadderResponse, ui: &mut egui::Ui, height: f32) 
     clicked
 }
 
-fn right(ui: &mut egui::Ui, f: impl FnOnce(&mut egui::Ui)) {
-    ui.with_layout(Layout::right_to_left(Align::Center), f);
-}
-
 /// A small signed bar, scaled to the largest net on the page.
 fn bar(ui: &mut egui::Ui, value: Decimal, max_abs: Decimal) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(40.0), 12.0), Sense::hover());
@@ -173,21 +170,22 @@ fn bar(ui: &mut egui::Ui, value: Decimal, max_abs: Decimal) {
     let mid = rect.center().x;
     let half = rect.width() / 2.0 - 2.0;
     let frac = (value / max_abs).to_f64().unwrap_or(0.0).clamp(-1.0, 1.0) as f32;
-    painter.line_segment([egui::pos2(mid, rect.top()), egui::pos2(mid, rect.bottom())], egui::Stroke::new(1.0, MUTED));
+    painter.line_segment([egui::pos2(mid, rect.top()), egui::pos2(mid, rect.bottom())], egui::Stroke::new(1.0, pal(ui).muted));
     if frac != 0.0 {
         let w = half * frac.abs();
         let (x0, x1) = if frac > 0.0 { (mid, mid + w) } else { (mid - w, mid) };
         let r = egui::Rect::from_min_max(egui::pos2(x0, rect.top() + 2.0), egui::pos2(x1, rect.bottom() - 2.0));
-        painter.rect_filled(r, 1.0, if frac > 0.0 { GREEN } else { RED });
+        painter.rect_filled(r, 1.0, if frac > 0.0 { pal(ui).positive } else { pal(ui).negative });
     }
 }
 
 fn detail(app: &mut App, ui: &mut egui::Ui) {
+    let p = pal(ui);
     let Some(date) = app.ladder_date else { return };
     let ccy = app.ladder_ccy.clone().unwrap_or_default();
     ui.horizontal(|ui| {
         ui.strong(format!("{ccy} on {}", date.format("%A %d %B %Y")));
-        ui.label(RichText::new(format!("{} expected flows · {} nostro movements", app.ladder_flows.len(), app.ladder_movements.len())).color(MUTED));
+        ui.label(RichText::new(format!("{} expected flows · {} nostro movements", app.ladder_flows.len(), app.ladder_movements.len())).color(p.muted));
         if ui.small_button("✕").clicked() {
             app.select_ladder_date(None);
         }
@@ -201,24 +199,24 @@ fn detail(app: &mut App, ui: &mut egui::Ui) {
                     if ui.link(RichText::new(&f.deal_ref).monospace()).clicked() {
                         open_deal = Some(f.deal_id);
                     }
-                    ui.label(RichText::new(&f.desk_code).color(MUTED).small());
-                    ui.label(RichText::new(leg_label(&f.leg)).color(MUTED).small());
-                    ui.monospace(RichText::new(fmt_amount(f.amount)).color(if f.amount.is_sign_negative() { RED } else { GREEN }));
-                    ui.label(RichText::new(if f.confirmed { "confirmed" } else { "provisional" }).color(if f.confirmed { GREEN } else { AMBER }).small());
-                    ui.colored_label(match_color(f.match_status), RichText::new(crate::state::match_label(f.match_status)).small());
+                    ui.label(RichText::new(&f.desk_code).color(p.muted).small());
+                    ui.label(RichText::new(leg_label(&f.leg)).color(p.muted).small());
+                    ui.monospace(RichText::new(fmt_amount(f.amount)).color(if f.amount.is_sign_negative() { p.negative } else { p.positive }));
+                    ui.label(RichText::new(if f.confirmed { "confirmed" } else { "provisional" }).color(if f.confirmed { p.positive } else { p.warning }).small());
+                    ui.colored_label(match_color(&p, f.match_status), RichText::new(crate::state::match_label(f.match_status)).small());
                 });
             }
             cols[1].label(RichText::new("Nostro movements").strong().small());
             if app.ladder_movements.is_empty() {
-                cols[1].label(RichText::new(if app.ladder.as_ref().is_some_and(|l| l.liquidity_access) { "none reported" } else { "not visible to this user" }).color(MUTED).small());
+                cols[1].label(RichText::new(if app.ladder.as_ref().is_some_and(|l| l.liquidity_access) { "none reported" } else { "not visible to this user" }).color(p.muted).small());
             }
             for m in &app.ladder_movements {
                 cols[1].horizontal(|ui| {
                     ui.monospace(RichText::new(&m.reference).small());
-                    ui.monospace(RichText::new(fmt_amount(m.amount)).color(if m.amount.is_sign_negative() { RED } else { GREEN }));
+                    ui.monospace(RichText::new(fmt_amount(m.amount)).color(if m.amount.is_sign_negative() { p.negative } else { p.positive }));
                     match &m.deal_ref_hint {
-                        Some(h) => { ui.label(RichText::new(format!("for {h}")).color(MUTED).small()); }
-                        None => { ui.label(RichText::new(&m.source).color(AMBER).small()); }
+                        Some(h) => { ui.label(RichText::new(format!("for {h}")).color(p.muted).small()); }
+                        None => { ui.label(RichText::new(&m.source).color(p.warning).small()); }
                     }
                 });
             }

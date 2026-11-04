@@ -1,7 +1,7 @@
 use egui::{Align, Key, Layout, RichText, TextEdit};
 
 use crate::app::App;
-use crate::ui::{AMBER, MUTED, RED};
+use crate::ui::pal;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let enter = ui.input(|i| i.key_pressed(Key::Enter));
@@ -9,7 +9,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.with_layout(Layout::top_down(Align::Center), |ui| {
         ui.add_space(ui.available_height() * 0.2);
         ui.heading(RichText::new("NBB Treasury").size(28.0).strong());
-        ui.label(RichText::new("Position keeping and intraday liquidity").color(MUTED));
+        ui.label(RichText::new("Position keeping and intraday liquidity").color(pal(ui).muted));
         ui.add_space(20.0);
 
         egui::Frame::group(ui.style()).inner_margin(20.0).show(ui, |ui| {
@@ -17,14 +17,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // The server is configured, not typed: a fixed target cannot be phished.
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Server").color(MUTED));
+                ui.label(RichText::new("Server").color(pal(ui).muted));
                 let secure = app.server_url.starts_with("https://");
-                ui.label(RichText::new(if secure { "🔒" } else { "⚠" }).color(if secure { MUTED } else { AMBER }))
+                ui.label(RichText::new(if secure { "🔒" } else { "⚠" }).color(if secure { pal(ui).muted } else { pal(ui).warning }))
                     .on_hover_text(if secure { "TLS" } else { "plain HTTP (loopback only)" });
                 ui.monospace(&app.server_url);
             });
             if let Some(p) = &app.server_problem {
-                ui.label(RichText::new(p).color(RED));
+                ui.label(RichText::new(p).color(pal(ui).negative));
             }
             ui.add_space(8.0);
 
@@ -54,17 +54,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             });
             if let Some(err) = &app.login_error {
                 ui.add_space(6.0);
-                ui.label(RichText::new(err).color(RED));
+                ui.label(RichText::new(err).color(pal(ui).negative));
             }
             if let Some(n) = &app.notice {
                 ui.add_space(6.0);
-                ui.label(RichText::new(n).color(AMBER));
+                ui.label(RichText::new(n).color(pal(ui).warning));
             }
         });
 
         if cfg!(debug_assertions) {
             ui.add_space(16.0);
-            ui.label(RichText::new("dev build · seeded users fx1, fx2, mm1, alm1, head1").color(MUTED).small());
+            ui.label(RichText::new("dev build · seeded users fx1, fx2, mm1, alm1, head1").color(pal(ui).muted).small());
         }
     });
 }

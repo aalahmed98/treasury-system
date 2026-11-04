@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::app::App;
 use crate::net::Command;
-use crate::ui::{AMBER, GREEN, MUTED, break_color};
+use crate::ui::{break_color, pal};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
@@ -25,7 +25,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
             for (k, n) in counts {
-                ui.colored_label(break_color(k.parse().unwrap_or(BreakKind::Missing)), format!("{k} {n}"));
+                ui.colored_label(break_color(&pal(ui), k.parse().unwrap_or(BreakKind::Missing)), format!("{k} {n}"));
             }
         });
     });
@@ -81,21 +81,21 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> Option<i64> {
                     let r = &rows[filtered[row.index()]];
                     let id = r.view.id;
                     row.set_selected(selected == Some(id));
-                    row.col(|ui| { if flash.contains_key(&id) { ui.colored_label(GREEN, "●"); } });
-                    row.col(|ui| { ui.label(RichText::new(id.to_string()).color(MUTED)); });
-                    row.col(|ui| { ui.colored_label(break_color(r.view.kind), &r.kind); });
+                    row.col(|ui| { if flash.contains_key(&id) { ui.colored_label(pal(ui).positive, "●"); } });
+                    row.col(|ui| { ui.label(RichText::new(id.to_string()).color(pal(ui).muted)); });
+                    row.col(|ui| { ui.colored_label(break_color(&pal(ui), r.view.kind), &r.kind); });
                     row.col(|ui| { ui.monospace(&r.deal_ref); });
                     row.col(|ui| { ui.monospace(&r.source); });
                     row.col(|ui| { ui.label(&r.field); });
                     row.col(|ui| { ui.monospace(&r.expected); });
                     row.col(|ui| { ui.monospace(&r.observed); });
                     row.col(|ui| { ui.label(&r.view.desk_code); });
-                    row.col(|ui| { ui.label(RichText::new(&r.detected).color(MUTED)); });
+                    row.col(|ui| { ui.label(RichText::new(&r.detected).color(pal(ui).muted)); });
                     row.col(|ui| {
                         let color = match r.view.status {
-                            BreakStatus::Open => AMBER,
+                            BreakStatus::Open => pal(ui).warning,
                             BreakStatus::Acknowledged => ui.visuals().text_color(),
-                            BreakStatus::Resolved => MUTED,
+                            BreakStatus::Resolved => pal(ui).muted,
                         };
                         ui.colored_label(color, &r.status);
                     });
@@ -115,8 +115,8 @@ fn actions(app: &mut App, ui: &mut egui::Ui, id: i64) {
     let resolved = view.status == BreakStatus::Resolved;
 
     ui.horizontal(|ui| {
-        ui.colored_label(break_color(view.kind), view.kind.as_str());
-        ui.label(RichText::new(format!("#{}", view.id)).color(MUTED));
+        ui.colored_label(break_color(&pal(ui), view.kind), view.kind.as_str());
+        ui.label(RichText::new(format!("#{}", view.id)).color(pal(ui).muted));
         if let Some(d) = &view.deal_ref {
             ui.monospace(d);
         }
@@ -130,14 +130,14 @@ fn actions(app: &mut App, ui: &mut egui::Ui, id: i64) {
             BreakKind::Ambiguous => "several golden deals fit this record; pick the right one",
             BreakKind::Duplicate => "a second record from a source already linked to this deal; link it elsewhere or dismiss",
         })
-        .color(MUTED)
+        .color(pal(ui).muted)
         .small());
     });
     if !can {
-        ui.colored_label(MUTED, "you can see this break but not act on it (no resolve right on this desk)");
+        ui.colored_label(pal(ui).muted, "you can see this break but not act on it (no resolve right on this desk)");
     }
     if resolved {
-        ui.colored_label(MUTED, format!("resolved: {}{}", view.resolution.map(|r| r.as_str().to_lowercase()).unwrap_or_default(), view.note.as_deref().map(|n| format!(" · {n}")).unwrap_or_default()));
+        ui.colored_label(pal(ui).muted, format!("resolved: {}{}", view.resolution.map(|r| r.as_str().to_lowercase()).unwrap_or_default(), view.note.as_deref().map(|n| format!(" · {n}")).unwrap_or_default()));
         return;
     }
 
@@ -178,7 +178,7 @@ fn actions(app: &mut App, ui: &mut egui::Ui, id: i64) {
                 link_to = found.clone();
             }
             if !typed.is_empty() && found.is_none() {
-                ui.colored_label(AMBER, "no such deal in your blotter");
+                ui.colored_label(pal(ui).warning, "no such deal in your blotter");
             }
             if let Some((deal_id, r)) = link_to {
                 app.net.send(Command::ResolveBreak {

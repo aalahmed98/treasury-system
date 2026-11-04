@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::app::{App, DetailTab};
 use crate::state::{SortKey, fmt_amount, fmt_local};
-use crate::ui::{AMBER, GREEN, MUTED, RED, break_color, match_color, status_color, ticket};
+use crate::ui::{break_color, match_color, pal, status_color, ticket};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     toolbar(app, ui);
@@ -57,7 +57,7 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(format!("{} of {} deals", app.filtered.len(), app.store.len())).color(MUTED));
+            ui.label(RichText::new(format!("{} of {} deals", app.filtered.len(), app.store.len())).color(pal(ui).muted));
         });
     });
 }
@@ -129,13 +129,13 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> (Option<Uuid>, Option<Sor
                     row.set_selected(selected == Some(id));
                     row.col(|ui| {
                         if flash.contains_key(&id) {
-                            ui.colored_label(GREEN, "●");
+                            ui.colored_label(pal(ui).positive, "●");
                         }
                     });
                     row.col(|ui| { ui.monospace(&r.deal_ref); });
                     row.col(|ui| { ui.label(&r.desk); });
-                    row.col(|ui| { ui.colored_label(match_color(r.deal.match_status), &r.match_status); });
-                    row.col(|ui| { if r.deal.confirmed { ui.colored_label(GREEN, "✔"); } else { ui.colored_label(MUTED, "·"); } });
+                    row.col(|ui| { ui.colored_label(match_color(&pal(ui), r.deal.match_status), &r.match_status); });
+                    row.col(|ui| { if r.deal.confirmed { ui.colored_label(pal(ui).positive, "✔"); } else { ui.colored_label(pal(ui).muted, "·"); } });
                     row.col(|ui| { ui.monospace(RichText::new(&r.sources).small()); });
                     row.col(|ui| { ui.label(&r.product); });
                     row.col(|ui| { ui.label(&r.side); });
@@ -149,8 +149,8 @@ fn table(app: &App, ui: &mut egui::Ui, height: f32) -> (Option<Uuid>, Option<Sor
                     row.col(|ui| { ui.label(&r.trade_date); });
                     row.col(|ui| { ui.label(&r.value_date); });
                     row.col(|ui| { ui.label(&r.counterparty); });
-                    row.col(|ui| { ui.colored_label(status_color(r.deal.status), &r.status); });
-                    row.col(|ui| { ui.label(RichText::new(&r.updated).color(MUTED)); });
+                    row.col(|ui| { ui.colored_label(status_color(&pal(ui), r.deal.status), &r.status); });
+                    row.col(|ui| { ui.label(RichText::new(&r.updated).color(pal(ui).muted)); });
                     if row.response().clicked() {
                         clicked = Some(id);
                     }
@@ -176,15 +176,15 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
         ui.label("@");
         ui.monospace(&rate);
         ui.separator();
-        ui.colored_label(status_color(d.status), &status);
-        ui.colored_label(match_color(d.match_status), crate::state::match_label(d.match_status));
+        ui.colored_label(status_color(&pal(ui), d.status), &status);
+        ui.colored_label(match_color(&pal(ui), d.match_status), crate::state::match_label(d.match_status));
         if d.confirmed {
-            ui.colored_label(GREEN, "confirmed");
+            ui.colored_label(pal(ui).positive, "confirmed");
         } else {
-            ui.colored_label(AMBER, "provisional");
+            ui.colored_label(pal(ui).warning, "provisional");
         }
-        ui.label(RichText::new(format!("origin {}", d.origin.as_str())).color(MUTED));
-        ui.label(RichText::new(format!("v{}", d.version)).color(MUTED));
+        ui.label(RichText::new(format!("origin {}", d.origin.as_str())).color(pal(ui).muted));
+        ui.label(RichText::new(format!("v{}", d.version)).color(pal(ui).muted));
         ui.separator();
         for (tab, name) in [(DetailTab::Summary, "Summary"), (DetailTab::Sources, "Sources"), (DetailTab::History, "History")] {
             if ui.selectable_label(app.detail_tab == tab, name).clicked() {
@@ -196,17 +196,17 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
     match app.detail_tab {
         DetailTab::Summary => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Trader").color(MUTED));
+                ui.label(RichText::new("Trader").color(pal(ui).muted));
                 ui.label(if trader.is_empty() { "—" } else { &trader });
-                ui.label(RichText::new("Counterparty").color(MUTED));
+                ui.label(RichText::new("Counterparty").color(pal(ui).muted));
                 ui.label(&counterparty);
-                ui.label(RichText::new("Trade / value / maturity").color(MUTED));
+                ui.label(RichText::new("Trade / value / maturity").color(pal(ui).muted));
                 ui.label(format!("{} / {} / {}", trade_date, value_date, if maturity.is_empty() { "—" } else { &maturity }));
-                ui.label(RichText::new("Created").color(MUTED));
+                ui.label(RichText::new("Created").color(pal(ui).muted));
                 ui.label(fmt_local(d.created_at));
-                ui.label(RichText::new("Updated").color(MUTED));
+                ui.label(RichText::new("Updated").color(pal(ui).muted));
                 ui.label(&updated);
-                ui.label(RichText::new("Id").color(MUTED));
+                ui.label(RichText::new("Id").color(pal(ui).muted));
                 ui.monospace(RichText::new(d.id.to_string()).small());
             });
             ticket::amend_panel(app, ui, &d);
@@ -219,25 +219,25 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
 /// Every version of the deal with what changed and who changed it.
 fn history(app: &App, ui: &mut egui::Ui, d: &domain::Deal) {
     let Some((id, entries)) = &app.history else {
-        ui.label(RichText::new("loading history…").color(MUTED));
+        ui.label(RichText::new("loading history…").color(pal(ui).muted));
         return;
     };
     if *id != d.id {
-        ui.label(RichText::new("loading history…").color(MUTED));
+        ui.label(RichText::new("loading history…").color(pal(ui).muted));
         return;
     }
     egui::ScrollArea::vertical().max_height(150.0).id_salt("history").show(ui, |ui| {
         for e in entries.iter().rev() {
             ui.horizontal_wrapped(|ui| {
                 ui.monospace(RichText::new(format!("v{}", e.version)).strong());
-                ui.label(RichText::new(e.op.to_lowercase()).color(MUTED));
-                ui.label(RichText::new(fmt_local(e.changed_at)).color(MUTED));
+                ui.label(RichText::new(e.op.to_lowercase()).color(pal(ui).muted));
+                ui.label(RichText::new(fmt_local(e.changed_at)).color(pal(ui).muted));
                 match &e.changed_by {
                     Some(u) => { ui.label(u); }
-                    None => { ui.label(RichText::new(role_label(&e.changed_by_role)).color(MUTED)); }
+                    None => { ui.label(RichText::new(role_label(&e.changed_by_role)).color(pal(ui).muted)); }
                 }
                 if e.changes.is_empty() {
-                    ui.label(RichText::new(if e.op == "INSERT" { "booked" } else { "no tracked field changed" }).color(MUTED).small());
+                    ui.label(RichText::new(if e.op == "INSERT" { "booked" } else { "no tracked field changed" }).color(pal(ui).muted).small());
                 }
                 for c in &e.changes {
                     ui.label(RichText::new(format!("{}: {} → {}", c.field, c.from.as_deref().unwrap_or("—"), c.to.as_deref().unwrap_or("—"))).small());
@@ -260,7 +260,7 @@ fn role_label(role: &str) -> &'static str {
 /// highlighted, followed by the deal's breaks.
 fn sources(app: &App, ui: &mut egui::Ui) {
     let Some(p) = &app.provenance else {
-        ui.label(RichText::new("loading provenance…").color(MUTED));
+        ui.label(RichText::new("loading provenance…").color(pal(ui).muted));
         return;
     };
     let g = &p.deal;
@@ -291,39 +291,39 @@ fn sources(app: &App, ui: &mut egui::Ui) {
                     body.row(19.0, |mut row| {
                         row.col(|ui| { ui.strong(s.source.as_str()); });
                         row.col(|ui| { ui.monospace(&s.source_ref); });
-                        row.col(|ui| { ui.colored_label(if cancelled_disagree { RED } else { status_color(s.lifecycle) }, s.lifecycle.as_str()); });
-                        row.col(|ui| { ui.label(RichText::new(s.link_kind.map(|k| k.as_str()).unwrap_or("—")).color(MUTED)); });
-                        row.col(|ui| { ui.colored_label(if notional_ok { ui.visuals().text_color() } else { RED }, fmt_amount(s.notional)); });
+                        row.col(|ui| { ui.colored_label(if cancelled_disagree { pal(ui).negative } else { status_color(&pal(ui), s.lifecycle) }, s.lifecycle.as_str()); });
+                        row.col(|ui| { ui.label(RichText::new(s.link_kind.map(|k| k.as_str()).unwrap_or("—")).color(pal(ui).muted)); });
+                        row.col(|ui| { ui.colored_label(if notional_ok { ui.visuals().text_color() } else { pal(ui).negative }, fmt_amount(s.notional)); });
                         row.col(|ui| {
                             let txt = if s.product.is_fx() { format!("{:.5}", s.rate) } else { format!("{:.4}%", s.rate) };
-                            ui.colored_label(if rate_ok { ui.visuals().text_color() } else { RED }, txt);
+                            ui.colored_label(if rate_ok { ui.visuals().text_color() } else { pal(ui).negative }, txt);
                         });
-                        row.col(|ui| { ui.colored_label(if value_ok { ui.visuals().text_color() } else { RED }, s.value_date.format("%d-%b-%y").to_string()); });
-                        row.col(|ui| { ui.label(RichText::new(fmt_local(s.first_seen_at)).color(MUTED)); });
+                        row.col(|ui| { ui.colored_label(if value_ok { ui.visuals().text_color() } else { pal(ui).negative }, s.value_date.format("%d-%b-%y").to_string()); });
+                        row.col(|ui| { ui.label(RichText::new(fmt_local(s.first_seen_at)).color(pal(ui).muted)); });
                         row.col(|ui| {
                             let same = s.counterparty == app_canonical(&g.counterparty);
-                            ui.colored_label(if same { ui.visuals().text_color() } else { AMBER }, format!("{} → {}", s.counterparty_raw, s.counterparty));
+                            ui.colored_label(if same { ui.visuals().text_color() } else { pal(ui).warning }, format!("{} → {}", s.counterparty_raw, s.counterparty));
                         });
                     });
                 }
             });
         if p.breaks.is_empty() {
-            ui.label(RichText::new("no breaks on this deal").color(MUTED));
+            ui.label(RichText::new("no breaks on this deal").color(pal(ui).muted));
         } else {
             ui.add_space(4.0);
             for b in &p.breaks {
                 ui.horizontal(|ui| {
-                    ui.colored_label(break_color(b.kind), b.kind.as_str());
-                    ui.label(RichText::new(format!("#{}", b.id)).color(MUTED));
+                    ui.colored_label(break_color(&pal(ui), b.kind), b.kind.as_str());
+                    ui.label(RichText::new(format!("#{}", b.id)).color(pal(ui).muted));
                     if let Some(s) = b.source {
                         ui.label(format!("{} {}", s.as_str(), b.source_ref.clone().unwrap_or_default()));
                     }
                     if let Some(f) = &b.field {
                         ui.label(format!("{f}: expected {} observed {}", b.details["expected"].as_str().unwrap_or("?"), b.details["observed"].as_str().unwrap_or("?")));
                     }
-                    ui.label(RichText::new(b.status.as_str().to_lowercase()).color(MUTED));
+                    ui.label(RichText::new(b.status.as_str().to_lowercase()).color(pal(ui).muted));
                     if let Some(r) = b.resolution {
-                        ui.label(RichText::new(r.as_str().to_lowercase()).color(MUTED));
+                        ui.label(RichText::new(r.as_str().to_lowercase()).color(pal(ui).muted));
                     }
                 });
             }

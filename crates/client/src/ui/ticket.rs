@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::app::App;
 use crate::net::Command;
-use crate::ui::{MUTED, RED};
+use crate::ui::pal;
 
 pub struct TicketForm {
     pub desk_id: i16,
@@ -227,7 +227,7 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
 
         if let Some(e) = &t.error {
             ui.add_space(4.0);
-            ui.label(RichText::new(e).color(RED));
+            ui.label(RichText::new(e).color(pal(ui).negative));
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -240,7 +240,7 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
             if ui.button("Discard").clicked() {
                 close = true;
             }
-            ui.label(RichText::new("Booked deals enter the reconciliation log immediately.").color(MUTED).small());
+            ui.label(RichText::new("Booked deals enter the reconciliation log immediately.").color(pal(ui).muted).small());
         });
     });
     if submit {
@@ -265,9 +265,9 @@ pub fn amend_panel(app: &mut App, ui: &mut egui::Ui, deal: &domain::Deal) {
     let editable = deal.origin == domain::Source::Internal && app.can_book(deal.desk_id) && !deal.status.is_terminal();
     if !editable {
         if deal.origin != domain::Source::Internal {
-            ui.label(RichText::new("created by reconciliation from an external source; its economics follow that source").color(MUTED).small());
+            ui.label(RichText::new("created by reconciliation from an external source; its economics follow that source").color(pal(ui).muted).small());
         } else if deal.status.is_terminal() {
-            ui.label(RichText::new(format!("{} deals cannot be changed", deal.status.as_str().to_lowercase())).color(MUTED).small());
+            ui.label(RichText::new(format!("{} deals cannot be changed", deal.status.as_str().to_lowercase())).color(pal(ui).muted).small());
         }
         return;
     }
@@ -305,7 +305,7 @@ pub fn amend_panel(app: &mut App, ui: &mut egui::Ui, deal: &domain::Deal) {
             }
             ui.separator();
             ui.checkbox(&mut a.confirm_cancel, "I want to cancel this deal");
-            if ui.add_enabled(a.confirm_cancel, egui::Button::new(RichText::new("Cancel deal").color(RED))).clicked() {
+            if ui.add_enabled(a.confirm_cancel, egui::Button::new(RichText::new("Cancel deal").color(pal(ui).negative))).clicked() {
                 cancel_deal = true;
             }
         });
@@ -328,7 +328,7 @@ pub fn amend_panel(app: &mut App, ui: &mut egui::Ui, deal: &domain::Deal) {
         }
     }
     if let Some(e) = err {
-        ui.label(RichText::new(e).color(RED));
+        ui.label(RichText::new(e).color(pal(ui).negative));
     }
     if discard {
         app.amend = None;
