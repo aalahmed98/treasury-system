@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 domain.workspace = true
+alm.workspace = true
 tokio.workspace = true
 sqlx.workspace = true
 serde.workspace = true

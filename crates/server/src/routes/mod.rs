@@ -1,3 +1,4 @@
+pub mod alm;
 pub mod audit;
 pub mod auth;
 pub mod deals;
@@ -33,6 +34,9 @@ pub fn router(state: AppState) -> Router {
         .route("/breaks/{id}/resolve", post(recon::resolve_break))
         .route("/feeds", get(recon::feeds))
         .route("/positions", get(positions::list))
+        .route("/alm/params", get(alm::params))
+        .route("/alm/snapshots", get(alm::snapshots))
+        .route("/alm/lcr", post(alm::lcr))
         .route("/events", get(events::stream))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

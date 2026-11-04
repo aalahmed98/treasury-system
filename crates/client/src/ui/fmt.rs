@@ -66,7 +66,6 @@ pub fn fmt_money_short(v: f64) -> String {
     format!("{digits}{suffix}")
 }
 
-#[allow(dead_code)]
 pub fn fmt_pct(v: f64, dp: usize) -> String {
     format!("{v:.dp$}%")
 }

@@ -1,0 +1,11 @@
+[package]
+name = "alm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+chrono.workspace = true
+serde.workspace = true

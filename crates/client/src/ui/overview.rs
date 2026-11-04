@@ -4,7 +4,7 @@
 
 use chrono::{DateTime, Utc};
 use domain::{BreakKind, BreakStatus, DealStatus, MatchStatus};
-use egui::{Align, Layout, RichText, ScrollArea, Stroke};
+use egui::{Align, Layout, RichText, ScrollArea};
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::app::{App, Tab, Target};
@@ -13,6 +13,7 @@ use crate::state::match_label;
 use crate::ui::charts;
 use crate::ui::fmt::{fmt_amount, fmt_date, fmt_money_short, fmt_time};
 use crate::ui::theme::{Palette, pal};
+use crate::ui::widgets::{card, frame, wrap_row};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tone {
@@ -238,7 +239,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
         ui.add_space(6.0);
 
-        ui.horizontal_wrapped(|ui| {
+        wrap_row(ui, |ui| {
             for t in &app.overview.tiles {
                 if tile(ui, &p, t).clicked() {
                     nav = t.target.clone();
@@ -247,7 +248,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
         ui.add_space(10.0);
 
-        ui.horizontal_wrapped(|ui| {
+        wrap_row(ui, |ui| {
             card(ui, &p, "Open breaks by kind", 300.0, |ui| charts::bars(ui, &app.overview.breaks_by_kind, p.series[1], 150.0, |v| format!("{v:.0}")));
             card(ui, &p, "Match status", 300.0, |ui| charts::bars(ui, &app.overview.match_counts, p.series[0], 150.0, |v| format!("{v:.0}")));
             card(ui, &p, &app.overview.ladder_title, 380.0, |ui| {
@@ -259,7 +260,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
         ui.add_space(10.0);
 
-        ui.horizontal_wrapped(|ui| {
+        wrap_row(ui, |ui| {
             card(ui, &p, "Recent activity", 520.0, |ui| {
                 if app.overview.activity.is_empty() {
                     ui.label(RichText::new("nothing yet").color(p.muted));
@@ -300,15 +301,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn frame(p: &Palette) -> egui::Frame {
-    egui::Frame::new().fill(p.card).stroke(Stroke::new(1.0, p.card_stroke)).corner_radius(6).inner_margin(10)
-}
-
 fn tile(ui: &mut egui::Ui, p: &Palette, t: &Tile) -> egui::Response {
-    let resp = frame(p)
-        .show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.set_min_width(170.0);
+    let resp = ui
+        .allocate_ui_with_layout(egui::vec2(214.0, 10.0), Layout::top_down(Align::Min), |ui| {
+            frame(p).show(ui, |ui| {
+                ui.set_min_width(190.0);
                 ui.label(RichText::new(&t.title).color(p.muted).small());
                 ui.label(RichText::new(&t.value).size(24.0).strong().color(t.tone.color(p, ui)));
                 ui.label(RichText::new(&t.sub).color(p.muted).small());
@@ -316,15 +313,4 @@ fn tile(ui: &mut egui::Ui, p: &Palette, t: &Tile) -> egui::Response {
         })
         .response;
     if t.target.is_some() { resp.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
-}
-
-fn card(ui: &mut egui::Ui, p: &Palette, title: &str, width: f32, body: impl FnOnce(&mut egui::Ui)) {
-    frame(p).show(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            ui.label(RichText::new(title).color(p.muted).small().strong());
-            ui.add_space(4.0);
-            body(ui);
-        });
-    });
 }

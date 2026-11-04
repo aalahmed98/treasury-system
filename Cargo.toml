@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/domain", "crates/server", "crates/client", "crates/recon"]
+members = ["crates/domain", "crates/alm", "crates/server", "crates/client", "crates/recon"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,7 @@ license = "UNLICENSED"
 [workspace.dependencies]
 domain = { path = "crates/domain" }
 recon = { path = "crates/recon" }
+alm = { path = "crates/alm" }
 
 # shared
 serde = { version = "1.0.229", features = ["derive"] }

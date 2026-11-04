@@ -62,6 +62,17 @@ enum Cmd {
         #[arg(long, default_value_t = 42)]
         seed: u64,
     },
+    /// Generate the synthetic banking book, curves and spots for the ALM workbench.
+    AlmSynth {
+        /// Business date of the newest snapshot; defaults to the reconciler's clock, else today.
+        #[arg(long)]
+        date: Option<NaiveDate>,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// TOML file with an [alm] section; the built-in default is used when omitted.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     /// Queue depth, feed freshness, deals by match status, open breaks by kind.
     Status,
 }
@@ -92,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Rebuild => rebuild().await,
         Cmd::Nostro { from, to, seed } => nostro(from, to, seed).await,
+        Cmd::AlmSynth { date, seed, config } => alm_synth(date, seed, config).await,
         Cmd::Status => status().await,
     }
 }
@@ -314,6 +326,10 @@ async fn synth(
     // What the correspondent banks reported for the cash those deals moved, up to the simulated present.
     let n = recon::nostro::generate(&pool, &cal, world.cfg.world.start, world.window_end.date_naive(), world.cfg.world.seed).await?;
     info!(statements = n.statements, movements = n.movements, missing = n.missing, unexpected = n.unexpected, adjusted = n.adjusted, "nostro statements generated");
+    if world.cfg.alm.enabled {
+        let a = recon::alm_synth::run(&pool, &cal, &world.cfg.alm, world.window_end.date_naive(), world.cfg.world.seed).await?;
+        info!(snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, "banking book generated");
+    }
     print_summary(&pool).await?;
 
     if keep_serving {
@@ -391,6 +407,25 @@ async fn nostro(from: NaiveDate, to: NaiveDate, seed: u64) -> anyhow::Result<()>
     let cal = calendar(&pool).await?;
     let n = recon::nostro::generate(&pool, &cal, from, to, seed).await?;
     info!(statements = n.statements, movements = n.movements, missing = n.missing, unexpected = n.unexpected, adjusted = n.adjusted, "nostro statements generated");
+    Ok(())
+}
+
+async fn alm_synth(date: Option<NaiveDate>, seed: u64, config: Option<PathBuf>) -> anyhow::Result<()> {
+    let cfg: SynthConfig = match config {
+        Some(p) => toml::from_str(&std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?)?,
+        None => SynthConfig::default(),
+    };
+    let pool = recon_pool().await?;
+    let cal = calendar(&pool).await?;
+    let date = match date {
+        Some(d) => d,
+        None => {
+            let clock: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT now FROM recon_status WHERE name = 'worker'").fetch_optional(&pool).await?;
+            clock.unwrap_or_else(Utc::now).date_naive()
+        }
+    };
+    let a = recon::alm_synth::run(&pool, &cal, &cfg.alm, date, seed).await?;
+    info!(business_date = %date, snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, "banking book generated");
     Ok(())
 }
 

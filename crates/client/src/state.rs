@@ -324,7 +324,6 @@ fn status_rank(s: DealStatus) -> u8 {
 /// The last reply of one fetch, with the id of the newest request so late or foreign replies are
 /// dropped. `req` 0 means nothing was ever requested; ids come from `App::issue` and never repeat,
 /// so a reply from a previous login can never be accepted.
-#[allow(dead_code)]
 pub struct Fetched<V> {
     pub view: Option<V>,
     pub req: u64,
@@ -339,7 +338,6 @@ impl<V> Default for Fetched<V> {
     }
 }
 
-#[allow(dead_code)]
 impl<V> Fetched<V> {
     pub fn begin(&mut self, req: u64) {
         self.req = req;

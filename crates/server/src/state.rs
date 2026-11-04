@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
-use domain::ServerEvent;
+use chrono::{DateTime, NaiveDate, Utc};
+
+use domain::{LcrResult, ServerEvent};
 use sqlx::PgPool;
 use tokio::sync::broadcast;
 
@@ -16,6 +19,15 @@ pub struct AppState {
     pub revoked: broadcast::Sender<Vec<u8>>,
     pub login_limiter: Arc<RateLimiter>,
     pub config: Arc<Config>,
+    /// Official ALM results (saved parameters, no overrides) per snapshot (date and generation
+    /// time) and parameter version. All three are immutable once written, so an entry never goes
+    /// stale; a regenerated snapshot simply gets a new key.
+    pub alm: Arc<AlmCache>,
+}
+
+#[derive(Default)]
+pub struct AlmCache {
+    pub lcr: RwLock<HashMap<(NaiveDate, DateTime<Utc>, i32), Arc<LcrResult>>>,
 }
 
 impl AppState {
@@ -28,6 +40,7 @@ impl AppState {
             revoked,
             login_limiter: Arc::new(RateLimiter::new(config.login_ip_limit)),
             config: Arc::new(config),
+            alm: Arc::new(AlmCache::default()),
         }
     }
 }

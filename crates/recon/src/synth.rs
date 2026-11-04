@@ -26,6 +26,9 @@ pub struct SynthConfig {
     pub mix: MixCfg,
     #[serde(default)]
     pub source: BTreeMap<String, SourceCfg>,
+    /// The synthetic banking book generated after the deals.
+    #[serde(default)]
+    pub alm: crate::alm_synth::AlmCfg,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

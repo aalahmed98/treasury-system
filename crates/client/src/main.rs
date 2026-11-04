@@ -1,6 +1,7 @@
 //! NBB Treasury desktop client: native egui window over the treasury server's HTTP + SSE API.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod alm_state;
 mod app;
 mod attention;
 #[cfg(debug_assertions)]

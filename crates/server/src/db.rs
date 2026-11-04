@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain::Deal;
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 pub async fn connect(url: &str) -> sqlx::Result<PgPool> {
@@ -103,4 +103,12 @@ impl TryFrom<DealRow> for Deal {
 
 pub fn rows_to_deals(rows: Vec<DealRow>) -> anyhow::Result<Vec<Deal>> {
     rows.into_iter().map(Deal::try_from).collect()
+}
+
+/// The business "now": the reconciler's published clock when it has one (a replayed world runs
+/// on simulated time), otherwise the wall clock. Overview, attention and the ALM calculators use
+/// it so a replayed world shows a coherent today.
+pub async fn business_now(conn: &mut PgConnection) -> sqlx::Result<DateTime<Utc>> {
+    let t: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT now FROM recon_status WHERE name = 'worker'").fetch_optional(&mut *conn).await?;
+    Ok(t.unwrap_or_else(Utc::now))
 }

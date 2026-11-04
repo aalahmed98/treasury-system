@@ -9,7 +9,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::{AmendDeal, BreakView, CashFlow, Deal, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
+use domain::{AlmParamsResponse, AlmRequest, AlmSnapshot, AmendDeal, BreakView, CashFlow, Deal, FeedsResponse, HistoryEntry, LadderResponse, LcrResult, LoginResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -39,6 +39,10 @@ pub enum Command {
     AmendDeal { id: Uuid, req: AmendDeal },
     CancelDeal(Uuid),
     FetchHistory(Uuid),
+    /// ALM requests carry a request id; the reply echoes it so late replies are dropped.
+    FetchAlmParams { req: u64 },
+    FetchAlmSnapshots { req: u64 },
+    AlmLcr { req: u64, body: Box<AlmRequest> },
 }
 
 impl fmt::Debug for Command {
@@ -64,6 +68,11 @@ impl fmt::Debug for Command {
             Command::AmendDeal { id, .. } => f.debug_tuple("AmendDeal").field(id).finish(),
             Command::CancelDeal(id) => f.debug_tuple("CancelDeal").field(id).finish(),
             Command::FetchHistory(id) => f.debug_tuple("FetchHistory").field(id).finish(),
+            Command::FetchAlmParams { req } => f.debug_struct("FetchAlmParams").field("req", req).finish(),
+            Command::FetchAlmSnapshots { req } => f.debug_struct("FetchAlmSnapshots").field("req", req).finish(),
+            Command::AlmLcr { req, body } => {
+                f.debug_struct("AlmLcr").field("req", req).field("as_of", &body.as_of).field("what_if", &body.params.is_some()).finish()
+            }
         }
     }
 }
@@ -92,6 +101,9 @@ pub enum NetEvent {
     /// The booking form should show this error and stay open.
     BookingFailed(String),
     History(Uuid, Vec<HistoryEntry>),
+    AlmParams { req: u64, result: Result<AlmParamsResponse, String> },
+    AlmSnapshots { req: u64, result: Result<Vec<AlmSnapshot>, String> },
+    AlmLcr { req: u64, result: Result<LcrResult, String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,6 +390,39 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                         match api.history(id).await {
                             Ok(h) => emit.send(NetEvent::History(id, h)),
                             Err(e) => emit.fail("history", e),
+                        }
+                    });
+                }
+            }
+            Command::FetchAlmParams { req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.alm_params().await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("alm parameters", e),
+                            r => emit.send(NetEvent::AlmParams { req, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::FetchAlmSnapshots { req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.alm_snapshots().await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("alm snapshots", e),
+                            r => emit.send(NetEvent::AlmSnapshots { req, result: r.map_err(|e| e.to_string()) }),
+                        }
+                    });
+                }
+            }
+            Command::AlmLcr { req, body } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.alm_lcr(&body).await {
+                            Err(e) if is_unauthorized(&e) => emit.fail("lcr", e),
+                            r => emit.send(NetEvent::AlmLcr { req, result: r.map_err(|e| e.to_string()) }),
                         }
                     });
                 }

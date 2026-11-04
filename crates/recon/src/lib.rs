@@ -2,6 +2,7 @@
 //! matcher decision and SLA maths. `pipeline` applies decisions to Postgres; `synth` generates a
 //! world and per-source observations for development and tests.
 
+pub mod alm_synth;
 pub mod calendar;
 pub mod clock;
 pub mod ingest;

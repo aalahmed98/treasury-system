@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::{AmendDeal, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, ErrorBody, FeedsResponse, HistoryEntry, LadderResponse, LoginRequest, LoginResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
+use domain::{AlmParamsResponse, AlmRequest, AlmSnapshot, AmendDeal, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, ErrorBody, FeedsResponse, HistoryEntry, LadderResponse, LcrResult, LoginRequest, LoginResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
 use reqwest::{Certificate, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
@@ -163,6 +163,21 @@ impl Api {
 
     pub async fn history(&self, id: Uuid) -> anyhow::Result<Vec<HistoryEntry>> {
         let res = self.auth(self.http.get(format!("{}/deals/{id}/history", self.base)), true).send().await?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn alm_params(&self) -> anyhow::Result<AlmParamsResponse> {
+        let res = self.auth(self.http.get(format!("{}/alm/params", self.base)), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn alm_snapshots(&self) -> anyhow::Result<Vec<AlmSnapshot>> {
+        let res = self.auth(self.http.get(format!("{}/alm/snapshots", self.base)), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn alm_lcr(&self, req: &AlmRequest) -> anyhow::Result<LcrResult> {
+        let res = self.auth(self.http.post(format!("{}/alm/lcr", self.base)).json(req), true).send().await.map_err(connect_error)?;
         Ok(check(res).await?.json().await?)
     }
 

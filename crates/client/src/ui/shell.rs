@@ -27,7 +27,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Tab::Blotter => blotter::show(app, ui),
         Tab::Breaks => breaks::show(app, ui),
         Tab::Ladder => ladder::show(app, ui),
-        Tab::Alm => alm_placeholder(ui),
+        Tab::Alm => crate::ui::alm::show(app, ui),
     });
 
     ticket::window(app, ui.ctx());
@@ -202,10 +202,4 @@ fn feeds(app: &App, ui: &mut egui::Ui) {
             feed.last_event_at.map(fmt_local).unwrap_or_else(|| "never".into())
         ));
     }
-}
-
-fn alm_placeholder(ui: &mut egui::Ui) {
-    let p = pal(ui);
-    ui.heading("ALM workbench");
-    ui.label(RichText::new("Arrives in the next milestone: LCR first, then NSFR, NII and NIM, stress testing, attribution, the interest rate differential calculator, the repricing gap and funding concentration.").color(p.muted));
 }

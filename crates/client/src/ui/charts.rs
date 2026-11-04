@@ -106,7 +106,6 @@ pub fn sparkline(ui: &mut Ui, values: &[f64], color: Color32, size: egui::Vec2) 
 
 /// A horizontal bar from zero to `max` filled to `value`, with a hard limit mark and an optional
 /// soft trigger mark. The fill turns negative below the limit and warning below the trigger.
-#[allow(dead_code)]
 pub fn limit_gauge(ui: &mut Ui, value: f64, limit: f64, trigger: Option<f64>, max: f64, p: &Palette, width: f32) {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 14.0), Sense::hover());
     let painter = ui.painter();

@@ -1,0 +1,447 @@
+//! Asset and liability management: the banking book as cohorts, the bank's parameter set, and the
+//! inputs and outputs of the ALM calculators. Pure data shapes; the maths lives in the `alm` crate.
+//! Analytics carry `f64` (they are estimates, not accounting); every ratio whose denominator can
+//! be zero is an `Option`, because JSON has no NaN.
+
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+
+text_enum! {
+    /// Which side of the balance sheet a cohort sits on.
+    BsSide {
+        Asset => "ASSET",
+        Liability => "LIABILITY",
+        OffBalance => "OFF_BALANCE",
+    }
+}
+
+text_enum! {
+    /// How a cohort's rate behaves. ADMIN is a non-maturity deposit whose rate the bank sets and
+    /// moves by a pass-through beta; NONE is not rate sensitive at all (equity, cash, other).
+    RateType {
+        Fixed => "FIXED",
+        Float => "FLOAT",
+        Admin => "ADMIN",
+        NotSensitive => "NONE",
+    }
+}
+
+text_enum! {
+    Amort {
+        Bullet => "BULLET",
+        Linear => "LINEAR",
+        Annuity => "ANNUITY",
+    }
+}
+
+text_enum! {
+    HqlaLevel {
+        L1 => "L1",
+        L2A => "L2A",
+        L2B => "L2B",
+    }
+}
+
+text_enum! {
+    DayCount {
+        Act360 => "ACT/360",
+        Act365 => "ACT/365",
+    }
+}
+
+impl DayCount {
+    pub fn basis(self) -> f64 {
+        match self {
+            DayCount::Act360 => 360.0,
+            DayCount::Act365 => 365.0,
+        }
+    }
+}
+
+/// One cohort of the banking book on one snapshot date: a segment, product, currency, rate type
+/// and maturity bucket aggregated into a single row with stable `position_id` across snapshots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BsPosition {
+    pub as_of: NaiveDate,
+    pub position_id: String,
+    pub side: BsSide,
+    pub book: String,
+    pub segment: String,
+    pub product: String,
+    pub ccy: String,
+    pub balance: f64,
+    /// Annual rate in percent, like `deals.rate`.
+    pub rate: f64,
+    pub rate_type: RateType,
+    pub index_code: Option<String>,
+    /// Spread over the index in percent.
+    pub spread: f64,
+    pub reset_months: Option<i16>,
+    /// Payment frequency in months; `None` pays at maturity.
+    pub pay_months: Option<i16>,
+    pub amort: Amort,
+    pub next_repricing: Option<NaiveDate>,
+    pub maturity: Option<NaiveDate>,
+    pub origination: Option<NaiveDate>,
+    pub day_count: DayCount,
+    pub hqla_level: Option<HqlaLevel>,
+    pub encumbered: bool,
+    /// LCR outflow class for liabilities and commitments, inflow class for assets.
+    pub lcr_class: Option<String>,
+    /// NSFR type; the residual-maturity bucket is derived from `maturity`.
+    pub nsfr_class: Option<String>,
+    /// Deposit rate pass-through for ADMIN cohorts.
+    pub beta: f64,
+    pub behavioural_months: Option<i16>,
+    /// Undrawn amount of a commitment (OFF_BALANCE rows).
+    pub undrawn: f64,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Parameters: the bank's limits and assumptions. Basel III defaults; every section has defaults so
+// an older stored version still parses after keys are added.
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlmParams {
+    pub reporting_ccy: String,
+    pub tier1_capital: f64,
+    pub lcr: LcrParams,
+    pub nsfr: NsfrParams,
+    pub gap: GapParams,
+    pub stress: StressParams,
+    pub nii: NiiParams,
+    pub funding: FundingParams,
+}
+
+impl Default for AlmParams {
+    fn default() -> Self {
+        Self {
+            reporting_ccy: "BHD".into(),
+            tier1_capital: 580_000_000.0,
+            lcr: LcrParams::default(),
+            nsfr: NsfrParams::default(),
+            gap: GapParams::default(),
+            stress: StressParams::default(),
+            nii: NiiParams::default(),
+            funding: FundingParams::default(),
+        }
+    }
+}
+
+fn map<const N: usize>(pairs: [(&str, f64); N]) -> BTreeMap<String, f64> {
+    pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LcrParams {
+    /// Regulatory minimum, percent.
+    pub minimum: f64,
+    /// The bank's own floor, percent.
+    pub internal_minimum: f64,
+    /// Early-warning level, percent.
+    pub early_warning: f64,
+    pub significant_ccys: Vec<String>,
+    /// Percent haircut per HQLA level.
+    pub haircuts: BTreeMap<String, f64>,
+    /// Level 2 assets may be at most this percent of the stock.
+    pub cap_l2_total_pct: f64,
+    /// Level 2B assets may be at most this percent of the stock.
+    pub cap_l2b_pct: f64,
+    /// Inflows may offset at most this percent of outflows.
+    pub inflow_cap_pct: f64,
+    /// Run-off rates per outflow class, percent.
+    pub outflow_rates: BTreeMap<String, f64>,
+    /// Inflow rates per inflow class, percent.
+    pub inflow_rates: BTreeMap<String, f64>,
+}
+
+impl Default for LcrParams {
+    fn default() -> Self {
+        Self {
+            minimum: 100.0,
+            internal_minimum: 110.0,
+            early_warning: 120.0,
+            significant_ccys: vec!["BHD".into(), "USD".into()],
+            haircuts: map([("L1", 0.0), ("L2A", 15.0), ("L2B", 50.0)]),
+            cap_l2_total_pct: 40.0,
+            cap_l2b_pct: 15.0,
+            inflow_cap_pct: 75.0,
+            outflow_rates: map([
+                ("RET_STABLE", 5.0),
+                ("RET_LESS_STABLE", 10.0),
+                ("SME_STABLE", 5.0),
+                ("SME_LESS_STABLE", 10.0),
+                ("OPERATIONAL", 25.0),
+                ("NONFIN_WHOLESALE", 40.0),
+                ("FI_WHOLESALE", 100.0),
+                ("SECURED_L1", 0.0),
+                ("SECURED_L2A", 15.0),
+                ("SECURED_L2B", 50.0),
+                ("SECURED_OTHER", 100.0),
+                ("COMMIT_CREDIT_RETAIL", 5.0),
+                ("COMMIT_CREDIT_CORP", 10.0),
+                ("COMMIT_LIQ_CORP", 30.0),
+                ("COMMIT_FI", 40.0),
+                ("OTHER_CONTINGENT", 5.0),
+            ]),
+            inflow_rates: map([
+                ("INFLOW_RETAIL_SME", 50.0),
+                ("INFLOW_NONFIN", 50.0),
+                ("INFLOW_FI", 100.0),
+                ("INFLOW_SECURITIES", 100.0),
+                ("INFLOW_OTHER", 0.0),
+            ]),
+        }
+    }
+}
+
+/// Factors by residual maturity: under six months, six months to a year, a year or more.
+pub type Factors3 = [f64; 3];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NsfrParams {
+    pub minimum: f64,
+    pub internal_minimum: f64,
+    /// Available stable funding factors per liability class and bucket, percent.
+    pub asf: BTreeMap<String, Factors3>,
+    /// Required stable funding factors per asset class and bucket, percent.
+    pub rsf: BTreeMap<String, Factors3>,
+    /// Required stable funding per HQLA level, percent.
+    pub hqla_rsf: BTreeMap<String, f64>,
+    pub off_balance_rsf_pct: f64,
+    pub encumbered_rsf_pct: f64,
+}
+
+impl Default for NsfrParams {
+    fn default() -> Self {
+        let f3 = |pairs: &[(&str, Factors3)]| pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect::<BTreeMap<_, _>>();
+        Self {
+            minimum: 100.0,
+            internal_minimum: 105.0,
+            asf: f3(&[
+                ("CAPITAL", [100.0, 100.0, 100.0]),
+                ("RETAIL_SME_STABLE", [95.0, 95.0, 95.0]),
+                ("RETAIL_SME_LESS_STABLE", [90.0, 90.0, 90.0]),
+                ("NONFIN_WHOLESALE", [50.0, 50.0, 100.0]),
+                ("OPERATIONAL", [50.0, 50.0, 100.0]),
+                ("FI", [0.0, 50.0, 100.0]),
+                ("OTHER", [0.0, 50.0, 100.0]),
+            ]),
+            rsf: f3(&[
+                ("CASH_CB", [0.0, 0.0, 0.0]),
+                ("LOANS_FI", [15.0, 50.0, 100.0]),
+                ("LOANS_RW35", [50.0, 50.0, 65.0]),
+                ("LOANS_OTHER", [50.0, 50.0, 85.0]),
+                ("OTHER", [100.0, 100.0, 100.0]),
+            ]),
+            hqla_rsf: map([("L1", 5.0), ("L2A", 15.0), ("L2B", 50.0)]),
+            off_balance_rsf_pct: 5.0,
+            encumbered_rsf_pct: 100.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GapParams {
+    /// Behavioural life in months per non-maturity product.
+    pub nmd_behavioural_months: BTreeMap<String, f64>,
+    /// Cumulative gap limits per bucket as a percent of total assets.
+    pub cumulative_gap_limit_pct_assets: BTreeMap<String, f64>,
+    pub eve_limit_pct_tier1: f64,
+    pub nii_sensitivity_limit_pct: f64,
+}
+
+impl Default for GapParams {
+    fn default() -> Self {
+        Self {
+            nmd_behavioural_months: map([("CURRENT_ACCOUNT", 36.0), ("SAVINGS", 48.0)]),
+            cumulative_gap_limit_pct_assets: map([("1M", 15.0), ("3M", 20.0), ("6M", 25.0), ("1Y", 30.0)]),
+            eve_limit_pct_tier1: 15.0,
+            nii_sensitivity_limit_pct: 10.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct RateShock {
+    pub parallel: f64,
+    pub short: f64,
+    pub long: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiquidityStress {
+    pub outflow_multiplier: f64,
+    pub extra_hqla_haircut_pct: f64,
+    pub inflow_multiplier: f64,
+}
+
+impl Default for LiquidityStress {
+    fn default() -> Self {
+        Self { outflow_multiplier: 1.5, extra_hqla_haircut_pct: 5.0, inflow_multiplier: 0.5 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StressParams {
+    /// Basel standardised shocks in basis points per currency.
+    pub shocks: BTreeMap<String, RateShock>,
+    /// Post-shock floor at the overnight point, basis points (negative).
+    pub floor_bp: f64,
+    /// The floor rises by this many basis points per year of tenor until it reaches zero.
+    pub floor_slope_bp_per_year: f64,
+    pub liquidity: LiquidityStress,
+    /// FX shock per currency, percent.
+    pub fx_shock_pct: BTreeMap<String, f64>,
+}
+
+impl Default for StressParams {
+    fn default() -> Self {
+        let s = |p, sh, l| RateShock { parallel: p, short: sh, long: l };
+        Self {
+            shocks: [
+                ("USD", s(200.0, 300.0, 150.0)),
+                ("EUR", s(200.0, 250.0, 100.0)),
+                ("GBP", s(250.0, 300.0, 150.0)),
+                ("SAR", s(200.0, 300.0, 150.0)),
+                ("AED", s(200.0, 300.0, 150.0)),
+                ("BHD", s(200.0, 300.0, 150.0)),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+            floor_bp: -100.0,
+            floor_slope_bp_per_year: 5.0,
+            liquidity: LiquidityStress::default(),
+            fx_shock_pct: map([("EUR", 15.0), ("GBP", 15.0)]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NiiParams {
+    pub horizon_months: u32,
+    pub constant_balance_sheet: bool,
+    pub default_beta: f64,
+}
+
+impl Default for NiiParams {
+    fn default() -> Self {
+        Self { horizon_months: 12, constant_balance_sheet: true, default_beta: 0.5 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FundingParams {
+    pub top1_limit_pct: f64,
+    pub top10_limit_pct: f64,
+    pub wholesale_share_limit_pct: f64,
+}
+
+impl Default for FundingParams {
+    fn default() -> Self {
+        Self { top1_limit_pct: 10.0, top10_limit_pct: 25.0, wholesale_share_limit_pct: 35.0 }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// API shapes
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmParamsVersion {
+    pub version: i32,
+    pub created_at: DateTime<Utc>,
+    pub created_by: Option<String>,
+    pub note: Option<String>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmParamsResponse {
+    pub active: AlmParamsVersion,
+    pub params: AlmParams,
+    /// Most recent versions first, the active one included.
+    pub history: Vec<AlmParamsVersion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveParamsRequest {
+    pub params: AlmParams,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmSnapshot {
+    pub as_of: NaiveDate,
+    pub business_date: NaiveDate,
+    pub generated_at: DateTime<Utc>,
+    pub positions: i64,
+}
+
+/// What every calculator takes: a snapshot (the newest complete one when omitted) and either the
+/// saved bank parameters or an unsaved what-if set.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlmRequest {
+    pub as_of: Option<NaiveDate>,
+    pub params: Option<AlmParams>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LcrLine {
+    pub class: String,
+    pub amount: f64,
+    /// Percent.
+    pub rate: f64,
+    pub weighted: f64,
+}
+
+/// The LCR of one currency, or of the whole book in the reporting currency.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LcrFigures {
+    pub ccy: String,
+    /// Level 1 after haircut (none by default).
+    pub hqla_l1: f64,
+    /// Level 2A after haircut.
+    pub hqla_l2a: f64,
+    /// Level 2B after haircut.
+    pub hqla_l2b: f64,
+    pub adjustment_l2b_cap: f64,
+    pub adjustment_l2_cap: f64,
+    pub stock: f64,
+    pub outflows: Vec<LcrLine>,
+    pub total_outflows: f64,
+    pub inflows: Vec<LcrLine>,
+    pub total_inflows: f64,
+    /// Inflows after the cap.
+    pub capped_inflows: f64,
+    pub net_outflows: f64,
+    /// Percent; `None` when there are no net outflows.
+    pub ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LcrResult {
+    pub as_of: NaiveDate,
+    /// The saved parameter version used, or `None` for an unsaved what-if.
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub minimum: f64,
+    pub internal_minimum: f64,
+    pub early_warning: f64,
+    pub total: LcrFigures,
+    pub by_ccy: Vec<LcrFigures>,
+}

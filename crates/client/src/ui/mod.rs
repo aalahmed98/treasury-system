@@ -1,3 +1,4 @@
+pub mod alm;
 pub mod blotter;
 pub mod breaks;
 pub mod charts;
@@ -10,6 +11,7 @@ pub mod shell;
 pub mod status_bar;
 pub mod theme;
 pub mod ticket;
+pub mod widgets;
 
 use egui::Color32;
 

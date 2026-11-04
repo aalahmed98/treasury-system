@@ -6,6 +6,7 @@ use domain::{CashFlow, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, 
 use uuid::Uuid;
 
 use crate::ServerTarget;
+use crate::alm_state::{AlmState, AlmTool, LcrView};
 use crate::net::{self, Command, NetEvent, NetHandle, StreamState};
 use crate::state::{BreakStore, DealStore};
 use crate::ui;
@@ -78,7 +79,6 @@ pub struct App {
     egui_ctx: egui::Context,
     /// Request ids for fetches whose replies must be matched; never reset, so a reply from a
     /// previous login can never be accepted.
-#[allow(dead_code)]
     next_req: u64,
 
     // server target (fixed at start-up)
@@ -143,6 +143,9 @@ pub struct App {
     pub ladder_movements: Vec<NostroMovement>,
     pub ladder_dirty: bool,
     last_ladder: Instant,
+
+    // the ALM workbench
+    pub alm: AlmState,
 
     // booking and amendments
     pub ticket: Option<TicketForm>,
@@ -214,6 +217,7 @@ impl App {
             ladder_movements: Vec::new(),
             ladder_dirty: true,
             last_ladder: Instant::now() - Duration::from_secs(60),
+            alm: AlmState::default(),
             ticket: None,
             amend: None,
             history: None,
@@ -237,20 +241,20 @@ impl App {
         match snap.started {
             None => {
                 snap.started = Some(Instant::now());
-                if let Some(t) = snap.theme {
+                let (theme, zoom, size, tab, after) = (snap.theme, snap.zoom, snap.size, snap.tab, snap.after);
+                if let Some(t) = theme {
                     ctx.set_theme(t);
                 }
-                if let Some(z) = snap.zoom {
+                if let Some(z) = zoom {
                     ctx.set_zoom_factor(z);
                 }
-                if let Some((w, h)) = snap.size {
+                if let Some((w, h)) = size {
                     ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
                 }
-                if let Some(t) = snap.tab {
-                    self.tab = t;
-                    self.ladder_dirty = true;
+                if let Some(t) = tab {
+                    self.open_tab(t);
                 }
-                ctx.request_repaint_after(snap.after);
+                ctx.request_repaint_after(after);
             }
             Some(at) if at.elapsed() >= snap.after && !snap.requested => {
                 snap.requested = true;
@@ -301,6 +305,27 @@ impl App {
         self.tab = tab;
         if matches!(tab, Tab::Ladder | Tab::Overview) {
             self.ladder_dirty = true;
+        }
+        if tab == Tab::Alm && self.alm.params.req == 0 {
+            let r = self.issue();
+            self.alm.params.begin(r);
+            self.net.send(Command::FetchAlmParams { req: r });
+            let r = self.issue();
+            self.alm.snapshots.begin(r);
+            self.net.send(Command::FetchAlmSnapshots { req: r });
+        }
+    }
+
+    /// Recompute the open ALM tool once its inputs settled; replies are matched by request id.
+    fn alm_tick(&mut self) {
+        if self.screen != Screen::Main || self.tab != Tab::Alm || self.alm.bank.is_none() || !self.alm.take_due() {
+            return;
+        }
+        if self.alm.tool == AlmTool::Lcr {
+            let body = Box::new(self.alm.request());
+            let r = self.issue();
+            self.alm.lcr.begin(r);
+            self.net.send(Command::AlmLcr { req: r, body });
         }
     }
 
@@ -448,6 +473,7 @@ impl App {
         self.ticket = None;
         self.amend = None;
         self.history = None;
+        self.alm = AlmState::default();
     }
 
     fn drain_events(&mut self) {
@@ -554,6 +580,32 @@ impl App {
                     }
                 }
                 NetEvent::LoggedOut => self.reset_session(),
+                NetEvent::AlmParams { req, result } => {
+                    let fresh = result.as_ref().ok().map(|r| (r.active.version, r.params.clone()));
+                    if self.alm.params.accept(req, result) {
+                        if let Some((version, params)) = fresh {
+                            if self.alm.bank_version != 0 && version != self.alm.bank_version && self.alm.overrides.is_some() {
+                                self.alm.bank_changed = true;
+                            }
+                            self.alm.bank_version = version;
+                            self.alm.bank = Some(std::sync::Arc::new(params));
+                            if self.alm.overrides.is_none() {
+                                self.alm.mark_dirty();
+                            }
+                        }
+                    }
+                }
+                NetEvent::AlmSnapshots { req, result } => {
+                    if self.alm.snapshots.accept(req, result) {
+                        if self.alm.as_of.is_none() {
+                            self.alm.as_of = self.alm.snapshots.view.as_ref().and_then(|s| s.first()).map(|s| s.as_of);
+                        }
+                        self.alm.mark_dirty();
+                    }
+                }
+                NetEvent::AlmLcr { req, result } => {
+                    self.alm.lcr.accept(req, result.map(LcrView::new));
+                }
             }
         }
     }
@@ -658,6 +710,10 @@ impl eframe::App for App {
         if self.screen == Screen::Main {
             self.refresh_filters();
             self.refresh_derived();
+            self.alm_tick();
+            if self.alm.is_dirty() {
+                ctx.request_repaint_after(Duration::from_millis(320));
+            }
             // Wake up regularly so heartbeats, feed polls and freshness ages update without input.
             ctx.request_repaint_after(Duration::from_secs(2));
         }
