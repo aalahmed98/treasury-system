@@ -11,7 +11,8 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const notice = sessionNotice;
   const secure = window.location.protocol === 'https:';
-  const dev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  // The seeded users are named only in development builds; a release bundle never mentions them.
+  const dev = import.meta.env.DEV;
   const ready = username.trim() !== '' && password !== '' && !busy;
 
   const submit = async (e: FormEvent) => {

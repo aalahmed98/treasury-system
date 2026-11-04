@@ -1,6 +1,8 @@
 @echo off
 rem Build the Windows desktop shell (Tauri) into an installer under dist\.
 rem Needs the Rust MSVC toolchain and Node; NSIS is fetched by the Tauri CLI on first use.
+rem For the bank's build, fix the server first so the shell never asks for an address:
+rem   set TREASURY_FIXED_SERVER=https://treasury.nbb.internal
 setlocal
 if "%CARGO_TARGET_DIR%"=="" set CARGO_TARGET_DIR=C:\dev\targets\treasury-desktop
 cd /d "%~dp0\..\web"

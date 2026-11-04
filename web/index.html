@@ -6,13 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <title>NBB Treasury</title>
     <link rel="icon" href="/app/favicon.svg" type="image/svg+xml" />
-    <script>
-      // The remembered theme, applied before the first paint so nothing flashes.
-      try {
-        var t = localStorage.getItem('nbb-theme');
-        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-      } catch (e) {}
-    </script>
+    <script src="/app/theme.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </head>
   <body>

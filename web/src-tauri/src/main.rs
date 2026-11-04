@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -13,12 +14,40 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const FILE: &str = "server.txt";
 
+/// A bank build names its server at compile time (`TREASURY_FIXED_SERVER=https://treasury.nbb.internal`
+/// in the environment of `build-desktop.cmd`); the shell then never asks for an address, never
+/// offers to change it, and ignores `--server` and `TREASURY_SERVER`.
+const FIXED: Option<&str> = option_env!("TREASURY_FIXED_SERVER");
+
+/// The one origin the window may navigate to; the first-run page lives on `tauri://localhost`.
+#[derive(Clone, Default)]
+struct Allowed(Arc<Mutex<Option<String>>>);
+
+impl Allowed {
+    fn set(&self, server: &str) {
+        *self.0.lock().expect("allowed origin") = Some(server.to_string());
+    }
+    fn permits(&self, url: &url::Url) -> bool {
+        if url.scheme() == "tauri" {
+            return true;
+        }
+        let allowed = self.0.lock().expect("allowed origin").clone();
+        match allowed.and_then(|s| url::Url::parse(&s).ok()) {
+            Some(server) => url.origin() == server.origin(),
+            None => false,
+        }
+    }
+}
+
 fn config_file(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join(FILE))
 }
 
 /// The server to open: the `--server` argument, then `TREASURY_SERVER`, then the remembered one.
 fn configured_server(app: &AppHandle) -> Option<String> {
+    if let Some(fixed) = FIXED {
+        return normalise(fixed);
+    }
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--server") {
         if let Some(u) = args.get(i + 1) {
@@ -63,8 +92,12 @@ fn app_url(server: &str) -> url::Url {
 
 /// Called by the first-run page: remember the server and open the client.
 #[tauri::command]
-fn connect(app: AppHandle, url: String) -> Result<(), String> {
+fn connect(app: AppHandle, allowed: tauri::State<'_, Allowed>, url: String) -> Result<(), String> {
+    if FIXED.is_some() {
+        return Err("this build is fixed to the bank's server".to_string());
+    }
     let server = normalise(&url).ok_or_else(|| "enter the server address as https://host or http://localhost:8787 for a local server".to_string())?;
+    allowed.set(&server);
     if let Some(path) = config_file(&app) {
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
@@ -80,6 +113,9 @@ fn connect(app: AppHandle, url: String) -> Result<(), String> {
 /// Forget the remembered server and show the first-run page again.
 #[tauri::command]
 fn forget(app: AppHandle) -> Result<(), String> {
+    if FIXED.is_some() {
+        return Err("this build is fixed to the bank's server".to_string());
+    }
     if let Some(path) = config_file(&app) {
         let _ = fs::remove_file(path);
     }
@@ -90,25 +126,34 @@ fn forget(app: AppHandle) -> Result<(), String> {
 }
 
 fn main() {
+    let allowed = Allowed::default();
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .manage(allowed.clone())
         .invoke_handler(tauri::generate_handler![connect, forget])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             let target = match configured_server(&handle) {
-                Some(server) => WebviewUrl::External(app_url(&server)),
+                Some(server) => {
+                    allowed.set(&server);
+                    WebviewUrl::External(app_url(&server))
+                }
                 None => WebviewUrl::App("index.html".into()),
             };
+            // The window shows the bank's server and the first-run page, nothing else: a link to
+            // anywhere else is refused rather than followed, so no page can lead the user away.
+            let gate = allowed.clone();
             WebviewWindowBuilder::new(app, "main", target)
                 .title("NBB Treasury")
                 .inner_size(1360.0, 820.0)
                 .min_inner_size(960.0, 600.0)
+                .on_navigation(move |url| gate.permits(url))
                 .build()?;
 
             let open = MenuItem::with_id(app, "open", "Open NBB Treasury", true, None::<&str>)?;
             let change = MenuItem::with_id(app, "forget", "Change server…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &change, &quit])?;
+            let menu = if FIXED.is_some() { Menu::with_items(app, &[&open, &quit])? } else { Menu::with_items(app, &[&open, &change, &quit])? };
             let mut tray = TrayIconBuilder::with_id("main").menu(&menu).tooltip("NBB Treasury").show_menu_on_left_click(false);
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());

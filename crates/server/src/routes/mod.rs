@@ -10,7 +10,9 @@ pub mod positions;
 pub mod recon;
 
 use axum::extract::Request;
-use axum::response::Redirect;
+use axum::http::header::{self, HeaderName, HeaderValue};
+use axum::middleware::Next;
+use axum::response::{Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Router, middleware};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
@@ -20,7 +22,31 @@ use tower_http::trace::TraceLayer;
 use crate::auth::require_auth;
 use crate::state::AppState;
 
+/// The pages may load scripts, styles, fonts and images from this server only, call this server
+/// only, and never sit inside another site's frame.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
+/// Every response, pages and API alike, carries the browser hardening headers. HSTS goes out only
+/// when the server itself speaks TLS or sits behind a terminator that says so.
+async fn security_headers(req: Request, next: Next, tls: bool) -> Response {
+    let forwarded_https = req.headers().get("x-forwarded-proto").and_then(|v| v.to_str().ok()) == Some("https");
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP));
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(HeaderName::from_static("permissions-policy"), HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=()"));
+    h.insert(HeaderName::from_static("cross-origin-opener-policy"), HeaderValue::from_static("same-origin"));
+    h.insert(HeaderName::from_static("cross-origin-resource-policy"), HeaderValue::from_static("same-origin"));
+    if tls || forwarded_https {
+        h.insert(header::STRICT_TRANSPORT_SECURITY, HeaderValue::from_static("max-age=31536000; includeSubDomains"));
+    }
+    res
+}
+
 pub fn router(state: AppState) -> Router {
+    let tls = state.config.tls.is_some();
     let protected = Router::new()
         .route("/auth/logout", post(auth::logout))
         .route("/me", get(auth::me))
@@ -70,6 +96,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/login", post(auth::login))
         .nest_service("/app", web)
         .merge(protected)
+        .layer(middleware::from_fn(move |req: Request, next: Next| security_headers(req, next, tls)))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TraceLayer::new_for_http().make_span_with(|req: &Request| {
             let request_id = req.headers().get("x-request-id").and_then(|v| v.to_str().ok()).unwrap_or("-");
