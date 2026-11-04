@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treasury Implementation Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; a phase ribbon up top; each phase a section with a status stripe; blockers as a two-column ledger. */
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --fg: #1b2430; --muted: #5b6673; --line: #d6dce3; --accent: #1f5f9f;
+  --done: #237a4f; --done-bg: #e3f3ea; --ready: #1f5f9f; --ready-bg: #e3edf8; --blocked: #a84a22; --blocked-bg: #fbe7dd; --partial: #9a6f10; --partial-bg: #f8eed2;
+  --display: "Newsreader", "Iowan Old Style", Georgia, serif; --body: "Public Sans", "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10151b; --surface: #171e26; --fg: #e6ebf0; --muted: #9aa7b4; --line: #2a343f; --accent: #7fb2ea;
+  --done: #5cc48f; --done-bg: #16311f; --ready: #7fb2ea; --ready-bg: #182a3f; --blocked: #ec9565; --blocked-bg: #3b2217; --partial: #dcb44e; --partial-bg: #3a2f12; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #10151b; --surface: #171e26; --fg: #e6ebf0; --muted: #9aa7b4; --line: #2a343f; --accent: #7fb2ea;
+  --done: #5cc48f; --done-bg: #16311f; --ready: #7fb2ea; --ready-bg: #182a3f; --blocked: #ec9565; --blocked-bg: #3b2217; --partial: #dcb44e; --partial-bg: #3a2f12; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55; margin: 0;
+  padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 960px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); }
+h2 { font-size: clamp(22px, 3vw, 28px); margin-top: 48px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 19px; }
+p { max-width: 68ch; margin: 0; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.lede { font-size: 17px; color: var(--muted); max-width: 70ch; margin-top: 12px; }
+header { display: grid; gap: 10px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta b { color: var(--fg); font-weight: 600; }
+
+/* status language, used everywhere */
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.done { color: var(--done); background: var(--done-bg); }
+.ready { color: var(--ready); background: var(--ready-bg); }
+.blocked { color: var(--blocked); background: var(--blocked-bg); }
+.partial { color: var(--partial); background: var(--partial-bg); }
+
+/* phase ribbon */
+.ribbon { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 28px; }
+.ribbon a { display: grid; gap: 6px; padding: 12px 12px 10px; border: 1px solid var(--line); border-top: 4px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; text-decoration: none; min-width: 0; }
+.ribbon a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ribbon a.is-done { border-top-color: var(--done); }
+.ribbon a.is-ready { border-top-color: var(--ready); }
+.ribbon a.is-blocked { border-top-color: var(--blocked); }
+.ribbon a.is-partial { border-top-color: var(--partial); }
+.ribbon .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.ribbon .name { font-weight: 600; font-size: 14px; line-height: 1.25; }
+.ribbon .badge { justify-self: start; }
+
+.tally { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 18px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tally span b { font-weight: 600; }
+
+/* phase sections */
+section.phase { margin-top: 40px; padding-left: 18px; border-left: 4px solid var(--line); }
+section.phase.is-done { border-left-color: var(--done); }
+section.phase.is-ready { border-left-color: var(--ready); }
+section.phase.is-blocked { border-left-color: var(--blocked); }
+section.phase.is-partial { border-left-color: var(--partial); }
+.phase-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.phase-head .num { font-family: var(--mono); color: var(--muted); font-size: 14px; }
+.phase-head .when { color: var(--muted); font-size: 13px; }
+.goal { margin-top: 8px; color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 28px; margin-top: 14px; }
+.cols > div { min-width: 0; }
+.cols h4 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+ul { margin: 0; padding-left: 18px; }
+li { margin: 3px 0; }
+li::marker { color: var(--muted); }
+.evidence { margin-top: 12px; font-size: 13px; color: var(--muted); }
+code { font-family: var(--mono); font-size: 0.92em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+
+/* work-item table */
+.tablewrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.item { font-weight: 500; min-width: 180px; }
+td .badge { font-size: 11px; }
+
+/* blockers ledger */
+.ledger { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-top: 16px; }
+.ledger > div { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; }
+.ledger h3 { display: flex; align-items: center; gap: 10px; font-family: var(--body); font-size: 15px; }
+.ledger ul { margin-top: 10px; }
+.ledger li { margin: 7px 0; }
+.ledger li small { display: block; color: var(--muted); font-size: 12.5px; }
+
+.note { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--accent); background: var(--surface); font-size: 14px; max-width: none; }
+footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .ribbon a { transition: transform .15s ease; } .ribbon a:hover { transform: translateY(-2px); } }
+</style>
+</head><body>
+<div class="page">
+<header>
+  <div class="eyebrow">National Bank of Bahrain · Treasury system</div>
+  <h1>Implementation plan</h1>
+  <p class="lede">A reconciliation-first golden record for treasury deals, built as a native desktop application over Postgres. This page lists every phase, what each one delivers, what has shipped, what can start today, and what is waiting on an answer from the bank.</p>
+  <div class="meta">
+    <span>Status as of <b>4 November 2026</b></span>
+    <span>Repository branch <b>main</b>, commit <b>574eef3</b></span>
+    <span>Tests passing <b>58</b></span>
+    <span>Phases complete <b>4 of 9</b></span>
+  </div>
+</header>
+
+<nav class="ribbon" aria-label="Phases">
+  <a href="#p0" class="is-done"><span class="num">Phase 0</span><span class="name">Design and decisions</span><span class="badge done">Done</span></a>
+  <a href="#p1" class="is-done"><span class="num">Phase 1</span><span class="name">Foundation</span><span class="badge done">Done</span></a>
+  <a href="#p1h" class="is-done"><span class="num">Phase 1H</span><span class="name">Security hardening</span><span class="badge done">Done</span></a>
+  <a href="#p2a" class="is-done"><span class="num">Phase 2A</span><span class="name">Reconciliation core</span><span class="badge done">Done</span></a>
+  <a href="#p2b" class="is-ready"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge ready">Ready, next</span></a>
+  <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
+  <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
+  <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
+  <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
+</nav>
+<div class="tally">
+  <span><b>4</b> phases done</span>
+  <span><b>1</b> ready to start</span>
+  <span><b>2</b> partly blocked</span>
+  <span><b>2</b> blocked</span>
+</div>
+
+<h2 id="summary">What is blocked and what is not</h2>
+<p class="lede" style="margin-top:10px">Nothing on the blocked list stops the next phase. Each item blocks one specific decision or integration, and the system has been built so that those pieces plug in later behind interfaces that already exist.</p>
+<div class="ledger">
+  <div>
+    <h3><span class="badge ready">Not blocked</span> Can start today</h3>
+    <ul>
+      <li>Phase 2B: intraday liquidity ladder, booking ticket, deal history view<small>All derived from the golden record that already exists.</small></li>
+      <li>Synthetic nostro intraday statements for the ladder<small>Same approach as the synthetic Kondor, Bloomberg and Quantum feeds.</small></li>
+      <li>Login against a local Keycloak to prove the OIDC shape<small>The real directory is swapped in once the bank confirms Active Directory or Entra.</small></li>
+      <li>Continuous integration: tests and dependency audit on every push<small>58 tests and <code>cargo audit</code> already run locally.</small></li>
+      <li>Packaging the server and reconciler as services, log files for the client, settlement-date SLAs, allocations, a shared store for the login limiter<small>Engineering backlog with no external dependency.</small></li>
+      <li>Moving the repository out of OneDrive<small>Before any real data enters the system.</small></li>
+    </ul>
+  </div>
+  <div>
+    <h3><span class="badge blocked">Blocked</span> Waiting on the bank</h3>
+    <ul>
+      <li>Real Kondor and Quantum adapters<small>Blocker: whether the vendor contracts permit a read replica with change data capture, or only export feeds; which database engines the two systems run on. Owner: procurement and treasury IT.</small></li>
+      <li>Bloomberg adapter<small>Blocker: whether straight-through processing to Kondor exists, and the data licence it implies. Owner: procurement.</small></li>
+      <li>Confirmation that Quantum is FIS Quantum, and whether Kondor already exposes a deal feed<small>Owner: treasury operations. Changes the adapter design.</small></li>
+      <li>Login against the bank directory<small>Blocker: Active Directory or Entra. Owner: IT security.</small></li>
+      <li>Certificates and code signing<small>Blocker: certificates from the bank's own authority. Owner: infrastructure.</small></li>
+      <li>Nostro intraday statements and BaNCS customer flows<small>Blocker: access to SWIFT MT942 or camt.052 and MT900/910, and to BaNCS. Owner: operations and core banking.</small></li>
+      <li>Desk list and data-sharing matrix<small>Blocker: sign-off by desk heads. Owner: treasury management. Needed before real entitlements are loaded.</small></li>
+      <li>Production environment<small>Blocker: on-premises server provisioning in the bank's data centre. Owner: infrastructure.</small></li>
+    </ul>
+  </div>
+</div>
+<p class="note">One true kill switch exists: if the bank refuses both replica access and export feeds for Kondor and Quantum, there is no data path and the product cannot be fed. Export feeds exist for exactly this purpose, so this is unlikely, but it is worth raising with procurement in the first week.</p>
+
+<section class="phase is-done" id="p0">
+  <div class="phase-head"><span class="num">Phase 0</span><h3>Design and decisions</h3><span class="badge done">Done</span><span class="when">2 November 2026</span></div>
+  <p class="goal">Understand the bank's existing landscape and decide what to build, for whom, and where the data comes from.</p>
+  <div class="cols">
+    <div><h4>Findings</h4><ul>
+      <li>Core banking is TCS BaNCS, live since 2019. Treasury trading and risk is Finastra Fusion Kondor, upgraded in 2020. Transaction banking and liquidity is Infosys Finacle. Retail digital is Backbase. Service management is ServiceNow.</li>
+      <li>Three systems carry a deal at different times: Kondor (front office), Bloomberg (execution), Quantum (back office). Deals appear in one before another and reconciliation breaks.</li>
+      <li>Kondor carries no extra licence cost for our use; Bloomberg and Quantum likely do.</li>
+    </ul></div>
+    <div><h4>Decisions</h4><ul>
+      <li>Do not rebuild the core or Kondor. Consolidate read-only and build the golden record on top.</li>
+      <li>The product is trader decision support for intraday liquidity, not a regulatory book of record. Books of record stay authoritative. Nothing is ever written back to a source.</li>
+      <li>Host on-premises in the bank's data centre, avoiding a Central Bank of Bahrain outsourcing review in the first phase.</li>
+      <li>Working assumption for data access: a read replica with change data capture; vendor export feeds as the fallback.</li>
+      <li>Native Windows desktop application, Rust throughout, Postgres with entitlements enforced in the database.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="phase is-done" id="p1">
+  <div class="phase-head"><span class="num">Phase 1</span><h3>Foundation</h3><span class="badge done">Done</span><span class="when">3 November 2026</span></div>
+  <p class="goal">Prove the parts that do not depend on the bank: the data model, desk entitlements, login, and a native client that shows each user only their desks' deals, updated live.</p>
+  <div class="cols">
+    <div><h4>Delivered</h4><ul>
+      <li>Postgres 16 with row-level security. Identity is set per transaction; the policies decide what each user reads and books. An unset identity sees nothing.</li>
+      <li>Login with argon2id passwords and hashed session tokens.</li>
+      <li>axum API with server-sent events: a deal booked by one user appears for every entitled user within a second.</li>
+      <li>egui desktop client with a virtualised blotter, positions panel and status bar, built as a Windows executable.</li>
+      <li>Mock desks FX, Money Market, ALM and Treasury Head with five seeded users.</li>
+    </ul></div>
+    <div><h4>Evidence</h4><ul>
+      <li>Integration tests on fresh databases for the entitlement matrix, booking policy, session expiry, token hashing, the login flow and change notification.</li>
+      <li>End-to-end script: four users see different deal counts; a deal inserted directly in Postgres reaches the entitled subscriber only.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="phase is-done" id="p1h">
+  <div class="phase-head"><span class="num">Phase 1H</span><h3>Security hardening</h3><span class="badge done">Done</span><span class="when">3 November 2026</span></div>
+  <p class="goal">Close everything a review of the foundation found, before anyone other than the developer connects.</p>
+  <div class="cols">
+    <div><h4>Confirmed issues, fixed</h4><ul>
+      <li>The application role could grant itself entitlements, create users and read password hashes. Credentials moved behind definer-rights functions; the role holds runtime grants only.</li>
+      <li>The amendment policy let a deal be moved from a read-only desk into a bookable one. Booking rights are now required on the deal's own desk and identity columns are frozen.</li>
+      <li>An open event stream outlived its session. Streams close on logout and re-check the session and entitlements every ten seconds.</li>
+    </ul></div>
+    <div><h4>Hardening</h4><ul>
+      <li>No passwords in migrations; roles created from the environment; owner is not a superuser.</li>
+      <li>Plaintext HTTP only on loopback; TLS supported with a development certificate generator.</li>
+      <li>Per-username lockout after five failures, applied to unknown usernames too; per-IP attempt limit; idle timeout with passive requests that do not count as activity.</li>
+      <li>Fixed, validated server address in the client; optional certificate pinning; passwords redacted from debug output; audit rows carry client address and request id.</li>
+    </ul></div>
+  </div>
+  <p class="evidence">Dependency audit: no vulnerabilities; four unmaintained notices in font and Linux clipboard crates.</p>
+</section>
+
+<section class="phase is-done" id="p2a">
+  <div class="phase-head"><span class="num">Phase 2A</span><h3>Reconciliation core</h3><span class="badge done">Done</span><span class="when">3 November 2026</span></div>
+  <p class="goal">The product itself: ingest observations from every source, match them into golden deals, track lifecycle per source, enforce expected-lag SLAs, raise breaks, and let the desk resolve them with an audit trail.</p>
+  <div class="cols">
+    <div><h4>Delivered</h4><ul>
+      <li>One append-only event log of full images, deduplicated by hash. The golden record is a replayable projection of it; a rebuild reproduces the same deals and links.</li>
+      <li>A separate reconciler process with its own least-privilege database role.</li>
+      <li>Deterministic tiered matching: own reference, cross reference, then economics with strict and relaxed tolerances. Ambiguity and double bookings become breaks, never guesses. Arrival order does not change the outcome.</li>
+      <li>Per-source lifecycle, economics owned by the highest-precedence source, confirmation from the back office, mismatch breaks that resolve themselves when a later image agrees.</li>
+      <li>SLA monitor: missing sources after the expected lag, orphans after a grace window, gated by feed heartbeats so a stale feed does not flood the desk with breaks.</li>
+      <li>Internal bookings as the anchor: a provisional deal created from an external source is folded into the desk's own booking.</li>
+      <li>Synthetic Kondor, Bloomberg and Quantum feeds with lag, drops, duplicates, out-of-order delivery, rounding, counterparty name variants and reversed quotes. Five trading days replay in about forty seconds and produce every break kind.</li>
+      <li>APIs for provenance, breaks, acknowledge, link, dismiss and feed freshness. Client blotter with match status and sources, a sources tab with disagreements highlighted, a breaks tab with actions, and feed ages in the status bar.</li>
+    </ul></div>
+    <div><h4>Evidence</h4><ul>
+      <li>20 unit tests on calendar, tolerances, normaliser, matcher and SLA maths.</li>
+      <li>12 pipeline scenarios on fresh databases: three-way match, reversed quote, mismatch then correction, missing then late arrival, orphan then manual link, ambiguity, duplicates, amend before new, cancel propagation, internal anchor, poisoned event, rebuild.</li>
+      <li>7 privilege-boundary tests and 3 HTTP tests for the new role and endpoints; the 14 foundation tests still pass.</li>
+      <li>End-to-end script from an empty database, including a rebuild that reproduced 200 deals and 554 links exactly.</li>
+    </ul></div>
+  </div>
+  <p class="evidence">Known limitation: a user action on a break raised by an SLA tick cannot be replayed by a rebuild, because the break returns with a new id. The rebuild reports how many such actions were skipped.</p>
+</section>
+
+<section class="phase is-ready" id="p2b">
+  <div class="phase-head"><span class="num">Phase 2B</span><h3>Liquidity ladder, booking ticket, history</h3><span class="badge ready">Ready, next</span><span class="when">Planned</span></div>
+  <p class="goal">The trader's view the system exists for, plus the two pieces of desk workflow the foundation left out.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Intraday liquidity ladder</td><td>Projected cash per currency per value date from the golden record: FX legs on value date, money-market principal at value date and principal plus interest at maturity, split confirmed against provisional. An API and a client panel with cumulative balances.</td><td>Golden record (done)</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Booking ticket</td><td>A form in the client over the existing booking endpoint, and an amendment endpoint that honours the frozen-column and terminal-state rules.</td><td>Booking API (done)</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Deal history view</td><td>Every version of a deal from the append-only history table, through a definer function filtered by desk; a client tab.</td><td>History table (done)</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Synthetic nostro statements</td><td>Intraday balances and movements in the shape of MT942 and camt.052, so the ladder can be reconciled against expected cash before the real statements are available.</td><td>Ladder</td><td><span class="badge ready">Not blocked</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="phase is-blocked" id="p3">
+  <div class="phase-head"><span class="num">Phase 3</span><h3>Real source adapters</h3><span class="badge blocked">Blocked</span><span class="when">After the bank answers</span></div>
+  <p class="goal">Replace the synthetic feeds with the real ones. The adapter interface, the event log and the per-source normalisers already exist; each adapter maps one system's rows into the same observation shape.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Blocker</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Kondor adapter</td><td>Read replica with change data capture (sub-second, complete, undocumented schema) or the vendor export feed (documented, licensed, seconds to minutes of latency).</td><td>Contract terms for a replica; database engine; whether a deal feed already exists at the bank.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Quantum adapter</td><td>Same two options. Confirm first that the system is FIS Quantum.</td><td>Contract terms; database engine; confirmation of the product.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Bloomberg adapter</td><td>Execution tickets and confirmations. The cheapest viable design depends on whether straight-through processing into Kondor already exists.</td><td>Data licence and the STP answer.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Adapter test fixtures</td><td>Record real observations once and replay them in tests, the way the synthetic feed already exports its emissions.</td><td>None until the first real feed arrives.</td><td><span class="badge ready">Ready when a feed exists</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="phase is-partial" id="p4">
+  <div class="phase-head"><span class="num">Phase 4</span><h3>Identity, transport, deployment</h3><span class="badge partial">Partly blocked</span><span class="when">Alongside phase 2B and 3</span></div>
+  <p class="goal">Make the system fit the bank's estate: its directory, its certificates, its servers, its operations.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Blocker</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Login against the bank directory</td><td>OpenID Connect behind the existing login module. Local seeded users remain for development.</td><td>Active Directory or Entra.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Keycloak proof of the OIDC shape</td><td>Prove the token flow, group-to-desk mapping and session handling against a local identity provider so the real one is a configuration change.</td><td>None.</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Certificates and code signing</td><td>Server certificates from the bank's authority; signing the Windows executable so SmartScreen and endpoint controls accept it.</td><td>Bank public-key infrastructure.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Packaging and operations</td><td>Server and reconciler as Windows services or systemd units, log files, housekeeping schedules, a runbook.</td><td>None.</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Continuous integration</td><td>Tests and the dependency audit on every push; a Windows build artefact.</td><td>None.</td><td><span class="badge ready">Not blocked</span></td></tr>
+      <tr><td class="item">Production environment</td><td>On-premises hosting is decided. Servers, network paths to Kondor and Quantum, and backups need provisioning.</td><td>Infrastructure team.</td><td><span class="badge blocked">Blocked</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="phase is-blocked" id="p5">
+  <div class="phase-head"><span class="num">Phase 5</span><h3>Liquidity data sources</h3><span class="badge blocked">Blocked</span><span class="when">After access is granted</span></div>
+  <p class="goal">Feed the liquidity ladder with actual cash positions rather than only expected flows from deals.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Blocker</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Nostro intraday statements</td><td>MT942 or camt.052 intraday statements and MT900/910 debit and credit confirmations, reconciled against expected cash from the golden record.</td><td>Access to the SWIFT interface or the statement store.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">BaNCS customer flows</td><td>Large customer movements that change the intraday picture before they reach treasury.</td><td>Access to BaNCS through an approved interface or event feed.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">Settlement-date SLAs</td><td>Expectations keyed on business days rather than clock time, using the calendar that already exists.</td><td>None.</td><td><span class="badge ready">Not blocked</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="phase is-partial" id="p6">
+  <div class="phase-head"><span class="num">Phase 6</span><h3>Desk rollout</h3><span class="badge partial">Partly blocked</span><span class="when">Business decisions</span></div>
+  <p class="goal">Put the system in front of the desks with their real entitlements, and keep reporting working when the system is down.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Blocker</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Desk list and data-sharing matrix</td><td>Which desk may read, book and resolve what. The entitlement model is built; the rows need signing off.</td><td>Desk heads.</td><td><span class="badge blocked">Blocked</span></td></tr>
+      <tr><td class="item">First slice</td><td>FX spot and forwards plus money-market deposits and loans, for intraday liquidity and ALM. Already what the synthetic world models.</td><td>Confirmation from treasury management.</td><td><span class="badge partial">Awaiting confirmation</span></td></tr>
+      <tr><td class="item">Degraded-mode reporting</td><td>A read replica feeding Power BI or Excel so reporting survives an outage of the application.</td><td>None for the design; a replica needs the production environment.</td><td><span class="badge ready">Design not blocked</span></td></tr>
+      <tr><td class="item">Training and runbook</td><td>How traders read match status and breaks, who resolves what, and what operations does when a feed goes stale.</td><td>None.</td><td><span class="badge ready">Not blocked</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<h2 id="questions">Questions for the bank, and what each one unblocks</h2>
+<div class="tablewrap"><table>
+  <thead><tr><th>Question</th><th>Ask</th><th>Unblocks</th></tr></thead>
+  <tbody>
+    <tr><td>Do the Kondor and Quantum contracts permit a read replica with change data capture, or only export feeds?</td><td>Procurement</td><td>Phase 3 adapter design; the kill-switch risk</td></tr>
+    <tr><td>Which database engines do Kondor and Quantum run on?</td><td>Treasury IT</td><td>Change-data-capture tooling</td></tr>
+    <tr><td>Is the back-office system FIS Quantum, and does Kondor already expose a deal feed?</td><td>Treasury operations</td><td>Adapter scope; possibly removes the replica question for Kondor</td></tr>
+    <tr><td>Does straight-through processing from Bloomberg into Kondor exist?</td><td>Treasury operations</td><td>Bloomberg licence cost and adapter design</td></tr>
+    <tr><td>Is identity Active Directory or Entra?</td><td>IT security</td><td>Phase 4 login</td></tr>
+    <tr><td>Who signs off the desk list and data-sharing matrix?</td><td>Treasury management</td><td>Phase 6 entitlements and the first slice</td></tr>
+    <tr><td>Can we receive nostro intraday statements and BaNCS customer flows?</td><td>Operations, core banking</td><td>Phase 5</td></tr>
+    <tr><td>Who provisions on-premises servers, network paths and certificates?</td><td>Infrastructure</td><td>Phase 4 environment, certificates, code signing</td></tr>
+  </tbody>
+</table></div>
+
+<footer>Source of record for this plan: the repository's plan file and README. Phases 0 to 2A are complete and committed; 2B is specified and can begin without waiting on any of the questions above.</footer>
+</div>
+</body></html>
