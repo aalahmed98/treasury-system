@@ -53,6 +53,15 @@ enum Cmd {
     },
     /// Wipe the projection (links, breaks, external deals) and replay the whole log.
     Rebuild,
+    /// Generate synthetic nostro statements and movements for the expected flows in a date range.
+    Nostro {
+        #[arg(long)]
+        from: NaiveDate,
+        #[arg(long)]
+        to: NaiveDate,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+    },
     /// Queue depth, feed freshness, deals by match status, open breaks by kind.
     Status,
 }
@@ -82,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
             synth(config, mode, speed, days, start, seed, dump, keep_serving).await
         }
         Cmd::Rebuild => rebuild().await,
+        Cmd::Nostro { from, to, seed } => nostro(from, to, seed).await,
         Cmd::Status => status().await,
     }
 }
@@ -301,6 +311,9 @@ async fn synth(
     engine.process_until_idle().await?;
     let r = engine.sla_tick().await?;
     info!(missing = r.missing_raised, orphans = r.orphans_raised, pending = r.pending, clock = %clock.now(), "final sla tick");
+    // What the correspondent banks reported for the cash those deals moved, up to the simulated present.
+    let n = recon::nostro::generate(&pool, &cal, world.cfg.world.start, world.window_end.date_naive(), world.cfg.world.seed).await?;
+    info!(statements = n.statements, movements = n.movements, missing = n.missing, unexpected = n.unexpected, adjusted = n.adjusted, "nostro statements generated");
     print_summary(&pool).await?;
 
     if keep_serving {
@@ -371,6 +384,14 @@ async fn rebuild() -> anyhow::Result<()> {
         warn!(stale, "user actions could not be replayed (their breaks were re-raised with new ids); review open breaks");
     }
     print_summary(&pool).await
+}
+
+async fn nostro(from: NaiveDate, to: NaiveDate, seed: u64) -> anyhow::Result<()> {
+    let pool = recon_pool().await?;
+    let cal = calendar(&pool).await?;
+    let n = recon::nostro::generate(&pool, &cal, from, to, seed).await?;
+    info!(statements = n.statements, movements = n.movements, missing = n.missing, unexpected = n.unexpected, adjusted = n.adjusted, "nostro statements generated");
+    Ok(())
 }
 
 async fn status() -> anyhow::Result<()> {

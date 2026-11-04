@@ -8,6 +8,7 @@ pub mod api;
 pub mod deal;
 pub mod desk;
 pub mod events;
+pub mod liquidity;
 pub mod recon;
 pub mod user;
 
@@ -15,5 +16,6 @@ pub use api::*;
 pub use deal::*;
 pub use desk::*;
 pub use events::*;
+pub use liquidity::*;
 pub use recon::*;
 pub use user::*;

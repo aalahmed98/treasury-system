@@ -7,6 +7,7 @@ pub mod clock;
 pub mod ingest;
 pub mod matcher;
 pub mod normalise;
+pub mod nostro;
 pub mod pipeline;
 pub mod sla;
 pub mod store;

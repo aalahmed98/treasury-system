@@ -2,6 +2,7 @@ pub mod audit;
 pub mod auth;
 pub mod deals;
 pub mod events;
+pub mod liquidity;
 pub mod positions;
 pub mod recon;
 
@@ -19,8 +20,13 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/logout", post(auth::logout))
         .route("/me", get(auth::me))
         .route("/deals", get(deals::list).post(deals::create))
-        .route("/deals/{id}", get(deals::get_one))
+        .route("/deals/{id}", get(deals::get_one).patch(liquidity::amend))
+        .route("/deals/{id}/cancel", post(liquidity::cancel))
+        .route("/deals/{id}/history", get(liquidity::history))
         .route("/deals/{id}/provenance", get(recon::provenance))
+        .route("/ladder", get(liquidity::ladder))
+        .route("/ladder/flows", get(liquidity::flows))
+        .route("/ladder/movements", get(liquidity::movements))
         .route("/breaks", get(recon::list_breaks))
         .route("/breaks/{id}", get(recon::get_break))
         .route("/breaks/{id}/ack", post(recon::ack_break))

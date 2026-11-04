@@ -8,8 +8,8 @@ pub mod sse;
 use std::fmt;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
-use domain::{BreakView, Deal, FeedsResponse, LoginResponse, Position, ProvenanceResponse, ResolveRequest};
+use chrono::{DateTime, NaiveDate, Utc};
+use domain::{AmendDeal, BreakView, CashFlow, Deal, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -33,6 +33,12 @@ pub enum Command {
     FetchFeeds,
     AckBreak(i64),
     ResolveBreak { id: i64, req: ResolveRequest },
+    FetchLadder { ccy: Option<String>, passive: bool },
+    FetchLadderDetail { ccy: String, date: NaiveDate },
+    BookDeal(NewDeal),
+    AmendDeal { id: Uuid, req: AmendDeal },
+    CancelDeal(Uuid),
+    FetchHistory(Uuid),
 }
 
 impl fmt::Debug for Command {
@@ -52,6 +58,12 @@ impl fmt::Debug for Command {
             Command::FetchFeeds => f.write_str("FetchFeeds"),
             Command::AckBreak(id) => f.debug_tuple("AckBreak").field(id).finish(),
             Command::ResolveBreak { id, req } => f.debug_struct("ResolveBreak").field("id", id).field("action", &req.action).finish(),
+            Command::FetchLadder { ccy, passive } => f.debug_struct("FetchLadder").field("ccy", ccy).field("passive", passive).finish(),
+            Command::FetchLadderDetail { ccy, date } => f.debug_struct("FetchLadderDetail").field("ccy", ccy).field("date", date).finish(),
+            Command::BookDeal(d) => f.debug_struct("BookDeal").field("desk_id", &d.desk_id).field("product", &d.product).finish(),
+            Command::AmendDeal { id, .. } => f.debug_tuple("AmendDeal").field(id).finish(),
+            Command::CancelDeal(id) => f.debug_tuple("CancelDeal").field(id).finish(),
+            Command::FetchHistory(id) => f.debug_tuple("FetchHistory").field(id).finish(),
         }
     }
 }
@@ -74,6 +86,12 @@ pub enum NetEvent {
     Feeds(FeedsResponse),
     /// A user action was accepted or refused; shown in the status bar.
     Notice(String),
+    Ladder(LadderResponse),
+    LadderDetail { ccy: String, date: NaiveDate, flows: Vec<CashFlow>, movements: Vec<NostroMovement> },
+    Booked(Deal),
+    /// The booking form should show this error and stay open.
+    BookingFailed(String),
+    History(Uuid, Vec<HistoryEntry>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +301,83 @@ async fn run(mut cmds: UnboundedReceiver<Command>, emit: Emitter, target: Target
                                 emit.send(NetEvent::Notice(format!("break #{id} acknowledged")));
                             }
                             Err(e) => emit.send(NetEvent::Notice(format!("acknowledge failed: {e}"))),
+                        }
+                    });
+                }
+            }
+            Command::FetchLadder { ccy, passive } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.ladder(ccy.as_deref(), passive).await {
+                            Ok(l) => emit.send(NetEvent::Ladder(l)),
+                            Err(e) => emit.fail("ladder", e),
+                        }
+                    });
+                }
+            }
+            Command::FetchLadderDetail { ccy, date } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        let (flows, movements) = tokio::join!(api.flows(&ccy, date), api.movements(&ccy, date));
+                        match (flows, movements) {
+                            (Ok(flows), Ok(movements)) => emit.send(NetEvent::LadderDetail { ccy, date, flows, movements }),
+                            (Err(e), _) | (_, Err(e)) => emit.fail("ladder detail", e),
+                        }
+                    });
+                }
+            }
+            Command::BookDeal(deal) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.book(&deal).await {
+                            Ok(d) => {
+                                emit.send(NetEvent::Notice(format!("booked {}", d.deal_ref)));
+                                emit.send(NetEvent::Booked(d));
+                            }
+                            Err(e) if is_unauthorized(&e) => emit.fail("booking", e),
+                            Err(e) => emit.send(NetEvent::BookingFailed(e.to_string())),
+                        }
+                    });
+                }
+            }
+            Command::AmendDeal { id, req } => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.amend(id, &req).await {
+                            Ok(d) => {
+                                emit.send(NetEvent::Notice(format!("amended {} (v{})", d.deal_ref, d.version)));
+                                emit.send(NetEvent::DealUpdated(d));
+                            }
+                            Err(e) => emit.send(NetEvent::Notice(format!("amend failed: {e}"))),
+                        }
+                    });
+                }
+            }
+            Command::CancelDeal(id) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.cancel(id).await {
+                            Ok(d) => {
+                                emit.send(NetEvent::Notice(format!("cancelled {}", d.deal_ref)));
+                                emit.send(NetEvent::DealUpdated(d));
+                            }
+                            Err(e) => emit.send(NetEvent::Notice(format!("cancel failed: {e}"))),
+                        }
+                    });
+                }
+            }
+            Command::FetchHistory(id) => {
+                if let Some(s) = &session {
+                    let (api, emit) = (s.api.clone(), emit.clone());
+                    tokio::spawn(async move {
+                        match api.history(id).await {
+                            Ok(h) => emit.send(NetEvent::History(id, h)),
+                            Err(e) => emit.fail("history", e),
                         }
                     });
                 }

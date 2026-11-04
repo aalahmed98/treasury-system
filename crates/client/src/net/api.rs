@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use anyhow::{Context, anyhow};
-use chrono::{DateTime, Utc};
-use domain::{BreakDetail, BreakView, Deal, DealsResponse, ErrorBody, FeedsResponse, LoginRequest, LoginResponse, MeResponse, Position, ProvenanceResponse, ResolveRequest};
+use chrono::{DateTime, NaiveDate, Utc};
+use domain::{AmendDeal, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, ErrorBody, FeedsResponse, HistoryEntry, LadderResponse, LoginRequest, LoginResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest};
 use reqwest::{Certificate, RequestBuilder, Response, StatusCode};
 use uuid::Uuid;
 
@@ -125,6 +125,44 @@ impl Api {
 
     pub async fn feeds(&self) -> anyhow::Result<FeedsResponse> {
         let res = self.auth(self.http.get(format!("{}/feeds", self.base)), true).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn ladder(&self, ccy: Option<&str>, passive: bool) -> anyhow::Result<LadderResponse> {
+        let mut req = self.http.get(format!("{}/ladder", self.base)).query(&[("days", "35")]);
+        if let Some(c) = ccy {
+            req = req.query(&[("ccy", c)]);
+        }
+        Ok(check(self.auth(req, passive).send().await.map_err(connect_error)?).await?.json().await?)
+    }
+
+    pub async fn flows(&self, ccy: &str, date: NaiveDate) -> anyhow::Result<Vec<CashFlow>> {
+        let req = self.http.get(format!("{}/ladder/flows", self.base)).query(&[("ccy", ccy), ("date", &date.to_string())]);
+        Ok(check(self.auth(req, true).send().await?).await?.json().await?)
+    }
+
+    pub async fn movements(&self, ccy: &str, date: NaiveDate) -> anyhow::Result<Vec<NostroMovement>> {
+        let req = self.http.get(format!("{}/ladder/movements", self.base)).query(&[("ccy", ccy), ("date", &date.to_string())]);
+        Ok(check(self.auth(req, true).send().await?).await?.json().await?)
+    }
+
+    pub async fn book(&self, deal: &NewDeal) -> anyhow::Result<Deal> {
+        let res = self.auth(self.http.post(format!("{}/deals", self.base)).json(deal), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn amend(&self, id: Uuid, req: &AmendDeal) -> anyhow::Result<Deal> {
+        let res = self.auth(self.http.patch(format!("{}/deals/{id}", self.base)).json(req), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn cancel(&self, id: Uuid) -> anyhow::Result<Deal> {
+        let res = self.auth(self.http.post(format!("{}/deals/{id}/cancel", self.base)), false).send().await.map_err(connect_error)?;
+        Ok(check(res).await?.json().await?)
+    }
+
+    pub async fn history(&self, id: Uuid) -> anyhow::Result<Vec<HistoryEntry>> {
+        let res = self.auth(self.http.get(format!("{}/deals/{id}/history", self.base)), true).send().await?;
         Ok(check(res).await?.json().await?)
     }
 
