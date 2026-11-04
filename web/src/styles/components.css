@@ -333,7 +333,7 @@
   background: var(--hover);
 }
 .strip .label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
@@ -349,7 +349,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -371,7 +371,15 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin: 14px 0 6px;
+  margin: 24px 0 8px;
+}
+.section:first-child,
+.page-title + .section,
+.attention + .section {
+  margin-top: 16px;
+}
+.section .t-small {
+  color: var(--text-2);
 }
 
 /* key-value rows */
@@ -1257,7 +1265,7 @@ dialog.ticket::backdrop {
 }
 .hint {
   padding: 6px 2px 0;
-  color: var(--muted);
+  color: var(--text-2);
 }
 .toolbar .vsep {
   width: 1px;
@@ -1282,4 +1290,188 @@ dialog.ticket::backdrop {
 }
 .change:first-child {
   border-top: 0;
+}
+
+/* the hero strip: the numbers someone signs */
+.strip.hero .cell {
+  padding: 14px 16px 12px;
+}
+.strip.hero .value {
+  font-size: 32px;
+  letter-spacing: -0.01em;
+}
+.strip.hero .label {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.strip.hero + .strip {
+  margin-top: 8px;
+}
+
+/* the feeds pill and its popup */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-2);
+  font-weight: 500;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pill:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.feed-line {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 8px;
+  align-items: baseline;
+  padding: 5px 0;
+  border-top: 1px solid var(--hairline);
+}
+.feed-line:first-of-type {
+  border-top: 0;
+}
+.feed-line .feed-detail {
+  grid-column: 2 / -1;
+}
+.badge + .badge,
+.t-medium > .badge {
+  margin-left: 6px;
+}
+
+/* attention: the system lines under the decisions */
+.attention-system {
+  display: grid;
+  gap: 2px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-alt);
+}
+.attention-system .t-eyebrow {
+  margin-bottom: 4px;
+}
+.attention-sys-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+}
+.attention-sys-row .what {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.attention-sys-row .what .t-small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-ops {
+  grid-template-columns: minmax(360px, 1.2fr) minmax(300px, 1fr);
+}
+
+/* ALM assumptions: collapsible groups with a line of help, and the bank's value as a ghost */
+.agroup {
+  margin: 10px 0 2px;
+}
+.agroup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.agroup > summary::-webkit-details-marker {
+  display: none;
+}
+.agroup > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 100ms ease-out;
+}
+.agroup[open] > summary::before {
+  transform: rotate(90deg);
+}
+.agroup > summary:hover .t-eyebrow {
+  color: var(--text);
+}
+.agroup-help {
+  margin: 0 0 6px;
+  padding-left: 13px;
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 44ch;
+  line-height: 1.4;
+}
+.numwrap.edited .input {
+  border-color: var(--warn);
+}
+.numwrap .ghost {
+  border: 0;
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 9px;
+  height: 18px;
+  padding: 0 7px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Setup: the save box above the editor */
+.setup-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+}
+.setup-start {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.save-box {
+  margin: 14px 0 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  max-width: 760px;
+}
+.save-box .changes {
+  margin-top: 6px;
+}
+.save-box .field .input {
+  max-width: 520px;
+}
+.draft-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1100px) {
+  .setup-grid,
+  .draft-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.detail {
+  max-height: 40vh;
 }

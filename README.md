@@ -183,7 +183,18 @@ version with a revert on each. Every action answers with a toast, every first lo
 and a banner says when the live stream is reconnecting. Tables are virtualised, sortable and
 resizable with CSV export; charts have hover tooltips; the ALM pages print as the ALCO pack. The
 trading pages and the ALM workbench are separate chunks fetched when their tab is hovered, so the
-first load is the shell and the Overview. Tooling runs on Windows where Node is installed (`node_modules`
+first load is the shell and the Overview.
+
+A design critique on 4 November (`.impeccable/critique/`) scored the client 27 of 40 and drove a
+second pass: the Overview separates what needs a decision from system health and folds three stale
+feeds into one line; the bell counts only what is new since it was last opened; the four numbers
+the head signs (LCR, NSFR, worst EVE, ten largest depositors) sit in a hero row with their standing
+in words; the top bar is tabs, search, one feeds pill, the bell and the user menu (theme and server
+live in the menu); the ALM assumptions are explained, collapsible groups with the bank's value shown
+as a ghost beside any edit; Setup lists exactly what a new version changes, with a revert on each
+line, and will not save an unchanged set or one without a note; dismissing a break asks once more;
+`a` acknowledges the selected break and `/` goes to the page's search; every failed load offers
+"Try again"; small text is 12 px. Tooling runs on Windows where Node is installed (`node_modules`
 lives under `C:\dev` through a junction, off OneDrive, like the cargo target directory):
 
 ```

@@ -10,25 +10,28 @@ import { fmtMoneyShort, nice } from '../../lib/fmt';
 const BUCKETS = ['ON', '1W', '1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y+'];
 
 function Assumptions() {
-  const { working, edit } = useAlm();
-  if (!working) return null;
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
   const g = working.gap;
+  const b = bank.gap;
   const keys = Object.keys(g.cumulative_gap_limit_pct_assets).sort((a, b) => BUCKETS.indexOf(a) - BUCKETS.indexOf(b));
   return (
     <>
       <AssumptionsHeader />
-      <Group title="Behavioural life (months)" />
-      {Object.entries(g.nmd_behavioural_months).map(([k, v]) => (
-        <Row key={k} label={nice(k)}>
-          <Num value={v} min={1} max={240} step={1} onChange={(x) => edit((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
-        </Row>
-      ))}
-      <Group title="Cumulative gap limits (% assets)" />
-      {keys.map((k) => (
-        <Row key={k} label={k}>
-          <Pct value={g.cumulative_gap_limit_pct_assets[k]} onChange={(x) => edit((p) => void (p.gap.cumulative_gap_limit_pct_assets[k] = x))} />
-        </Row>
-      ))}
+      <Group title="Behavioural life (months)" help="How long deposits with no contractual maturity are assumed to stay, which decides the bucket they reprice in.">
+        {Object.entries(g.nmd_behavioural_months).map(([k, v]) => (
+          <Row key={k} label={nice(k)}>
+            <Num value={v} base={b.nmd_behavioural_months[k]} min={1} max={240} step={1} onChange={(x) => edit((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
+          </Row>
+        ))}
+      </Group>
+      <Group title="Cumulative gap limits (% of assets)" help="The largest cumulative gap allowed at each horizon, as a share of total assets." count={keys.length}>
+        {keys.map((k) => (
+          <Row key={k} label={k}>
+            <Pct value={g.cumulative_gap_limit_pct_assets[k]} base={b.cumulative_gap_limit_pct_assets[k]} onChange={(x) => edit((p) => void (p.gap.cumulative_gap_limit_pct_assets[k] = x))} />
+          </Row>
+        ))}
+      </Group>
     </>
   );
 }

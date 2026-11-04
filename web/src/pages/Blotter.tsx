@@ -10,7 +10,7 @@ import { useSession } from '../api/session';
 import { useLive } from '../api/live';
 import type { Deal, DeskAccess, NewDeal, Product, Side } from '../api/types';
 import { PRODUCT_LABEL, isFx } from '../api/types';
-import { fmtAmount, fmtDateShort, fmtLocal } from '../lib/fmt';
+import { fmtAmount, fmtDateShort, fmtLocal, titleCase } from '../lib/fmt';
 import { breakKindClass, dealRow, fmtRate, isTerminal, matchClass, matchLabel, statusClass, type DealRow } from '../lib/deals';
 import { Badge, Chip } from '../components/ui';
 import { DataTable, byNumber, byString, exportCsv, useSort, useTableView, type Col } from '../components/table';
@@ -21,8 +21,8 @@ const COLS: Col<DealRow>[] = [
   { id: 'ref', header: 'Ref', width: 96, fixed: true, sort: byString((r) => r.ref), cell: (r) => r.ref },
   { id: 'desk', header: 'Desk', width: 52, sort: byString((r) => r.desk), cell: (r) => r.desk },
   { id: 'match', header: 'Match', width: 92, sort: byString((r) => r.match), cell: (r) => <span className={matchClass(r.deal.match_status)}>{r.match}</span>, csv: (r) => r.match },
-  { id: 'cf', header: 'Cf', width: 34, title: 'confirmed by the back office', cell: (r) => (r.deal.confirmed ? <span className="t-good">✔</span> : <span className="t-muted">·</span>), csv: (r) => (r.deal.confirmed ? 'yes' : 'no') },
-  { id: 'src', header: 'Src', width: 50, title: 'K Kondor · B Bloomberg · Q Quantum · I internal booking', cell: (r) => r.sources },
+  { id: 'cf', header: 'Conf.', width: 48, title: 'confirmed by the back office', cell: (r) => (r.deal.confirmed ? <span className="t-good">✔</span> : <span className="t-muted">·</span>), csv: (r) => (r.deal.confirmed ? 'yes' : 'no') },
+  { id: 'src', header: 'Sources', width: 64, title: 'which systems have seen the deal: K Kondor, B Bloomberg, Q Quantum, I internal booking', cell: (r) => r.sources },
   { id: 'product', header: 'Product', width: 70, sort: byString((r) => r.product), cell: (r) => r.product },
   { id: 'side', header: 'Side', width: 60, cell: (r) => r.side },
   { id: 'pair', header: 'Pair', width: 80, sort: byString((r) => r.pair), cell: (r) => r.pair },
@@ -31,7 +31,7 @@ const COLS: Col<DealRow>[] = [
   { id: 'trade', header: 'Trade', width: 94, sort: byString((r) => r.deal.trade_date), cell: (r) => r.trade },
   { id: 'value', header: 'Value', width: 94, sort: byString((r) => r.deal.value_date), cell: (r) => r.value },
   { id: 'cpty', header: 'Counterparty', width: 190, sort: byString((r) => r.counterparty), cell: (r) => r.counterparty },
-  { id: 'status', header: 'Status', width: 96, sort: byString((r) => r.status), cell: (r) => <span className={statusClass(r.deal.status)}>{r.status}</span>, csv: (r) => r.status },
+  { id: 'status', header: 'Status', width: 96, sort: byString((r) => r.status), cell: (r) => <span className={statusClass(r.deal.status)}>{r.status.toLowerCase()}</span>, csv: (r) => r.status },
   { id: 'updated', header: 'Updated', width: 130, sort: byString((r) => r.deal.updated_at), cell: (r) => <span className="t-muted">{r.updated}</span>, csv: (r) => r.updated },
 ];
 
@@ -153,7 +153,7 @@ export function Blotter() {
             </option>
           ))}
         </select>
-        <input className="input input-sm" style={{ width: 250 }} placeholder="search ref, pair, counterparty, match…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search deals" />
+        <input className="input input-sm" style={{ width: 250 }} placeholder="search ref, pair, counterparty, match…  /" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search deals" data-search />
         {FILTERS.map(([f, label, title]) => (
           <Chip key={f} outlined selected={filters.has(f)} onClick={() => toggleFilter(f)} title={title}>
             {label}
@@ -186,7 +186,13 @@ export function Blotter() {
         testId="blotter"
         loading={deals.isLoading}
         empty={
-          narrowed ? (
+          deals.isError ? (
+            <Empty tone="warn" title="The deals could not be loaded" detail={deals.error instanceof Error ? deals.error.message : 'the server did not answer'}>
+              <button type="button" className="btn btn-sm" onClick={() => void deals.refetch()}>
+                Try again
+              </button>
+            </Empty>
+          ) : narrowed ? (
             <Empty title="No deals match" detail="Widen the search or drop a filter.">
               <button type="button" className="btn btn-sm" onClick={clear}>
                 Clear filters
@@ -234,7 +240,8 @@ function Detail({ row, onClose }: { row: DealRow; onClose: () => void }) {
           {matchLabel(d.match_status)}
         </Badge>
         {d.confirmed ? <Badge tone="good">confirmed</Badge> : <Badge tone="warn">provisional</Badge>}
-        <span className="t-small">origin {d.origin}</span>
+        <span className="t-small" title="the systems that have seen this deal">{d.sources.length ? d.sources.map((s) => titleCase(s)).join(', ') : 'no source yet'}</span>
+        <span className="t-small">origin {d.origin.toLowerCase()}</span>
         <span className="t-small">v{d.version}</span>
         <span style={{ flex: 1 }} />
         <div className="chips">
@@ -406,7 +413,7 @@ function Amend({ deal }: { deal: Deal }) {
 
 function Sources({ id }: { id: string }) {
   const q = useQuery({ queryKey: ['provenance', id], queryFn: () => endpoints.provenance(id) });
-  if (!q.data) return <div className="t-muted">{q.isError ? 'provenance is not available' : 'loading provenance…'}</div>;
+  if (!q.data) return <Retry q={q} what="the sources" />;
   const g = q.data.deal;
   return (
     <>
@@ -477,7 +484,7 @@ function Sources({ id }: { id: string }) {
 
 function History({ id }: { id: string }) {
   const q = useQuery({ queryKey: ['history', id], queryFn: () => endpoints.history(id) });
-  if (!q.data) return <div className="t-muted">{q.isError ? 'history is not available' : 'loading history…'}</div>;
+  if (!q.data) return <Retry q={q} what="the history" />;
   const role = (r: string) => (r === 'treasury_recon' ? 'reconciliation' : r === 'treasury_app' ? 'a user' : r === 'treasury_owner' ? 'administrator' : 'system');
   return (
     <div className="stack">
@@ -499,7 +506,22 @@ function History({ id }: { id: string }) {
   );
 }
 
+/** A loading line, or the failure with a way to try again. */
+function Retry({ q, what }: { q: { isError: boolean; error: unknown; refetch: () => unknown }; what: string }) {
+  if (!q.isError) return <div className="t-muted">loading {what}…</div>;
+  return (
+    <div className="row">
+      <span className="t-bad">{what} could not be loaded{q.error instanceof Error ? `: ${q.error.message}` : ''}</span>
+      <button type="button" className="btn btn-sm" onClick={() => void q.refetch()}>
+        Try again
+      </button>
+    </div>
+  );
+}
+
 const PRODUCTS: Product[] = ['FX_SPOT', 'FX_FWD', 'MM_DEPO', 'MM_LOAN'];
+/** The currencies the book deals in; anything else is almost certainly a typo. */
+const CURRENCIES = new Set(['BHD', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR', 'OMR', 'JPY', 'CHF', 'INR', 'CNY', 'AUD', 'CAD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'TRY', 'EGP', 'JOD', 'MYR', 'NZD', 'ZAR', 'PKR']);
 
 /** The booking ticket, in the side column so the blotter stays in view while it is filled in. */
 function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: () => void; onBooked: (d: Deal) => void }) {
@@ -543,7 +565,8 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
     e.preventDefault();
     const ccy = (s: string, name: string) => {
       const c = s.trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(c)) throw new Error(`${name} must be a 3-letter code`);
+      if (!/^[A-Z]{3}$/.test(c)) throw new Error(`${name} must be a 3-letter code such as USD`);
+      if (!CURRENCIES.has(c)) throw new Error(`${c} is not a currency the book deals in; expected BHD, USD, EUR, GBP, SAR, AED or another ISO code`);
       return c;
     };
     try {

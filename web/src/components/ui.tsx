@@ -53,9 +53,9 @@ export interface StatCell {
 }
 
 /** One surface with hairlines between the cells instead of a grid of identical tiles. */
-export function StatStrip({ cells, testId }: { cells: StatCell[]; testId?: string }) {
+export function StatStrip({ cells, testId, hero }: { cells: StatCell[]; testId?: string; /** The numbers someone signs: 32 px values. */ hero?: boolean }) {
   return (
-    <div className="strip" data-testid={testId}>
+    <div className={`strip${hero ? ' hero' : ''}`} data-testid={testId}>
       {cells.map((c, i) => {
         const body = (
           <>

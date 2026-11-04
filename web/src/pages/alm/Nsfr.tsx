@@ -6,7 +6,7 @@ import { AssumptionsHeader, Group, Headline, KV, Num, Pct, ResultsHeader, Row, S
 import { nsfrView, whenLine } from '../../alm/views';
 import { nice } from '../../lib/fmt';
 
-function FactorGrid({ map, onChange }: { map: Record<string, Factors3>; onChange: (k: string, i: number, v: number) => void }) {
+function FactorGrid({ map, base, onChange }: { map: Record<string, Factors3>; base: Record<string, Factors3>; onChange: (k: string, i: number, v: number) => void }) {
   return (
     <div className="factor-grid">
       <span />
@@ -19,7 +19,7 @@ function FactorGrid({ map, onChange }: { map: Record<string, Factors3>; onChange
         <div key={k} style={{ display: 'contents' }}>
           <span className="k">{nice(k)}</span>
           {f.map((v, i) => (
-            <Num key={i} value={v} min={0} max={100} step={0.5} decimals={1} width={64} onChange={(x) => onChange(k, i, x)} />
+            <Num key={i} value={v} base={base[k]?.[i]} min={0} max={100} step={0.5} decimals={1} width={64} onChange={(x) => onChange(k, i, x)} />
           ))}
         </div>
       ))}
@@ -28,35 +28,40 @@ function FactorGrid({ map, onChange }: { map: Record<string, Factors3>; onChange
 }
 
 function Assumptions() {
-  const { working, edit } = useAlm();
-  if (!working) return null;
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
   const n = working.nsfr;
+  const b = bank.nsfr;
   return (
     <>
       <AssumptionsHeader />
-      <Row label="Regulatory minimum">
-        <Pct value={n.minimum} max={500} onChange={(v) => edit((p) => void (p.nsfr.minimum = v))} />
-      </Row>
-      <Row label="Internal minimum">
-        <Pct value={n.internal_minimum} max={500} onChange={(v) => edit((p) => void (p.nsfr.internal_minimum = v))} />
-      </Row>
-      <Group title="Available stable funding factors" />
-      <FactorGrid map={n.asf} onChange={(k, i, v) => edit((p) => void (p.nsfr.asf[k][i] = v))} />
-      <Group title="Required stable funding factors" />
-      <FactorGrid map={n.rsf} onChange={(k, i, v) => edit((p) => void (p.nsfr.rsf[k][i] = v))} />
-      <div style={{ marginTop: 6 }}>
+      <Group title="Thresholds" help="Stable funding available must cover the stable funding required, so the ratio stays above the minimum.">
+        <Row label="Regulatory minimum">
+          <Pct value={n.minimum} base={b.minimum} max={500} onChange={(v) => edit((p) => void (p.nsfr.minimum = v))} />
+        </Row>
+        <Row label="Internal minimum">
+          <Pct value={n.internal_minimum} base={b.internal_minimum} max={500} onChange={(v) => edit((p) => void (p.nsfr.internal_minimum = v))} />
+        </Row>
+      </Group>
+      <Group title="Available stable funding factors" help="How much of each liability counts as stable funding, by the time left to maturity." open={false} count={Object.keys(n.asf).length}>
+        <FactorGrid map={n.asf} base={b.asf} onChange={(k, i, v) => edit((p) => void (p.nsfr.asf[k][i] = v))} />
+      </Group>
+      <Group title="Required stable funding factors" help="How much stable funding each asset needs, by the time left to maturity." open={false} count={Object.keys(n.rsf).length}>
+        <FactorGrid map={n.rsf} base={b.rsf} onChange={(k, i, v) => edit((p) => void (p.nsfr.rsf[k][i] = v))} />
+      </Group>
+      <Group title="Other required funding" help="Liquid assets, undrawn commitments and encumbered assets carry their own factors.">
         {['L1', 'L2A', 'L2B'].map((level) => (
           <Row key={level} label={`HQLA ${level}`}>
-            <Pct value={n.hqla_rsf[level] ?? 0} onChange={(v) => edit((p) => void (p.nsfr.hqla_rsf[level] = v))} />
+            <Pct value={n.hqla_rsf[level] ?? 0} base={b.hqla_rsf[level] ?? 0} onChange={(v) => edit((p) => void (p.nsfr.hqla_rsf[level] = v))} />
           </Row>
         ))}
         <Row label="Off-balance commitments">
-          <Pct value={n.off_balance_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.off_balance_rsf_pct = v))} />
+          <Pct value={n.off_balance_rsf_pct} base={b.off_balance_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.off_balance_rsf_pct = v))} />
         </Row>
         <Row label="Encumbered a year or more">
-          <Pct value={n.encumbered_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.encumbered_rsf_pct = v))} />
+          <Pct value={n.encumbered_rsf_pct} base={b.encumbered_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.encumbered_rsf_pct = v))} />
         </Row>
-      </div>
+      </Group>
     </>
   );
 }
@@ -67,7 +72,7 @@ export function Nsfr() {
   const raw = q.data;
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Net stable funding ratio" loading={q.isFetching} error={q.error?.message} />
+      <ResultsHeader title="Net stable funding ratio (NSFR)" loading={q.isFetching} error={q.error?.message} />
       {v && raw && (
         <>
           <Headline value={v.headline} standing={v.standing} line1={whenLine(raw.as_of, v.basis, raw.reporting_ccy)} line2={`minimum ${raw.minimum.toFixed(0)}% · internal ${raw.internal_minimum.toFixed(0)}%`} testId="headline" />

@@ -81,8 +81,12 @@ button {
   color: var(--muted);
 }
 .t-small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
+}
+.prose {
+  max-width: 70ch;
+  line-height: 1.5;
 }
 .t-secondary {
   color: var(--text-2);

@@ -19,12 +19,11 @@ const KINDS: BreakKind[] = ['MISSING', 'MISMATCH', 'ORPHAN', 'AMBIGUOUS', 'DUPLI
 
 const COLS: Col<BreakRow>[] = [
   { id: 'id', header: '#', width: 64, fixed: true, sort: byNumber((r) => r.view.id), cell: (r) => <span className="t-muted">{r.view.id}</span>, csv: (r) => String(r.view.id) },
-  { id: 'kind', header: 'Kind', width: 96, fixed: true, sort: byString((r) => r.kind), cell: (r) => <span className={`t-medium ${breakKindClass(r.view.kind)}`}>{r.kind}</span>, csv: (r) => r.kind },
+  { id: 'kind', header: 'Kind', width: 96, fixed: true, sort: byString((r) => r.kind), cell: (r) => <span className={`t-medium ${breakKindClass(r.view.kind)}`}>{r.kind.toLowerCase()}</span>, csv: (r) => r.kind },
   { id: 'deal', header: 'Deal', width: 96, sort: byString((r) => r.dealRef), cell: (r) => r.dealRef },
   { id: 'source', header: 'Source', width: 124, cell: (r) => r.source },
   { id: 'field', header: 'Field', width: 90, cell: (r) => r.field },
-  { id: 'expected', header: 'Expected', width: 124, cell: (r) => r.expected },
-  { id: 'observed', header: 'Observed', width: 124, cell: (r) => r.observed },
+  { id: 'disagreement', header: 'Expected → observed', width: 220, title: 'the golden record against what the source sent', cell: (r) => (r.expected || r.observed ? <span>{r.expected || '—'} <span className="t-muted">→</span> <span className="t-bad">{r.observed || '—'}</span></span> : ''), csv: (r) => (r.expected || r.observed ? `${r.expected || '-'} -> ${r.observed || '-'}` : '') },
   { id: 'desk', header: 'Desk', width: 52, cell: (r) => r.view.desk_code },
   { id: 'detected', header: 'Detected', width: 130, sort: byString((r) => r.view.detected_at), cell: (r) => <span className="t-muted">{r.detected}</span>, csv: (r) => r.detected },
   { id: 'status', header: 'Status', width: 110, sort: byString((r) => r.status), cell: (r) => <span className={r.view.status === 'OPEN' ? 't-warn' : r.view.status === 'RESOLVED' ? 't-muted' : ''}>{r.status}</span>, csv: (r) => r.status },
@@ -96,7 +95,7 @@ export function Breaks() {
         <h1 className="t-title" style={{ marginRight: 4 }}>
           Breaks
         </h1>
-        <input className="input input-sm" style={{ width: 240 }} placeholder="search kind, deal, source, field…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search breaks" />
+        <input className="input input-sm" style={{ width: 240 }} placeholder="search kind, deal, source, field…  /" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search breaks" data-search />
         {counts.map(([k, n]) => (
           <Chip key={k} outlined selected={kind === k} onClick={() => setKind((c) => (c === k ? null : k))} title={BREAK_EXPLANATION[k]}>
             <span className={kind === k ? '' : breakKindClass(k)}>{k.toLowerCase()}</span>
@@ -132,7 +131,13 @@ export function Breaks() {
         testId="breaks"
         loading={breaks.isLoading}
         empty={
-          narrowed ? (
+          breaks.isError ? (
+            <Empty tone="warn" title="The breaks could not be loaded" detail={breaks.error instanceof Error ? breaks.error.message : 'the server did not answer'}>
+              <button type="button" className="btn btn-sm" onClick={() => void breaks.refetch()}>
+                Try again
+              </button>
+            </Empty>
+          ) : narrowed ? (
             <Empty title="No breaks match" detail="Widen the search or drop the kind filter.">
               <button
                 type="button"
@@ -154,7 +159,7 @@ export function Breaks() {
         <Actions view={current} key={current.id} onDone={() => advance(current.id)} />
       ) : (
         <div className="hint t-small">
-          <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>Enter</Kbd> or click opens a break · after an action the next open one is selected
+          <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>Enter</Kbd> or click opens a break · <Kbd>a</Kbd> acknowledges it · after an action the next open one is selected
         </div>
       )}
     </WithSide>
@@ -169,6 +174,7 @@ function Actions({ view, onDone }: { view: BreakView; onDone: () => void }) {
   const [note, setNote] = useState('');
   const [linkRef, setLinkRef] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const can = canResolve(view.desk_id);
   const resolved = view.status === 'RESOLVED';
   const done = (what: string) => {
@@ -178,11 +184,30 @@ function Actions({ view, onDone }: { view: BreakView; onDone: () => void }) {
     toast({ tone: 'good', title: `#${view.id} ${view.kind.toLowerCase()} ${what}` });
     onDone();
   };
-  const ack = useMutation({ mutationFn: () => endpoints.ackBreak(view.id), onSuccess: () => done('acknowledged'), onError: (e) => setError(e instanceof ApiError ? e.message : 'failed') });
+  const ack = useMutation({ mutationFn: () => endpoints.ackBreak(view.id), onSuccess: () => done('acknowledged'), onError: (e) => setError(e instanceof ApiError ? e.message : 'the acknowledgement failed; the break is unchanged') });
+  const canAck = can && view.status === 'OPEN' && !ack.isPending;
+  // `a` acknowledges the selected break when the user is not typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== 'a' || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'))) return;
+      if (!canAck) return;
+      e.preventDefault();
+      ack.mutate();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canAck, ack]);
+  // A dismiss asks once more, then forgets the question after a few seconds.
+  useEffect(() => {
+    if (!confirming) return;
+    const t = window.setTimeout(() => setConfirming(false), 5000);
+    return () => window.clearTimeout(t);
+  }, [confirming]);
   const resolve = useMutation({
     mutationFn: (req: ResolveRequest) => endpoints.resolveBreak(view.id, req),
     onSuccess: (_, req) => done(req.action === 'LINK' ? 'linked' : 'dismissed'),
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'failed'),
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'the resolution failed; the break is unchanged'),
   });
   const candidates = Array.isArray(view.details.candidates) ? (view.details.candidates as { deal_id?: string; deal_ref?: string; score?: number }[]).slice(0, 6) : [];
   const typed = linkRef.trim().toUpperCase();
@@ -236,13 +261,19 @@ function Actions({ view, onDone }: { view: BreakView; onDone: () => void }) {
         {!resolved && (
           <div className="stack">
             <div className="row">
-              <button type="button" className="btn btn-sm" disabled={!can || view.status !== 'OPEN' || ack.isPending} onClick={() => ack.mutate()} title="mark it seen; it stays open">
+              <button type="button" className="btn btn-sm" disabled={!canAck} onClick={() => ack.mutate()} title="mark it seen; it stays open (a)">
                 Acknowledge
               </button>
               <input className="input input-sm grow" placeholder="note (required to dismiss)" value={note} onChange={(e) => setNote(e.target.value)} aria-label="Resolution note" />
-              <button type="button" className="btn btn-sm" disabled={!can || !note.trim() || resolve.isPending} title="accept as-is; recorded with your note" onClick={() => resolve.mutate({ action: 'DISMISS', deal_id: null, note: note.trim() })}>
-                Dismiss
-              </button>
+              {confirming ? (
+                <button type="button" className="btn btn-sm t-bad" disabled={resolve.isPending} title="this closes the break for good with your note" onClick={() => resolve.mutate({ action: 'DISMISS', deal_id: null, note: note.trim() })}>
+                  Confirm dismiss
+                </button>
+              ) : (
+                <button type="button" className="btn btn-sm" disabled={!can || !note.trim() || resolve.isPending} title="accept as-is; recorded with your note. Cannot be undone." onClick={() => setConfirming(true)}>
+                  Dismiss
+                </button>
+              )}
             </div>
             {linkable && (
               <div className="row-wrap" style={{ alignItems: 'center' }}>

@@ -35,7 +35,7 @@ interface Item {
 
 export const SHORTCUTS: [string[], string][] = [
   [['Ctrl', 'K'], 'Open the command palette'],
-  [['/'], 'Open the command palette'],
+  [['/'], 'Search the list on this page, or open the palette'],
   [['?'], 'This list'],
   [['g', 'o'], 'Overview'],
   [['g', 'b'], 'Blotter'],
@@ -46,6 +46,7 @@ export const SHORTCUTS: [string[], string][] = [
   [['Enter'], 'Open the selected row'],
   [['Esc'], 'Close the detail, the ticket or a popup'],
   [['n'], 'Book a deal (blotter)'],
+  [['a'], 'Acknowledge the selected break'],
 ];
 
 const isTyping = (t: EventTarget | null) => {
@@ -85,7 +86,12 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
         pending.current = window.setTimeout(() => (pending.current = null), 900);
       } else if (e.key === '/') {
         e.preventDefault();
-        setMode('commands');
+        // On a page with a search box, "/" goes there; elsewhere it opens the palette.
+        const search = document.querySelector<HTMLInputElement>('input[data-search]');
+        if (search) {
+          search.focus();
+          search.select();
+        } else setMode('commands');
       } else if (e.key === '?') {
         e.preventDefault();
         setMode('shortcuts');

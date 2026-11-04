@@ -94,7 +94,7 @@ export function stressView(raw: StressResult) {
       signed(s.eve_delta),
       fmtMoneyShort(s.eve_loss),
       s.eve_loss_pct_tier1 === null ? '—' : `${s.eve_loss_pct_tier1.toFixed(1)}%`,
-      s.nii_breach && s.eve_breach ? 'NII and EVE limits' : s.nii_breach ? 'NII limit' : s.eve_breach ? 'EVE limit' : '',
+      s.nii_breach && s.eve_breach ? 'outside NII and EVE limits' : s.nii_breach ? 'outside NII limit' : s.eve_breach ? 'outside EVE limit' : 'within limits',
     ]),
     niiBars: raw.rate_scenarios.map((s) => [SHORT_LABEL[s.scenario], s.nii_delta] as [string, number]),
     eveBars: raw.rate_scenarios.map((s) => [SHORT_LABEL[s.scenario], s.eve_delta] as [string, number]),

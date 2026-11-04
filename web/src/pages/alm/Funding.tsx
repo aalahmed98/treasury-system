@@ -7,22 +7,24 @@ import { AssumptionsHeader, Group, Headline, KV, Pct, ResultsHeader, Row, Simple
 import { fundingView, whenLine } from '../../alm/views';
 
 function Assumptions() {
-  const { working, edit } = useAlm();
-  if (!working) return null;
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
   const f = working.funding;
+  const b = bank.funding;
   return (
     <>
       <AssumptionsHeader />
-      <Group title="Limits" />
-      <Row label="Largest depositor (% of deposits)">
-        <Pct value={f.top1_limit_pct} onChange={(v) => edit((p) => void (p.funding.top1_limit_pct = v))} />
-      </Row>
-      <Row label="Ten largest depositors">
-        <Pct value={f.top10_limit_pct} onChange={(v) => edit((p) => void (p.funding.top10_limit_pct = v))} />
-      </Row>
-      <Row label="Wholesale funding (% of funding)">
-        <Pct value={f.wholesale_share_limit_pct} onChange={(v) => edit((p) => void (p.funding.wholesale_share_limit_pct = v))} />
-      </Row>
+      <Group title="Limits" help="How concentrated the deposit base may be before the bank wants to know.">
+        <Row label="Largest depositor (% of deposits)">
+          <Pct value={f.top1_limit_pct} base={b.top1_limit_pct} onChange={(v) => edit((p) => void (p.funding.top1_limit_pct = v))} />
+        </Row>
+        <Row label="Ten largest depositors">
+          <Pct value={f.top10_limit_pct} base={b.top10_limit_pct} onChange={(v) => edit((p) => void (p.funding.top10_limit_pct = v))} />
+        </Row>
+        <Row label="Wholesale funding (% of funding)">
+          <Pct value={f.wholesale_share_limit_pct} base={b.wholesale_share_limit_pct} onChange={(v) => edit((p) => void (p.funding.wholesale_share_limit_pct = v))} />
+        </Row>
+      </Group>
     </>
   );
 }

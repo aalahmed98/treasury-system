@@ -5,7 +5,8 @@ test('an ALM user sees the balance-sheet strip with limits and charts', async ({
   await login(page, 'alm1');
   await ready(page);
   await expect(page.getByTestId('alm-strip')).toBeVisible();
-  await expect(page.getByTestId('alm-strip').locator('.cell')).toHaveCount(8);
+  await expect(page.getByTestId('alm-strip').locator('.cell')).toHaveCount(4);
+  await expect(page.getByTestId('alm-strip-2').locator('.cell')).toHaveCount(4);
   await expect(page.getByText('Limits', { exact: true })).toBeVisible();
   await expect(page.locator('svg.chart').first()).toBeVisible();
 });

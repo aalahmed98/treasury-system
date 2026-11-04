@@ -7,50 +7,55 @@ import { lcrView, whenLine } from '../../alm/views';
 import { nice } from '../../lib/fmt';
 
 function Assumptions() {
-  const { working, edit } = useAlm();
-  if (!working) return null;
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
   const l = working.lcr;
+  const b = bank.lcr;
   return (
     <>
       <AssumptionsHeader />
-      <Group title="Thresholds" />
-      <Row label="Regulatory minimum">
-        <Pct value={l.minimum} max={500} onChange={(v) => edit((p) => void (p.lcr.minimum = v))} />
-      </Row>
-      <Row label="Internal minimum">
-        <Pct value={l.internal_minimum} max={500} onChange={(v) => edit((p) => void (p.lcr.internal_minimum = v))} />
-      </Row>
-      <Row label="Early warning">
-        <Pct value={l.early_warning} max={500} onChange={(v) => edit((p) => void (p.lcr.early_warning = v))} />
-      </Row>
-      <Group title="Liquid assets" />
-      {['L1', 'L2A', 'L2B'].map((level) => (
-        <Row key={level} label={`${level} haircut`}>
-          <Pct value={l.haircuts[level] ?? 0} onChange={(v) => edit((p) => void (p.lcr.haircuts[level] = v))} />
+      <Group title="Thresholds" help="The ratio must stay above the regulatory minimum. The internal minimum and the early warning are the bank's own triggers, set in Setup.">
+        <Row label="Regulatory minimum">
+          <Pct value={l.minimum} base={b.minimum} max={500} onChange={(v) => edit((p) => void (p.lcr.minimum = v))} />
         </Row>
-      ))}
-      <Row label="Level 2 cap">
-        <Pct value={l.cap_l2_total_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2_total_pct = v))} />
-      </Row>
-      <Row label="Level 2B cap">
-        <Pct value={l.cap_l2b_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2b_pct = v))} />
-      </Row>
-      <Row label="Inflow cap">
-        <Pct value={l.inflow_cap_pct} onChange={(v) => edit((p) => void (p.lcr.inflow_cap_pct = v))} />
-      </Row>
-      <Group title="Run-off rates" />
-      {Object.entries(l.outflow_rates).map(([k, v]) => (
-        <Row key={k} label={nice(k)}>
-          <Pct value={v} onChange={(x) => edit((p) => void (p.lcr.outflow_rates[k] = x))} />
+        <Row label="Internal minimum">
+          <Pct value={l.internal_minimum} base={b.internal_minimum} max={500} onChange={(v) => edit((p) => void (p.lcr.internal_minimum = v))} />
         </Row>
-      ))}
-      <Group title="Inflow rates" />
-      {Object.entries(l.inflow_rates).map(([k, v]) => (
-        <Row key={k} label={nice(k)}>
-          <Pct value={v} onChange={(x) => edit((p) => void (p.lcr.inflow_rates[k] = x))} />
+        <Row label="Early warning">
+          <Pct value={l.early_warning} base={b.early_warning} max={500} onChange={(v) => edit((p) => void (p.lcr.early_warning = v))} />
         </Row>
-      ))}
-      <p className="t-small" style={{ marginTop: 10 }}>
+      </Group>
+      <Group title="Liquid assets" help="Haircuts on each level of liquid assets, and the caps on how much level 2 may count towards the stock.">
+        {['L1', 'L2A', 'L2B'].map((level) => (
+          <Row key={level} label={`${level} haircut`}>
+            <Pct value={l.haircuts[level] ?? 0} base={b.haircuts[level] ?? 0} onChange={(v) => edit((p) => void (p.lcr.haircuts[level] = v))} />
+          </Row>
+        ))}
+        <Row label="Level 2 cap">
+          <Pct value={l.cap_l2_total_pct} base={b.cap_l2_total_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2_total_pct = v))} />
+        </Row>
+        <Row label="Level 2B cap">
+          <Pct value={l.cap_l2b_pct} base={b.cap_l2b_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2b_pct = v))} />
+        </Row>
+        <Row label="Inflow cap">
+          <Pct value={l.inflow_cap_pct} base={b.inflow_cap_pct} onChange={(v) => edit((p) => void (p.lcr.inflow_cap_pct = v))} />
+        </Row>
+      </Group>
+      <Group title="Run-off rates" help="The share of each liability class assumed to leave within 30 days of stress." open={false} count={Object.keys(l.outflow_rates).length}>
+        {Object.entries(l.outflow_rates).map(([k, v]) => (
+          <Row key={k} label={nice(k)}>
+            <Pct value={v} base={b.outflow_rates[k]} onChange={(x) => edit((p) => void (p.lcr.outflow_rates[k] = x))} />
+          </Row>
+        ))}
+      </Group>
+      <Group title="Inflow rates" help="The share of each receivable class assumed to arrive within 30 days, counted up to the inflow cap." open={false} count={Object.keys(l.inflow_rates).length}>
+        {Object.entries(l.inflow_rates).map(([k, v]) => (
+          <Row key={k} label={nice(k)}>
+            <Pct value={v} base={b.inflow_rates[k]} onChange={(x) => edit((p) => void (p.lcr.inflow_rates[k] = x))} />
+          </Row>
+        ))}
+      </Group>
+      <p className="t-small prose" style={{ marginTop: 10 }}>
         Basel III defaults until the CBB LM-11 calibration and the bank's limits are confirmed. Edits here are a what-if; Setup saves a new version.
       </p>
     </>
@@ -63,7 +68,7 @@ export function Lcr() {
   const raw = q.data;
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Liquidity coverage ratio" loading={q.isFetching} error={q.error?.message} />
+      <ResultsHeader title="Liquidity coverage ratio (LCR)" loading={q.isFetching} error={q.error?.message} />
       {v && raw && (
         <>
           <Headline value={v.headline} standing={v.standing} line1={whenLine(raw.as_of, v.basis, raw.reporting_ccy)} line2={`minimum ${raw.minimum.toFixed(0)}% · internal ${raw.internal_minimum.toFixed(0)}% · early warning ${raw.early_warning.toFixed(0)}%`} testId="headline" />

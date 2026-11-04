@@ -41,7 +41,11 @@ export const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(
 export type Fmt = (v: number) => string;
 
 /** Category bars: the value above each bar, the category under it. */
-export function Bars({ data, color = SERIES[0], height = 150, fmt }: { data: [string, number][]; color?: string; height?: number; fmt: Fmt }) {
+/** Which bars carry a value label: every one, the extremes only, or none (the tooltip still has
+ * every value). `auto` labels every bar when there is room and only the extremes when there is not. */
+export type Labels = 'auto' | 'all' | 'extremes' | 'none';
+
+export function Bars({ data, color = SERIES[0], height = 150, fmt, labels = 'auto' }: { data: [string, number][]; color?: string; height?: number; fmt: Fmt; labels?: Labels }) {
   const [ref, width] = useMeasure<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const [hot, setHot] = useState<number | null>(null);
@@ -56,6 +60,10 @@ export function Bars({ data, color = SERIES[0], height = 150, fmt }: { data: [st
   const baseY = yOf(0);
   const slot = width / data.length;
   const barW = Math.min(40, Math.max(6, slot * 0.56));
+  const mode: Labels = labels === 'auto' ? (slot >= 52 ? 'all' : 'extremes') : labels;
+  const maxI = data.reduce((m, d, i) => (d[1] > data[m][1] ? i : m), 0);
+  const minI = data.reduce((m, d, i) => (d[1] < data[m][1] ? i : m), 0);
+  const labelled = (i: number) => mode === 'all' || (mode === 'extremes' && (i === maxI || (i === minI && data[minI][1] < 0)));
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       {width > 0 && (
@@ -83,8 +91,8 @@ export function Bars({ data, color = SERIES[0], height = 150, fmt }: { data: [st
               >
                 <rect x={cx - slot / 2} y={0} width={slot} height={height} fill="transparent" />
                 <rect x={cx - barW / 2} y={y0} width={barW} height={h} rx={3} fill={color} opacity={hot === null || hot === i ? 1 : 0.8} />
-                {v !== 0 && (
-                  <text className="value" x={cx} y={y0 - 3} textAnchor="middle">
+                {v !== 0 && labelled(i) && (
+                  <text className="value" x={cx} y={v >= 0 ? y0 - 3 : baseY - 3} textAnchor="middle">
                     {fmt(v)}
                   </text>
                 )}

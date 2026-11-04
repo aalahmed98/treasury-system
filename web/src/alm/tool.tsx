@@ -31,7 +31,7 @@ export function ToolLayout({ assumptions, children, ready }: { assumptions: Reac
 }
 
 type Leaf = string | number | boolean | null;
-interface Change {
+export interface Change {
   path: string[];
   bank: Leaf;
   now: Leaf;
@@ -69,6 +69,30 @@ function setPath(obj: unknown, path: string[], value: Leaf) {
 
 const fmtLeaf = (v: Leaf) => (v === null ? '—' : typeof v === 'number' ? String(Number(v.toFixed(4))) : String(v));
 
+/** The list of changed parameters, bank value to new value, with a revert on each. */
+export function ChangeList({ changes, onRevert, empty }: { changes: Change[]; onRevert: (c: Change) => void; empty: string }) {
+  return (
+    <div className="changes">
+      {changes.map((c) => (
+        <div key={c.path.join('.')} className="change">
+          <span className="t-secondary">{c.path.map(nice).join(' › ')}</span>
+          <span className="num">
+            <span className="t-muted">{fmtLeaf(c.bank)}</span> → <span className="t-medium">{fmtLeaf(c.now)}</span>
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRevert(c)} title="back to the bank's value">
+            revert
+          </button>
+        </div>
+      ))}
+      {changes.length === 0 && <div className="t-muted">{empty}</div>}
+    </div>
+  );
+}
+
+export function revertPath(p: AlmParams, c: Change) {
+  setPath(p, c.path, c.bank);
+}
+
 export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string }) {
   const { overrides, reset, bankVersion, bankChanged, bank, working, edit } = useAlm();
   const { toggle } = useContext(RailCtx);
@@ -92,20 +116,7 @@ export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string })
                   <div className="t-eyebrow" style={{ marginBottom: 6 }}>
                     Against bank v{bankVersion}
                   </div>
-                  <div className="changes">
-                    {changes.map((c) => (
-                      <div key={c.path.join('.')} className="change">
-                        <span className="t-secondary">{c.path.map(nice).join(' › ')}</span>
-                        <span className="num">
-                          <span className="t-muted">{fmtLeaf(c.bank)}</span> → <span className="t-medium">{fmtLeaf(c.now)}</span>
-                        </span>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => edit((p) => setPath(p, c.path, c.bank))} title="back to the bank's value">
-                          revert
-                        </button>
-                      </div>
-                    ))}
-                    {changes.length === 0 && <div className="t-muted">nothing differs from the bank's set</div>}
-                  </div>
+                  <ChangeList changes={changes} onRevert={(c) => edit((p) => revertPath(p, c))} empty="nothing differs from the bank's set" />
                 </div>
               )}
             </div>
@@ -125,14 +136,25 @@ export function AssumptionsHeader({ title = 'Assumptions' }: { title?: string })
   );
 }
 
-export function Group({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <>
+/** A group of assumptions. With children it collapses; the first groups a tool needs stay open and
+ * the long tails (run-off rates, shocks per currency) start closed with their count on show. */
+export function Group({ title, help, open = true, count, children }: { title: string; help?: string; open?: boolean; count?: number; children?: ReactNode }) {
+  if (children === undefined) {
+    return (
       <div className="t-eyebrow" style={{ margin: '10px 0 4px' }}>
         {title}
       </div>
+    );
+  }
+  return (
+    <details className="agroup" open={open}>
+      <summary>
+        <span className="t-eyebrow">{title}</span>
+        {count !== undefined && <span className="t-small">{count}</span>}
+      </summary>
+      {help && <div className="agroup-help">{help}</div>}
       {children}
-    </>
+    </details>
   );
 }
 
@@ -145,10 +167,12 @@ export function Row({ label, children }: { label: ReactNode; children: ReactNode
   );
 }
 
-/** A number input: commits on each change, keeps the caret, clamps to the range. */
-export function Num({ value, onChange, min, max, step = 1, decimals = 0, suffix, width = 84, disabled }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; decimals?: number; suffix?: string; width?: number; disabled?: boolean }) {
+/** A number input: commits on each change, keeps the caret, clamps to the range. With `base`, the
+ * bank's value appears as a ghost beside an edited input; clicking it puts the value back. */
+export function Num({ value, onChange, min, max, step = 1, decimals = 0, suffix, width = 84, disabled, base }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; decimals?: number; suffix?: string; width?: number; disabled?: boolean; base?: number }) {
+  const edited = base !== undefined && Number.isFinite(base) && Math.abs(base - value) > 1e-9;
   return (
-    <span className="numwrap">
+    <span className={`numwrap${edited ? ' edited' : ''}`}>
       <input
         type="number"
         className="input input-sm input-num"
@@ -166,12 +190,18 @@ export function Num({ value, onChange, min, max, step = 1, decimals = 0, suffix,
         }}
       />
       {suffix && <span className="suffix t-small">{suffix}</span>}
+      {edited && (
+        <button type="button" className="ghost" onClick={() => onChange(base!)} title="the bank's value; click to put it back">
+          bank {Number(base!.toFixed(decimals))}
+          {suffix ?? ''}
+        </button>
+      )}
     </span>
   );
 }
 
-export const Pct = ({ value, onChange, max = 100 }: { value: number; onChange: (v: number) => void; max?: number }) => <Num value={value} onChange={onChange} min={0} max={max} step={0.5} decimals={1} suffix="%" />;
-export const Bp = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => <Num value={value} onChange={onChange} min={-2000} max={2000} step={5} decimals={0} suffix="bp" />;
+export const Pct = ({ value, onChange, max = 100, base }: { value: number; onChange: (v: number) => void; max?: number; base?: number }) => <Num value={value} onChange={onChange} min={0} max={max} step={0.5} decimals={1} suffix="%" base={base} />;
+export const Bp = ({ value, onChange, base }: { value: number; onChange: (v: number) => void; base?: number }) => <Num value={value} onChange={onChange} min={-2000} max={2000} step={5} decimals={0} suffix="bp" base={base} />;
 
 /** The one number a tool is about, its standing beside it, and two lines of context. */
 export function Headline({ value, standing, line1, line2, testId }: { value: string; standing: Standing; line1: string; line2: string; testId?: string }) {

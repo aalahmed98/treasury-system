@@ -54,9 +54,7 @@ export function Login() {
         )}
         {notice && !error && <div className="notice warn">{notice}</div>}
         <hr className="hr" style={{ marginTop: 14 }} />
-        <div className="t-small" title={secure ? 'TLS' : 'plain HTTP (loopback only)'}>
-          {secure ? '🔒' : '⚠'} {window.location.origin}
-        </div>
+        <div className="t-small">{secure ? `Encrypted connection to ${window.location.host}` : `Unencrypted connection to ${window.location.host}: for a development PC only`}</div>
       </form>
       {dev && <div className="t-small" style={{ marginTop: 16 }}>dev server · seeded users fx1, fx2, mm1, alm1, head1 · password "password"</div>}
     </div>

@@ -162,7 +162,7 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActi
   );
 
   return (
-    <div className="tablewrap" ref={scrollRef} data-testid={testId} tabIndex={0} onKeyDown={onKeyDown} role="grid" aria-rowcount={sorted.length} aria-busy={loading || undefined}>
+    <div className="tablewrap" ref={scrollRef} data-testid={testId} tabIndex={0} onKeyDown={onKeyDown} aria-label={`${sorted.length} rows; arrow keys move the selection, Enter opens it, Escape closes it`} aria-busy={loading || undefined}>
       <table className="table grid" style={{ width: tableWidth }}>
         <colgroup>
           {columns.map((c) => (
@@ -183,7 +183,7 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActi
                   ) : (
                     c.header
                   )}
-                  <div className="resizer" onMouseDown={(e) => startResize(c, e)} />
+                  <div className="resizer" onMouseDown={(e) => startResize(c, e)} aria-hidden />
                 </th>
               );
             })}

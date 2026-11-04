@@ -55,7 +55,7 @@ medium, semibold).
 | heading | 15 | semibold | card and panel titles |
 | body / button / monospace | 13 | regular / medium / regular | text, controls, figures |
 | label | 12 | medium | table headers, form labels |
-| small | 11 | regular | metadata |
+| small | 12 | regular | metadata, hints |
 | eyebrow | 11 | medium, caps, +0.6 tracking | section headers |
 
 ## Spacing and shape
@@ -93,6 +93,15 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
 - **Sheet**: a form in the side column, under its own heading row, above the positions; the page
   behind it stays live. Used for the booking ticket instead of a modal.
 - **Banner**: one line under the top bar on `warn_soft` while the live stream is reconnecting.
+- **Hero strip**: the stat strip with 32 px values and the standing in words, for the numbers
+  someone signs; a plain strip of the supporting figures sits under it.
+- **Feeds pill**: one pill in the top bar with the worst feed's dot and a count of stale sources;
+  the detail (each source, its age, its counts) is a popup.
+- **Assumption group**: a collapsible `details` with an eyebrow summary, a one-line help text in
+  `text_2` and, when closed, the count of inputs inside. An edited input shows the bank's value as a
+  `warn_soft` ghost that puts it back.
+- **Save box**: the one surface for a bank-wide write: the list of changes, the note, a full-size
+  primary button named for the version it creates, and one sentence of consequence.
 
 ## Motion
 

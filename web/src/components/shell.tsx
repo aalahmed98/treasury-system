@@ -1,15 +1,15 @@
 // The frame around every page: the top bar (wordmark, desk, tabs, the search box that opens the
-// command palette, feed health, the attention bell, the theme switch, the user menu), the
-// connection banner, and the status bar with how fresh the data is.
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+// command palette, one feeds pill, the attention bell that counts what is new, the user menu with
+// the theme and the server), the connection banner, and the status bar with how fresh the data is.
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../api/session';
 import { useLive } from '../api/live';
 import { useAttention, useBreaks, useDeals, useFeeds } from '../api/queries';
 import type { AttentionItem, AttentionTarget, FeedsResponse } from '../api/types';
-import { SOURCE_SHORT } from '../api/types';
-import { fmtAge, fmtLocal, fmtTime, secondsBetween } from '../lib/fmt';
+import { fmtAge, fmtLocal, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
+import { readPref, writePref } from '../lib/prefs';
 import { Badge, Dot, type Tone, useOutsideClose } from './ui';
 import { Kbd, SkeletonStrip, useAgeSeconds } from './feedback';
 import { usePalette, warmFor } from './palette';
@@ -42,6 +42,9 @@ export const reconHealth = (lag: number): Tone => (lag < 30 ? 'good' : lag < 120
 export function referenceNow(f: FeedsResponse | undefined): string {
   return f?.recon?.now ?? f?.server_time ?? new Date().toISOString();
 }
+
+/** The identity of an attention item for "seen" bookkeeping: the same title and detail is the same item. */
+export const attentionKey = (it: AttentionItem) => `${it.title}|${it.detail}`;
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
@@ -90,9 +93,8 @@ function TopBar() {
       </nav>
       <div className="cluster">
         <SearchButton />
-        <Feeds />
+        <FeedsPill />
         <Bell />
-        <ThemeSwitch />
         <UserMenu />
       </div>
     </header>
@@ -122,45 +124,64 @@ function SearchButton() {
   );
 }
 
-function Feeds() {
-  const { data: f } = useFeeds();
-  if (!f) return <span className="feeds t-small">feeds —</span>;
+interface FeedLine {
+  name: string;
+  tone: Tone;
+  age: string;
+  detail: string;
+}
+
+function feedLines(f: FeedsResponse): FeedLine[] {
   const reference = referenceNow(f);
-  const items: ReactNode[] = [];
+  const lines: FeedLine[] = [];
   for (const feed of f.feeds) {
     if (feed.source === 'INTERNAL' || feed.source === 'USER') continue;
     const age = feed.last_heartbeat_at ? secondsBetween(reference, feed.last_heartbeat_at) : null;
-    items.push(
-      <span key={feed.source} className="feed" title={`${feed.source}: ${feed.events_total} events, ${feed.duplicates_dropped} duplicates dropped, last event ${feed.last_event_at ? fmtLocal(feed.last_event_at) : 'never'}`}>
-        <Dot tone={feedHealth(age)} />
-        {SOURCE_SHORT[feed.source]}
-        <span className="age">{age === null ? '—' : fmtAge(age)}</span>
-      </span>,
-    );
+    lines.push({ name: titleCase(feed.source), tone: feedHealth(age), age: age === null ? 'never' : `${fmtAge(age)} ago`, detail: `${feed.events_total} events · ${feed.duplicates_dropped} duplicates dropped · last event ${feed.last_event_at ? fmtLocal(feed.last_event_at) : 'never'}` });
   }
   if (f.recon) {
     const lag = secondsBetween(f.server_time, f.recon.last_tick_at);
-    const pending = f.recon.pending > 0 ? `pending ${f.recon.pending} · ` : '';
-    items.push(
-      <span key="recon" className="feed" title={`reconciler clock ${fmtLocal(f.recon.now)}, last tick ${fmtLocal(f.recon.last_tick_at)}`}>
-        <Dot tone={reconHealth(lag)} />
-        recon
-        <span className="age">
-          {pending}
-          {fmtAge(lag)}
-        </span>
-      </span>,
-    );
+    lines.push({ name: 'Reconciler', tone: reconHealth(lag), age: `${fmtAge(lag)} ago`, detail: `${f.recon.pending > 0 ? `${f.recon.pending} events pending · ` : 'idle · '}clock ${fmtLocal(f.recon.now)}` });
   } else {
-    items.push(
-      <span key="recon" className="feed" title="the reconciliation worker has never reported">
-        <Dot tone="bad" />
-        recon
-        <span className="age">down</span>
-      </span>,
-    );
+    lines.push({ name: 'Reconciler', tone: 'bad', age: 'never', detail: 'the reconciliation worker has never reported' });
   }
-  return <div className="feeds">{items}</div>;
+  return lines;
+}
+
+/** One pill for the health of every source and the reconciler; the detail is a click away. */
+function FeedsPill() {
+  const { data: f } = useFeeds();
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useOutsideClose<HTMLDivElement>(open, close);
+  const lines = useMemo(() => (f ? feedLines(f) : []), [f]);
+  const worst: Tone = lines.some((l) => l.tone === 'bad') ? 'bad' : lines.some((l) => l.tone === 'warn') ? 'warn' : lines.length ? 'good' : 'neutral';
+  const stale = lines.filter((l) => l.tone !== 'good').length;
+  const label = !f ? 'feeds' : stale === 0 ? 'feeds ok' : `${stale} ${stale === 1 ? 'feed' : 'feeds'} stale`;
+  return (
+    <div className="anchor" ref={ref}>
+      <button type="button" className="pill" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog" title="source feeds and the reconciler">
+        <Dot tone={worst} />
+        {label}
+      </button>
+      {open && (
+        <div className="popup" role="dialog" aria-label="Feeds" style={{ minWidth: 320 }}>
+          <div className="t-heading" style={{ marginBottom: 4 }}>
+            Feeds
+          </div>
+          {lines.map((l) => (
+            <div key={l.name} className="feed-line">
+              <Dot tone={l.tone} />
+              <span className="t-medium">{l.name}</span>
+              <span className="t-small">{l.age}</span>
+              <span className="t-small feed-detail">{l.detail}</span>
+            </div>
+          ))}
+          {lines.length === 0 && <div className="t-muted">no feed status yet</div>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function BellIcon() {
@@ -172,26 +193,43 @@ function BellIcon() {
   );
 }
 
+/** The bell counts what is new since the user last opened it; the full list lives on the Overview. */
 function Bell() {
   const { data } = useAttention();
   const items = data ?? [];
   const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState<Set<string>>(() => new Set(readPref<string[]>('bell-seen', [])));
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose<HTMLDivElement>(open, close);
   const navigate = useNavigate();
-  const tone: Tone = items.length ? severityTone(items[0].severity) : 'neutral';
+  const fresh = items.filter((it) => !seen.has(attentionKey(it)));
+  const tone: Tone = fresh.length ? severityTone(fresh[0].severity) : 'neutral';
   const reference = new Date().toISOString();
+  const toggle = () => {
+    if (!open) {
+      const keys = items.map(attentionKey);
+      writePref('bell-seen', keys);
+      // Marked seen once the popup closes, so the "new" tags are still there while it is open.
+      window.setTimeout(() => setSeen(new Set(keys)), 0);
+    }
+    setOpen((o) => !o);
+  };
+  const go = (it: AttentionItem) => {
+    setOpen(false);
+    navigate(targetPath(it.target));
+  };
   return (
     <div className="anchor" ref={ref}>
-      <button type="button" className={`bell ${items.length ? tone : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog" title="what needs attention on your desks">
+      <button type="button" className={`bell ${fresh.length ? tone : ''}`} onClick={toggle} aria-expanded={open} aria-haspopup="dialog" title={items.length ? `${items.length} outstanding, ${fresh.length} new since you last looked` : 'nothing needs attention on your desks'}>
         <BellIcon />
-        {items.length > 0 && <span>{items.length}</span>}
+        {fresh.length > 0 && <span>{fresh.length}</span>}
       </button>
       {open && (
         <div className="popup popup-wide" role="dialog" aria-label="Needs attention">
           <div className="row">
             <span className="t-heading">Needs attention</span>
-            {items.length > 0 && <Badge tone={tone}>{items.length}</Badge>}
+            {items.length > 0 && <Badge tone={items.length ? severityTone(items[0].severity) : 'neutral'}>{items.length}</Badge>}
+            {fresh.length > 0 && <span className="t-small">{fresh.length} new since you last looked</span>}
           </div>
           {items.length === 0 ? (
             <p className="t-muted" style={{ marginTop: 6 }}>
@@ -205,21 +243,24 @@ function Bell() {
                   className="popup-row"
                   role="button"
                   tabIndex={0}
-                  onClick={() => {
-                    setOpen(false);
-                    navigate(targetPath(it.target));
-                  }}
+                  onClick={() => go(it)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      setOpen(false);
-                      navigate(targetPath(it.target));
+                      go(it);
                     }
                   }}
                 >
                   <Dot tone={severityTone(it.severity)} />
                   <div>
-                    <div className="t-medium">{it.title}</div>
+                    <div className="t-medium">
+                      {it.title}
+                      {!seen.has(attentionKey(it)) && (
+                        <Badge tone="info" title="appeared since you last opened the bell">
+                          new
+                        </Badge>
+                      )}
+                    </div>
                     <div className="t-small">{it.detail}</div>
                   </div>
                   <span className="t-small">{it.since ? fmtAge(secondsBetween(reference, it.since)) : '—'}</span>
@@ -283,7 +324,7 @@ function UserMenu() {
         {current.user.display_name} <span aria-hidden>▾</span>
       </button>
       {open && (
-        <div className="popup" role="menu">
+        <div className="popup" role="menu" style={{ minWidth: 260 }}>
           <div className="t-medium">{current.user.display_name}</div>
           <div className="t-small">{current.user.username}</div>
           <hr className="hr" />
@@ -295,6 +336,11 @@ function UserMenu() {
             </div>
           ))}
           <hr className="hr" />
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="t-eyebrow">Theme</span>
+            <ThemeSwitch />
+          </div>
+          <hr className="hr" />
           <button
             type="button"
             className="menu-item"
@@ -304,11 +350,14 @@ function UserMenu() {
               openPalette('shortcuts');
             }}
           >
-            Keyboard shortcuts <span className="t-small">?</span>
+            Keyboard shortcuts <Kbd>?</Kbd>
           </button>
           <button type="button" className="menu-item" role="menuitem" onClick={() => void logout()}>
             Log out
           </button>
+          <div className="t-small" style={{ marginTop: 6 }} title="the server these pages come from">
+            Server {window.location.host}
+          </div>
         </div>
       )}
     </div>
@@ -353,8 +402,7 @@ function StatusBar() {
       {age !== null && <span>updated {age < 5 ? 'just now' : `${fmtAge(age)} ago`}</span>}
       {deals.data && <span title="server time of the last full load">snapshot {fmtLocal(deals.data.as_of)}</span>}
       <span className="right">
-        <span>{window.location.origin}</span>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void qc.invalidateQueries()}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void qc.invalidateQueries()} title="fetch everything again">
           Refresh
         </button>
       </span>

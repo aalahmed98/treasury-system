@@ -29,9 +29,9 @@ test('setup lists the versions and opens a draft', async ({ page }) => {
   await page.goto('/app/alm/setup');
   await ready(page);
   await expect(page.getByText('Versions', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Start from the active version' }).click();
+  await page.getByRole('button', { name: /Start from version \d+/ }).click();
   await expect(page.getByTestId('draft-editor')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save as a new version' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /Save as version \d+/ })).toBeDisabled();
 });
 
 test('a trader is sent back to the overview from the ALM address', async ({ page }) => {

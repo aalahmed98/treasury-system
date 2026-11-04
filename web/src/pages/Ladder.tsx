@@ -3,7 +3,7 @@
 // and a drill-down into the flows and movements behind a date.
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { endpoints } from '../api/client';
 import { useFeeds, useLadder } from '../api/queries';
 import type { LadderRow } from '../api/types';
@@ -26,7 +26,6 @@ export function Ladder() {
   const ccy = params.get('ccy') ?? undefined;
   const ladder = useLadder(ccy);
   const feeds = useFeeds();
-  const qc = useQueryClient();
   const [date, setDate] = useState<string | null>(null);
   const [horizon, setHorizon] = usePref<Horizon>('ladder-horizon', 35);
   const [quietToo, setQuietToo] = usePref<boolean>('ladder-quiet', true);
@@ -93,10 +92,10 @@ export function Ladder() {
         <span className="vsep" />
         <div className="chips" role="radiogroup" aria-label="Horizon">
           <Chip small outlined selected={horizon === 14} onClick={() => setHorizon(14)}>
-            2 weeks
+            next 2 weeks
           </Chip>
           <Chip small outlined selected={horizon === 35} onClick={() => setHorizon(35)}>
-            5 weeks
+            all 35 days
           </Chip>
         </div>
         <Chip small outlined selected={!quietToo} onClick={() => setQuietToo((q) => !q)} title="hide days with no expected flow and no nostro movement">
@@ -110,13 +109,18 @@ export function Ladder() {
         )}
         <SideToggle />
         {l && <span className="t-small">as of {fmtLocal(l.generated_at)}</span>}
-        <button type="button" className="btn btn-sm" onClick={() => void qc.invalidateQueries({ queryKey: ['ladder'] })}>
-          Refresh
-        </button>
       </div>
       {!l ? (
         <div style={{ padding: 8 }}>
-          <SkeletonLines n={8} />
+          {ladder.isError ? (
+            <Empty tone="warn" title="The ladder could not be loaded" detail={ladder.error instanceof Error ? ladder.error.message : 'the server did not answer'}>
+              <button type="button" className="btn btn-sm" onClick={() => void ladder.refetch()}>
+                Try again
+              </button>
+            </Empty>
+          ) : (
+            <SkeletonLines n={8} />
+          )}
         </div>
       ) : (
         <>
