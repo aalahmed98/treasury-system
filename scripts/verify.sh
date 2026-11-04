@@ -69,6 +69,25 @@ psql "$DATABASE_URL" -qAtc "INSERT INTO deals (id, deal_ref, desk_id, product, s
 wait $C1 $C2 || true
 echo "  fx1 stream: $(grep -c 'event: deal' /tmp/ev-fx1.txt || true) deal event(s) (expect >= 1)   mm1 stream: $(grep -c 'event: deal' /tmp/ev-mm1.txt || true) (expect 0)"
 
+echo "--- liquidity ladder: desk-scoped expected flows, nostro actuals for ALM/HEAD only ---"
+HEAD_TOKEN=$HEAD FX_TOKEN=$FX BASE=$BASE python3 -I - <<'PYLADDER'
+import json, os, urllib.request
+base, H, F = os.environ["BASE"], os.environ["HEAD_TOKEN"], os.environ["FX_TOKEN"]
+def get(path, tok):
+    return json.load(urllib.request.urlopen(urllib.request.Request(base + path, headers={"authorization": "Bearer " + tok})))
+h = get("/ladder?ccy=USD&from=2026-10-05&days=10", H)
+f = get("/ladder?ccy=USD&from=2026-10-05&days=10", F)
+with_actuals = sum(1 for r in h["rows"] if r["actual_net"] is not None)
+print("  head1: access", h["liquidity_access"], "| opening", h["opening"]["balance"] if h["opening"] else None, "| rows with actuals", with_actuals, "| rows with deals", sum(1 for r in h["rows"] if r["deals"]))
+print("  fx1:   access", f["liquidity_access"], "| opening", f["opening"], "| rows with actuals", sum(1 for r in f["rows"] if r["actual_net"] is not None), "| rows with deals", sum(1 for r in f["rows"] if r["deals"]))
+print("  checks:", "ok" if h["liquidity_access"] and not f["liquidity_access"] and with_actuals > 0 and h["opening"] else "FAILED")
+PYLADDER
+
+echo "--- amend and history: fx1 amends its booking; mm1 cannot see it ---"
+curl -s -o /dev/null -w "  fx1 amend -> %{http_code}\n" -X PATCH "$BASE/deals/$DEAL" -H "authorization: Bearer $FX" -H 'content-type: application/json' -d '{"counterparty":"Gulf International Bank B.S.C."}'
+curl -s -o /dev/null -w "  mm1 amend -> %{http_code} (expect 404)\n" -X PATCH "$BASE/deals/$DEAL" -H "authorization: Bearer $MM" -H 'content-type: application/json' -d '{"counterparty":"X"}'
+curl -s "$BASE/deals/$DEAL/history" -H "authorization: Bearer $FX" | python3 -c 'import sys,json; h=json.load(sys.stdin); print("  history versions:", [e["version"] for e in h], "| last change:", [(c["field"], c["to"]) for c in h[-1]["changes"]])'
+
 echo "--- rebuild reproduces the projection ---"
 BEFORE=$(psql "$DATABASE_URL" -Atc "select (select count(*) from deals where merged_into is null) || '/' || (select count(*) from source_deals where deal_id is not null)")
 kill $RECON_PID; wait $RECON_PID 2>/dev/null || true

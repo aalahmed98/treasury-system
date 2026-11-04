@@ -1,9 +1,11 @@
 pub mod blotter;
 pub mod breaks;
+pub mod ladder;
 pub mod login;
 pub mod main;
 pub mod positions;
 pub mod status_bar;
+pub mod ticket;
 
 use egui::Color32;
 

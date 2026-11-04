@@ -4,14 +4,14 @@ use uuid::Uuid;
 
 use crate::app::{App, DetailTab};
 use crate::state::{SortKey, fmt_amount, fmt_local};
-use crate::ui::{AMBER, GREEN, MUTED, RED, break_color, match_color, status_color};
+use crate::ui::{AMBER, GREEN, MUTED, RED, break_color, match_color, status_color, ticket};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     toolbar(app, ui);
     ui.separator();
 
     let avail = ui.available_height();
-    let detail_h = if app.selected.is_some() { 190.0 } else { 0.0 };
+    let detail_h = if app.selected.is_some() { 210.0 } else { 0.0 };
 
     let (clicked, sort_clicked) = table(app, ui, avail - detail_h);
 
@@ -50,6 +50,11 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
         }
         ui.toggle_value(&mut app.only_breaks, "breaks only").on_hover_text("deals with an open break");
         ui.toggle_value(&mut app.only_provisional, "provisional only").on_hover_text("not yet confirmed by the back office");
+        let bookable = app.bookable_desks();
+        if ui.add_enabled(!bookable.is_empty() && app.ticket.is_none(), egui::Button::new("Book deal")).on_hover_text("open a booking ticket").clicked() {
+            let d = &bookable[0];
+            app.ticket = Some(ticket::TicketForm::new(d.desk_id, &d.code));
+        }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(RichText::new(format!("{} of {} deals", app.filtered.len(), app.store.len())).color(MUTED));
@@ -181,8 +186,11 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
         ui.label(RichText::new(format!("origin {}", d.origin.as_str())).color(MUTED));
         ui.label(RichText::new(format!("v{}", d.version)).color(MUTED));
         ui.separator();
-        ui.selectable_value(&mut app.detail_tab, DetailTab::Summary, "Summary");
-        ui.selectable_value(&mut app.detail_tab, DetailTab::Sources, "Sources");
+        for (tab, name) in [(DetailTab::Summary, "Summary"), (DetailTab::Sources, "Sources"), (DetailTab::History, "History")] {
+            if ui.selectable_label(app.detail_tab == tab, name).clicked() {
+                app.open_detail_tab(tab);
+            }
+        }
     });
 
     match app.detail_tab {
@@ -201,8 +209,50 @@ fn detail(app: &mut App, ui: &mut egui::Ui, id: Uuid) {
                 ui.label(RichText::new("Id").color(MUTED));
                 ui.monospace(RichText::new(d.id.to_string()).small());
             });
+            ticket::amend_panel(app, ui, &d);
         }
         DetailTab::Sources => sources(app, ui),
+        DetailTab::History => history(app, ui, &d),
+    }
+}
+
+/// Every version of the deal with what changed and who changed it.
+fn history(app: &App, ui: &mut egui::Ui, d: &domain::Deal) {
+    let Some((id, entries)) = &app.history else {
+        ui.label(RichText::new("loading history…").color(MUTED));
+        return;
+    };
+    if *id != d.id {
+        ui.label(RichText::new("loading history…").color(MUTED));
+        return;
+    }
+    egui::ScrollArea::vertical().max_height(150.0).id_salt("history").show(ui, |ui| {
+        for e in entries.iter().rev() {
+            ui.horizontal_wrapped(|ui| {
+                ui.monospace(RichText::new(format!("v{}", e.version)).strong());
+                ui.label(RichText::new(e.op.to_lowercase()).color(MUTED));
+                ui.label(RichText::new(fmt_local(e.changed_at)).color(MUTED));
+                match &e.changed_by {
+                    Some(u) => { ui.label(u); }
+                    None => { ui.label(RichText::new(role_label(&e.changed_by_role)).color(MUTED)); }
+                }
+                if e.changes.is_empty() {
+                    ui.label(RichText::new(if e.op == "INSERT" { "booked" } else { "no tracked field changed" }).color(MUTED).small());
+                }
+                for c in &e.changes {
+                    ui.label(RichText::new(format!("{}: {} → {}", c.field, c.from.as_deref().unwrap_or("—"), c.to.as_deref().unwrap_or("—"))).small());
+                }
+            });
+        }
+    });
+}
+
+fn role_label(role: &str) -> &'static str {
+    match role {
+        "treasury_recon" => "reconciliation",
+        "treasury_app" => "a user",
+        "treasury_owner" => "administrator",
+        _ => "system",
     }
 }
 

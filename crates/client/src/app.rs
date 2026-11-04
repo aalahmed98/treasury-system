@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use domain::{DeskAccess, FeedsResponse, Position, ProvenanceResponse, UserInfo};
+use chrono::NaiveDate;
+use domain::{CashFlow, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, NostroMovement, Position, ProvenanceResponse, UserInfo};
+use crate::ui::ticket::{AmendForm, TicketForm};
 use uuid::Uuid;
 
 use crate::ServerTarget;
@@ -24,12 +26,14 @@ pub enum Screen {
 pub enum Tab {
     Blotter,
     Breaks,
+    Ladder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
     Summary,
     Sources,
+    History,
 }
 
 pub struct App {
@@ -84,6 +88,20 @@ pub struct App {
     pub link_ref: String,
     pub break_filtered: Vec<usize>,
     break_filter_key: (String, u64),
+
+    // ladder
+    pub ladder: Option<LadderResponse>,
+    pub ladder_ccy: Option<String>,
+    pub ladder_date: Option<NaiveDate>,
+    pub ladder_flows: Vec<CashFlow>,
+    pub ladder_movements: Vec<NostroMovement>,
+    pub ladder_dirty: bool,
+    last_ladder: Instant,
+
+    // booking and amendments
+    pub ticket: Option<TicketForm>,
+    pub amend: Option<AmendForm>,
+    pub history: Option<(Uuid, Vec<HistoryEntry>)>,
 }
 
 impl App {
@@ -131,6 +149,59 @@ impl App {
             link_ref: String::new(),
             break_filtered: Vec::new(),
             break_filter_key: (String::new(), u64::MAX),
+            ladder: None,
+            ladder_ccy: None,
+            ladder_date: None,
+            ladder_flows: Vec::new(),
+            ladder_movements: Vec::new(),
+            ladder_dirty: true,
+            last_ladder: Instant::now() - Duration::from_secs(60),
+            ticket: None,
+            amend: None,
+            history: None,
+        }
+    }
+
+    pub fn can_book(&self, desk_id: i16) -> bool {
+        self.desks.iter().any(|d| d.desk_id == desk_id && d.can_book)
+    }
+
+    pub fn bookable_desks(&self) -> Vec<DeskAccess> {
+        self.desks.iter().filter(|d| d.can_book).cloned().collect()
+    }
+
+    pub fn open_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        if tab == Tab::Ladder {
+            self.ladder_dirty = true;
+        }
+    }
+
+    pub fn open_detail_tab(&mut self, tab: DetailTab) {
+        self.detail_tab = tab;
+        if tab == DetailTab::History {
+            if let Some(id) = self.selected {
+                if self.history.as_ref().is_none_or(|(h, _)| *h != id) {
+                    self.net.send(Command::FetchHistory(id));
+                }
+            }
+        }
+    }
+
+    pub fn select_ladder_ccy(&mut self, ccy: String) {
+        self.ladder_ccy = Some(ccy);
+        self.ladder_date = None;
+        self.ladder_flows.clear();
+        self.ladder_movements.clear();
+        self.ladder_dirty = true;
+    }
+
+    pub fn select_ladder_date(&mut self, date: Option<NaiveDate>) {
+        self.ladder_date = date;
+        self.ladder_flows.clear();
+        self.ladder_movements.clear();
+        if let (Some(d), Some(l)) = (date, &self.ladder) {
+            self.net.send(Command::FetchLadderDetail { ccy: l.ccy.clone(), date: d });
         }
     }
 
@@ -167,8 +238,13 @@ impl App {
         }
         self.selected = id;
         self.provenance = None;
+        self.history = None;
+        self.amend = None;
         if let Some(id) = id {
             self.net.send(Command::FetchProvenance(id));
+            if self.detail_tab == DetailTab::History {
+                self.net.send(Command::FetchHistory(id));
+            }
         }
     }
 
@@ -203,6 +279,14 @@ impl App {
         self.search.clear();
         self.break_search.clear();
         self.password.clear();
+        self.ladder = None;
+        self.ladder_ccy = None;
+        self.ladder_date = None;
+        self.ladder_flows.clear();
+        self.ladder_movements.clear();
+        self.ticket = None;
+        self.amend = None;
+        self.history = None;
     }
 
     fn drain_events(&mut self) {
@@ -226,15 +310,54 @@ impl App {
                 NetEvent::Deals { deals, as_of } => {
                     self.store.replace(deals, as_of);
                     self.last_event = Some(Utc::now());
+                    self.ladder_dirty = true;
                 }
                 NetEvent::DealUpdated(deal) => {
                     let refresh = self.selected == Some(deal.id);
                     self.store.upsert(deal);
                     self.last_event = Some(Utc::now());
+                    self.ladder_dirty = true;
                     if refresh {
                         if let Some(id) = self.selected {
                             self.net.send(Command::FetchProvenance(id));
+                            if self.detail_tab == DetailTab::History {
+                                self.net.send(Command::FetchHistory(id));
+                            }
                         }
+                    }
+                }
+                NetEvent::Ladder(l) => {
+                    self.ladder_ccy = Some(l.ccy.clone());
+                    if let Some(d) = self.ladder_date {
+                        if !l.rows.iter().any(|r| r.date == d) {
+                            self.ladder_date = None;
+                        }
+                    }
+                    self.ladder = Some(l);
+                }
+                NetEvent::LadderDetail { ccy, date, flows, movements } => {
+                    if self.ladder_ccy.as_deref() == Some(ccy.as_str()) && self.ladder_date == Some(date) {
+                        self.ladder_flows = flows;
+                        self.ladder_movements = movements;
+                    }
+                }
+                NetEvent::Booked(d) => {
+                    self.ticket = None;
+                    let id = d.id;
+                    self.store.upsert(d);
+                    self.ladder_dirty = true;
+                    self.tab = Tab::Blotter;
+                    self.select_deal(Some(id));
+                }
+                NetEvent::BookingFailed(msg) => {
+                    if let Some(t) = &mut self.ticket {
+                        t.submitting = false;
+                        t.error = Some(msg);
+                    }
+                }
+                NetEvent::History(id, h) => {
+                    if self.selected == Some(id) {
+                        self.history = Some((id, h));
                     }
                 }
                 NetEvent::Positions(p) => self.positions = p,
@@ -288,6 +411,12 @@ impl App {
         if self.screen == Screen::Main && self.last_feeds.elapsed() >= FEEDS_EVERY {
             self.last_feeds = Instant::now();
             self.net.send(Command::FetchFeeds);
+        }
+        // The ladder is recomputed on the server; refetch when deals changed, at most every 2 s.
+        if self.screen == Screen::Main && self.tab == Tab::Ladder && self.ladder_dirty && self.last_ladder.elapsed() >= Duration::from_secs(2) {
+            self.ladder_dirty = false;
+            self.last_ladder = Instant::now();
+            self.net.send(Command::FetchLadder { ccy: self.ladder_ccy.clone(), passive: true });
         }
     }
 

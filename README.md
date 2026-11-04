@@ -7,9 +7,11 @@ executed → booked → confirmed → settled, held to expected-lag SLAs, and su
 its breaks and provenance. Nothing is ever written back to a source system. Entitlement is enforced
 by Postgres row-level security, not by application code.
 
-Phase 1 built the foundation (database, hardened login, native client, live updates). Phase 2A, the
-current state, built the reconciliation core with synthetic feeds that reproduce real failure modes.
-Phase 2B (liquidity ladder, booking ticket, history view) comes next.
+Phase 1 built the foundation (database, hardened login, native client, live updates). Phase 2A built
+the reconciliation core with synthetic feeds that reproduce real failure modes. Phase 2B, the current
+state, added the intraday liquidity ladder with synthetic nostro statements, a booking ticket with
+amendments, and the deal history view. The implementation plan with what is blocked and what is
+not lives in `docs/implementation-plan.html`.
 
 ## Layout
 
@@ -19,7 +21,7 @@ Phase 2B (liquidity ladder, booking ticket, history view) comes next.
 | `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
 | `crates/recon` | Reconciliation core (calendar, normaliser, matcher, SLA, pipeline, synthetic world). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `status` |
 | `crates/client` | egui desktop client (Windows `.exe`): blotter with match status, provenance, breaks, feed freshness |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening) and `0002_recon` (event log, source state, breaks, feeds, recon role) |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `build-windows.cmd` |
 
@@ -67,6 +69,33 @@ the log. Deals, links and observation-derived breaks come back identical. Known 
 action on a break that was raised by an SLA tick cannot be replayed, because that break is re-raised
 with a new id; the rebuild reports how many such actions were skipped so they can be re-applied.
 
+## Liquidity ladder
+
+`cash_flows_v` turns every live golden deal into signed cash flows: FX moves ccy1 by the notional on
+the value date and ccy2 by notional times rate the other way; money-market deals move the principal
+at the value date and return principal plus interest at maturity (ACT/360, ACT/365 for GBP). The view
+runs with the caller's entitlement, so a desk trader's ladder is their desks' deals and the
+treasury head's ladder is the bank's. `GET /ladder` groups the flows per value date, split confirmed
+against provisional, and runs a cumulative balance from the latest nostro statement. Users entitled
+to the ALM or HEAD desk also see nostro actuals and the difference per date, with drill-downs into
+the flows and the movements behind any date.
+
+Nostro statements and movements are written by the reconciler. Until the real MT942 / camt.052 feed
+exists, `treasury-recon synth` (and `treasury-recon nostro --from --to`) generates them from the
+expected flows of booked deals: an intraday and an end-of-day statement per account per business
+day, movements with a small share missing or adjusted by fees, and a few customer and fee movements
+treasury never booked.
+
+## Booking, amendments and history
+
+The client's booking ticket posts to `POST /deals`. `PATCH /deals/{id}` amends counterparty, rate,
+notional, value date or maturity of an internal booking; `POST /deals/{id}/cancel` cancels it. Both
+are limited by policy to internal bookings on desks the user may book on, and the database trigger
+keeps identity columns and terminal deals frozen. Every change enters the reconciliation log, so an
+amendment that disagrees with Kondor shows up as a mismatch. `GET /deals/{id}/history` lists every
+version with the fields that changed and who changed them, through a definer function that applies
+desk entitlement to the append-only history table.
+
 ## Security model
 
 Three database roles, none a superuser:
@@ -92,7 +121,7 @@ cp .env.example .env                      # dev passwords for the local Docker d
 docker compose up -d --wait               # Postgres 16 on 127.0.0.1:5434
 cargo run -p server -- migrate            # as treasury_owner
 cargo run -p server -- seed               # users and entitlements only
-cargo run -p recon -- synth --mode replay --speed 20000 --days 5   # a synthetic world through the pipeline (~40 s)
+cargo run -p recon -- synth --mode replay --speed 20000 --days 5   # a synthetic world through the pipeline, nostro statements included (~40 s)
 cargo run -p recon -- serve               # the worker, for anything that arrives from now on
 cargo run -p server                       # the API on 127.0.0.1:8787
 cargo run -p client                       # the desktop client (WSLg); log in as fx1 / password
@@ -125,7 +154,7 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-58 tests. Recon: 20 unit tests (calendar, tolerances, normaliser, matcher, SLA maths, generator
+62 tests. Recon: 20 unit tests (calendar, tolerances, normaliser, matcher, SLA maths, generator
 determinism and scenario coverage) and 12 pipeline scenarios on a fresh database each (three-way
 match, reversed quote within tolerance, mismatch then correction, missing after SLA then late
 arrival, orphan then manual link, ambiguity, duplicates at every layer, amend before new, cancel
@@ -144,6 +173,6 @@ C:\dev\targets\treasury\release\treasury-client.exe http://localhost:8787
 
 ## Not yet built
 
-Phase 2B: intraday liquidity ladder, booking ticket, deal history view. Later: real Kondor,
-Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and database
-engines), OIDC against the bank's directory, settlement-date SLAs, allocations, code-signing.
+Real Kondor, Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and
+database engines), real nostro statement feeds, OIDC against the bank's directory, settlement-date
+SLAs, allocations, code-signing. See `docs/implementation-plan.html` for the full picture.
