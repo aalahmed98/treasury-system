@@ -194,7 +194,11 @@ live in the menu); the ALM assumptions are explained, collapsible groups with th
 as a ghost beside any edit; Setup lists exactly what a new version changes, with a revert on each
 line, and will not save an unchanged set or one without a note; dismissing a break asks once more;
 `a` acknowledges the selected break and `/` goes to the page's search; every failed load offers
-"Try again"; small text is 12 px. Tooling runs on Windows where Node is installed (`node_modules`
+"Try again"; small text is 12 px. A second critique (30 of 40) drove one more pass: Shift-click,
+Ctrl-click and Ctrl A pick several breaks, which can be acknowledged or dismissed with one note in
+batches; the ALM results dim and say so while a recompute runs, with "Try again" on a failure; the
+balance-sheet charts share one surface instead of four cards; the bell groups system health the way
+the page does; the ladder opens on the days with flows. Tooling runs on Windows where Node is installed (`node_modules`
 lives under `C:\dev` through a junction, off OneDrive, like the cargo target directory):
 
 ```

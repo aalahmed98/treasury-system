@@ -28,7 +28,7 @@ export function Ladder() {
   const feeds = useFeeds();
   const [date, setDate] = useState<string | null>(null);
   const [horizon, setHorizon] = usePref<Horizon>('ladder-horizon', 35);
-  const [quietToo, setQuietToo] = usePref<boolean>('ladder-quiet', true);
+  const [quietToo, setQuietToo] = usePref<boolean>('ladder-quiet', false);
   const l = ladder.data;
   const today = referenceNow(feeds.data).slice(0, 10);
   const actuals = l?.liquidity_access ?? false;

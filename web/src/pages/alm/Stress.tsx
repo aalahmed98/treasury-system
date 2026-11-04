@@ -66,8 +66,8 @@ export function Stress() {
   const v = useMemo(() => (q.data ? stressView(q.data) : null), [q.data]);
   const raw = q.data;
   return (
-    <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Stress testing and EVE" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="Stress testing and EVE" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline
@@ -83,10 +83,10 @@ export function Stress() {
           </Card>
           <div className="row-wrap" style={{ marginTop: 10 }}>
             <Card title="ΔNII by scenario" width={440}>
-              <Bars data={v.niiBars} color="var(--s1)" height={160} fmt={fmtMoneyShort} />
+              <Bars data={v.niiBars} color="var(--s1)" height={160} fmt={fmtMoneyShort} labels="extremes" />
             </Card>
             <Card title="ΔEVE by scenario" width={440}>
-              <Bars data={v.eveBars} color="var(--s2)" height={160} fmt={fmtMoneyShort} />
+              <Bars data={v.eveBars} color="var(--s2)" height={160} fmt={fmtMoneyShort} labels="extremes" />
             </Card>
           </div>
           <div className="row-wrap" style={{ marginTop: 10 }}>

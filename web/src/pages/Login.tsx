@@ -34,7 +34,7 @@ export function Login() {
         <span className="brand">NBB</span>
         <span>Treasury</span>
       </div>
-      <div className="t-muted">Positions, reconciliation, liquidity and ALM</div>
+      <div className="t-muted">The desk's deals, breaks, liquidity and balance sheet, in one place.</div>
       <form className="card" onSubmit={submit} noValidate>
         <label className="field">
           <span className="t-label">Username</span>

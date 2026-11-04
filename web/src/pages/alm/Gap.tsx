@@ -41,8 +41,8 @@ export function Gap() {
   const v = useMemo(() => (q.data ? gapView(q.data) : null), [q.data]);
   const raw = q.data;
   return (
-    <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Repricing gap" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="Repricing gap" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline

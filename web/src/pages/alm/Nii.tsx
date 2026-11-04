@@ -67,13 +67,13 @@ export function Nii() {
   const v = useMemo(() => (q.data ? niiView(q.data) : null), [q.data]);
   const raw = q.data;
   return (
-    <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Net interest income (NII)" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="Net interest income (NII)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline value={v.headline} standing="comfortable" line1={`over ${raw.horizon_months} months from ${fmtDateLong(raw.as_of)} · ${v.basis} · in ${raw.reporting_ccy}`} line2={`NIM ${v.nim} on earning assets of ${fmtMoneyShort(raw.earning_assets)}${v.delta ? ` · ${v.delta}` : ''}`} testId="headline" />
           <Card title="NII by month" width={720}>
-            <Bars data={v.monthBars} color="var(--s1)" height={170} fmt={fmtMoneyShort} />
+            <Bars data={v.monthBars} color="var(--s1)" height={170} fmt={fmtMoneyShort} labels="extremes" />
           </Card>
           <div className="row-wrap" style={{ marginTop: 10 }}>
             <Card title="Months" width={440}>

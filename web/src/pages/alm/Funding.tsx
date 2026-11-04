@@ -34,8 +34,8 @@ export function Funding() {
   const v = useMemo(() => (q.data ? fundingView(q.data) : null), [q.data]);
   const raw = q.data;
   return (
-    <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Funding concentration" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="Funding concentration" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline value={`${raw.top10_pct.toFixed(1)}%`} standing={v.standing} line1={`ten largest depositor groups as a share of deposits (limit ${raw.top10_limit_pct.toFixed(0)}%)`} line2={whenLine(raw.as_of, v.basis, raw.reporting_ccy)} testId="headline" />

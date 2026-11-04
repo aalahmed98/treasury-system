@@ -119,7 +119,7 @@ export function IrdPage() {
 
   return (
     <ToolLayout assumptions={inputs} ready>
-      <ResultsHeader title={`${s.base}/${s.quote} ${s.days} days`} loading={market.isLoading} error={market.error?.message} />
+      <ResultsHeader title={`${s.base}/${s.quote} ${s.days} days`} loading={market.isLoading} error={market.error?.message} onRetry={() => void market.refetch()} />
       <Headline value={f.toFixed(5)} standing={points >= 0 ? 'comfortable' : 'watch'} line1={`forward outright · ${points >= 0 ? '+' : ''}${points.toFixed(1)} pips`} line2={`differential ${s.quoteRate - s.baseRate >= 0 ? '+' : ''}${(s.quoteRate - s.baseRate).toFixed(3)}% (${s.quote} over ${s.base})`} testId="headline" />
       <div className="row-wrap">
         <Card title="This tenor" width={380}>

@@ -10,6 +10,7 @@ import { useAttention, useBreaks, useDeals, useFeeds } from '../api/queries';
 import type { AttentionItem, AttentionTarget, FeedsResponse } from '../api/types';
 import { fmtAge, fmtLocal, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
 import { readPref, writePref } from '../lib/prefs';
+import { splitAttention } from '../lib/attention';
 import { Badge, Dot, type Tone, useOutsideClose } from './ui';
 import { Kbd, SkeletonStrip, useAgeSeconds } from './feedback';
 import { usePalette, warmFor } from './palette';
@@ -203,6 +204,7 @@ function Bell() {
   const ref = useOutsideClose<HTMLDivElement>(open, close);
   const navigate = useNavigate();
   const fresh = items.filter((it) => !seen.has(attentionKey(it)));
+  const { decisions, system } = splitAttention(items);
   const tone: Tone = fresh.length ? severityTone(fresh[0].severity) : 'neutral';
   const reference = new Date().toISOString();
   const toggle = () => {
@@ -237,7 +239,7 @@ function Bell() {
             </p>
           ) : (
             <div className="popup-list">
-              {items.map((it, i) => (
+              {decisions.map((it, i) => (
                 <div
                   key={i}
                   className="popup-row"
@@ -266,6 +268,21 @@ function Bell() {
                   <span className="t-small">{it.since ? fmtAge(secondsBetween(reference, it.since)) : '—'}</span>
                 </div>
               ))}
+              {system.length > 0 && (
+                <div className="popup-system">
+                  <div className="t-eyebrow">System health</div>
+                  {system.map((s, i) => (
+                    <div key={i} className="popup-row static">
+                      <Dot tone={severityTone(s.severity)} />
+                      <div>
+                        <div className="t-medium">{s.title}</div>
+                        <div className="t-small">{s.detail}</div>
+                      </div>
+                      <span className="t-small">{s.since ? fmtAge(secondsBetween(reference, s.since)) : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

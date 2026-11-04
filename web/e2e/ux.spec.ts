@@ -100,3 +100,19 @@ test('the ALM assumptions rail closes and the what-if lists its changes', async 
   await page.getByRole('button', { name: 'Assumptions' }).click();
   await expect(page.locator('.assumptions')).toBeVisible();
 });
+
+test('several breaks can be picked with Ctrl-click and acknowledged at once', async ({ page }) => {
+  await login(page, 'fx1');
+  await page.goto('/app/breaks');
+  const table = page.getByTestId('breaks');
+  const rows = table.locator('tbody tr[data-key]');
+  await expect(rows.first()).toBeVisible();
+  await rows.nth(0).click();
+  await rows.nth(1).click({ modifiers: ['Control'] });
+  await rows.nth(2).click({ modifiers: ['Control'] });
+  const bulk = page.getByTestId('bulk-actions');
+  await expect(bulk).toContainText('3 breaks selected');
+  await expect(table.locator('tr.checked')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(bulk).toHaveCount(0);
+});

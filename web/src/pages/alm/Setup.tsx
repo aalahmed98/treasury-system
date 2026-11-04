@@ -151,7 +151,7 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
         <Row label="Tier 1 capital">
           <Num value={d.tier1_capital} base={b.tier1_capital} min={1} max={1e12} step={1e6} width={120} onChange={(v) => onChange((p) => void (p.tier1_capital = v))} />
         </Row>
-        <Group title="LCR thresholds, haircuts and caps" />
+        <Group title="LCR thresholds and haircuts" />
         <Row label="Regulatory minimum">
           <Pct value={d.lcr.minimum} base={b.lcr.minimum} max={500} onChange={(v) => onChange((p) => void (p.lcr.minimum = v))} />
         </Row>
@@ -198,7 +198,10 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
         </Row>
       </div>
       <div>
-        <Group title="NSFR thresholds and factors (< 6M · 6M-1Y · ≥ 1Y)" />
+        <Group title="NSFR thresholds and factors" />
+        <div className="t-small" style={{ marginBottom: 4 }}>
+          factors by time to maturity: under 6 months · 6 months to a year · a year or more
+        </div>
         <Row label="Regulatory minimum">
           <Pct value={d.nsfr.minimum} base={b.nsfr.minimum} max={500} onChange={(v) => onChange((p) => void (p.nsfr.minimum = v))} />
         </Row>
@@ -232,7 +235,10 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
             <Num value={v} base={b.gap.nmd_behavioural_months[k]} min={1} max={240} step={1} onChange={(x) => onChange((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
           </Row>
         ))}
-        <Group title="Stress shocks (bp: parallel · short · long)" />
+        <Group title="Stress shocks (bp)" />
+        <div className="t-small" style={{ marginBottom: 4 }}>
+          per currency: parallel · short end · long end
+        </div>
         <div className="factor-grid">
           {Object.entries(d.stress.shocks).map(([ccy, s]) => (
             <div key={ccy} style={{ display: 'contents' }}>

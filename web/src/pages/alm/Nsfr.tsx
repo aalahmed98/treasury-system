@@ -71,8 +71,8 @@ export function Nsfr() {
   const v = useMemo(() => (q.data ? nsfrView(q.data) : null), [q.data]);
   const raw = q.data;
   return (
-    <ToolLayout assumptions={<Assumptions />} ready={!!v}>
-      <ResultsHeader title="Net stable funding ratio (NSFR)" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="Net stable funding ratio (NSFR)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline value={v.headline} standing={v.standing} line1={whenLine(raw.as_of, v.basis, raw.reporting_ccy)} line2={`minimum ${raw.minimum.toFixed(0)}% · internal ${raw.internal_minimum.toFixed(0)}%`} testId="headline" />

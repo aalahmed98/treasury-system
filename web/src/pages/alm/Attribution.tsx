@@ -50,8 +50,8 @@ export function Attribution() {
   const v = useMemo(() => (q.data ? attributionView(q.data) : null), [q.data]);
   const shown = period ?? q.data?.period_b ?? null;
   return (
-    <ToolLayout assumptions={<Inputs shown={shown} />} ready={!!v}>
-      <ResultsHeader title="NII variance attribution" loading={q.isFetching} error={q.error?.message} />
+    <ToolLayout assumptions={<Inputs shown={shown} />} ready={!!v} busy={q.isFetching && !!v}>
+      <ResultsHeader title="NII variance attribution" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && (
         <>
           <Headline value={v.headline} standing={v.standing} line1={v.subtitle} line2={v.range} testId="headline" />

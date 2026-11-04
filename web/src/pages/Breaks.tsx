@@ -40,6 +40,7 @@ export function Breaks() {
   const [sort, setSort] = useSort({ id: 'detected', desc: true });
   const { columns, rowHeight, menu } = useTableView('breaks', COLS);
   const selected = params.get('break') ? Number(params.get('break')) : null;
+  const [multi, setMulti] = useState<Set<string>>(() => new Set());
 
   const select = useCallback(
     (id: number | null) => {
@@ -129,6 +130,8 @@ export function Breaks() {
         onSort={setSort}
         rowHeight={rowHeight}
         testId="breaks"
+        multi={multi}
+        onMulti={setMulti}
         loading={breaks.isLoading}
         empty={
           breaks.isError ? (
@@ -155,14 +158,104 @@ export function Breaks() {
           )
         }
       />
-      {current ? (
+      {multi.size > 1 ? (
+        <BulkActions views={rows.filter((r) => multi.has(String(r.view.id))).map((r) => r.view)} onClear={() => setMulti(new Set())} />
+      ) : current ? (
         <Actions view={current} key={current.id} onDone={() => advance(current.id)} />
       ) : (
         <div className="hint t-small">
-          <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>Enter</Kbd> or click opens a break · <Kbd>a</Kbd> acknowledges it · after an action the next open one is selected
+          <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>Enter</Kbd> or click opens a break · <Kbd>a</Kbd> acknowledges it · <Kbd>Shift</Kbd> or <Kbd>Ctrl</Kbd> click picks several, <Kbd>Ctrl</Kbd> <Kbd>A</Kbd> all shown
         </div>
       )}
     </WithSide>
+  );
+}
+
+/** Runs one call per break, a few at a time, and says how it went. */
+async function runBatch(ids: number[], call: (id: number) => Promise<unknown>, onProgress: (done: number) => void): Promise<{ ok: number; failed: string[] }> {
+  let ok = 0;
+  const failed: string[] = [];
+  for (let i = 0; i < ids.length; i += 5) {
+    const slice = ids.slice(i, i + 5);
+    const results = await Promise.allSettled(slice.map(call));
+    results.forEach((r, j) => {
+      if (r.status === 'fulfilled') ok += 1;
+      else failed.push(`#${slice[j]}: ${r.reason instanceof ApiError ? r.reason.message : 'failed'}`);
+    });
+    onProgress(Math.min(ids.length, i + 5));
+  }
+  return { ok, failed };
+}
+
+/** Several breaks at once: acknowledge them all, or dismiss them all with one note. */
+function BulkActions({ views, onClear }: { views: BreakView[]; onClear: () => void }) {
+  const { canResolve } = useSession();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [note, setNote] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [progress, setProgress] = useState<{ what: string; done: number; total: number } | null>(null);
+  const mine = views.filter((v) => canResolve(v.desk_id));
+  const ackable = mine.filter((v) => v.status === 'OPEN');
+  const dismissable = mine.filter((v) => v.status !== 'RESOLVED');
+  const kinds = [...new Set(views.map((v) => v.kind.toLowerCase()))].join(', ');
+  useEffect(() => {
+    if (!confirming) return;
+    const t = window.setTimeout(() => setConfirming(false), 5000);
+    return () => window.clearTimeout(t);
+  }, [confirming]);
+  const finish = (what: string, r: { ok: number; failed: string[] }) => {
+    setProgress(null);
+    void qc.invalidateQueries({ queryKey: ['breaks'] });
+    void qc.invalidateQueries({ queryKey: ['deals'] });
+    void qc.invalidateQueries({ queryKey: ['attention'] });
+    toast({ tone: r.failed.length ? 'warn' : 'good', title: `${what} ${r.ok} ${r.ok === 1 ? 'break' : 'breaks'}`, detail: r.failed.length ? `${r.failed.length} failed: ${r.failed.slice(0, 3).join('; ')}${r.failed.length > 3 ? '…' : ''}` : undefined });
+    onClear();
+  };
+  const ackAll = async () => {
+    setProgress({ what: 'Acknowledging', done: 0, total: ackable.length });
+    finish('Acknowledged', await runBatch(ackable.map((v) => v.id), (id) => endpoints.ackBreak(id), (done) => setProgress({ what: 'Acknowledging', done, total: ackable.length })));
+  };
+  const dismissAll = async () => {
+    setConfirming(false);
+    setProgress({ what: 'Dismissing', done: 0, total: dismissable.length });
+    finish('Dismissed', await runBatch(dismissable.map((v) => v.id), (id) => endpoints.resolveBreak(id, { action: 'DISMISS', deal_id: null, note: note.trim() }), (done) => setProgress({ what: 'Dismissing', done, total: dismissable.length })));
+  };
+  return (
+    <div className="detail" data-testid="bulk-actions">
+      <div className="head">
+        <span className="t-heading">{views.length} breaks selected</span>
+        <span className="t-small">{kinds}</span>
+        {mine.length < views.length && <span className="t-small t-warn">{views.length - mine.length} on desks you cannot act on</span>}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} title="clear the selection (Esc)">
+          Clear
+        </button>
+      </div>
+      {progress ? (
+        <div className="row" role="status">
+          <span className="t-medium">
+            {progress.what} {progress.done} of {progress.total}…
+          </span>
+        </div>
+      ) : (
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-sm" disabled={ackable.length === 0} onClick={() => void ackAll()} title="mark them seen; they stay open">
+            Acknowledge {ackable.length}
+          </button>
+          <input className="input input-sm grow" style={{ minWidth: 240 }} placeholder="one note for all (required to dismiss)" value={note} onChange={(e) => setNote(e.target.value)} aria-label="Note for all" />
+          {confirming ? (
+            <button type="button" className="btn btn-sm t-bad" onClick={() => void dismissAll()} title="this closes every selected break for good with this note">
+              Confirm dismiss {dismissable.length}
+            </button>
+          ) : (
+            <button type="button" className="btn btn-sm" disabled={dismissable.length === 0 || !note.trim()} onClick={() => setConfirming(true)} title="accept them as-is; recorded with your note. Cannot be undone.">
+              Dismiss {dismissable.length}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

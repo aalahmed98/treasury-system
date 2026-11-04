@@ -5,11 +5,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useActivity, useAlmOverview, useAttention, useBreaks, useDeals, useFeeds, useLadder, usePositions } from '../api/queries';
 import { useSession } from '../api/session';
-import type { ActivityRow, AttentionItem, BreakView, Deal } from '../api/types';
+import type { ActivityRow, BreakView, Deal } from '../api/types';
 import { PRODUCT_LABEL } from '../api/types';
 import { fmtAge, fmtAmount, fmtDate, fmtDateLong, fmtMoneyShort, fmtPct, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
+import { splitAttention } from '../lib/attention';
 import { limitRows, overviewCells, standingTone } from '../lib/alm';
-import { Badge, Card, Dot, Gauge, Section, StatStrip, type StatCell, type Tone } from '../components/ui';
+import { Badge, Dot, Gauge, Section, StatStrip, type StatCell, type Tone } from '../components/ui';
 import { Bars, BarsPair, LineChart } from '../components/charts';
 import { Empty, SkeletonLines, SkeletonStrip } from '../components/feedback';
 import { feedHealth, referenceNow, severityTone, targetPath } from '../components/shell';
@@ -84,30 +85,6 @@ function groupActivity(rows: Activity[]): Activity[] {
 
 const SHOW = 6;
 
-/** A system item is about the plumbing (a stale feed, the reconciler) rather than a decision. */
-const isSystem = (it: AttentionItem) => it.target.kind === 'overview' || /feed stale|reconciler/i.test(it.title);
-
-interface SystemLine {
-  severity: AttentionItem['severity'];
-  title: string;
-  detail: string;
-  since: string | null;
-}
-
-/** Same-kind system items fold into one line, so three stale feeds read as one fact. */
-function systemLines(items: AttentionItem[]): SystemLine[] {
-  const feeds = items.filter((it) => /feed stale/i.test(it.title));
-  const rest = items.filter((it) => !/feed stale/i.test(it.title));
-  const out: SystemLine[] = [];
-  if (feeds.length) {
-    const names = feeds.map((f) => titleCase(f.title.replace(/ feed stale.*/i, '')));
-    const since = feeds.map((f) => f.since).filter((s): s is string => s !== null).sort()[0] ?? null;
-    out.push({ severity: feeds[0].severity, title: feeds.length === 1 ? `${names[0]} feed stale` : `${feeds.length} feeds stale`, detail: `${names.join(', ')}; deals from ${feeds.length === 1 ? 'this source' : 'these sources'} may be missing until ${feeds.length === 1 ? 'it' : 'they'} report again`, since });
-  }
-  for (const it of rest) out.push({ severity: it.severity, title: it.title, detail: it.detail, since: it.since });
-  return out;
-}
-
 /** The first thing on the page: what needs a decision, worst first, each row a link; the plumbing
  * below it in one line per fact. */
 function Attention({ now }: { now: string }) {
@@ -138,8 +115,7 @@ function Attention({ now }: { now: string }) {
       </div>
     );
   }
-  const decisions = items.filter((it) => !isSystem(it));
-  const system = systemLines(items.filter(isSystem));
+  const { decisions, system } = splitAttention(items);
   const age = (since: string | null) => (since ? fmtAge(secondsBetween(now, since)) : '');
   if (decisions.length === 0 && system.length === 0) {
     return (
@@ -216,7 +192,9 @@ function HBars({ data, color }: { data: [string, number][]; color: string }) {
 
 export function Overview() {
   const navigate = useNavigate();
-  const { canSeeAlm } = useSession();
+  const { canSeeAlm, desks } = useSession();
+  // Someone who books deals reads their desk first; the balance sheet leads for everyone else.
+  const tradesFirst = desks.some((d) => d.can_book);
   const deals = useDeals();
   const breaks = useBreaks(false);
   const feeds = useFeeds();
@@ -280,14 +258,17 @@ export function Overview() {
       </div>
       <Attention now={now} />
 
-      {canSeeAlm && <AlmBlock />}
+      {canSeeAlm && !tradesFirst && <AlmBlock />}
 
       <Section title="Trading" meta="your desks, from the blotter and the breaks" />
       {deals.data && breaks.data ? <StatStrip cells={cells} testId="trading-strip" /> : <SkeletonStrip cells={6} />}
 
+      {canSeeAlm && tradesFirst && <AlmBlock />}
+
       <Section title="Operations" />
-      <div className="ov-grid ov-ops">
-        <Card title="Reconciliation">
+      <div className="panel-row ov-ops">
+        <div className="panel">
+          <div className="t-heading">Reconciliation</div>
           <div className="two-up">
             <div>
               <div className="t-label" style={{ marginBottom: 6 }}>
@@ -302,13 +283,14 @@ export function Overview() {
               <HBars data={matchCounts} color="var(--s1)" />
             </div>
           </div>
-        </Card>
-        <Card title={ladderTitle}>
+        </div>
+        <div className="panel">
+          <div className="t-heading">{ladderTitle}</div>
           {ladder.data ? <Bars data={ladderBars} color="var(--s3)" fmt={fmtMoneyShort} /> : <SkeletonLines n={4} />}
           <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--info)', marginTop: 4 }} onClick={() => navigate('/liquidity')}>
             open the liquidity ladder
           </button>
-        </Card>
+        </div>
       </div>
 
       <div className="ov-grid ov-bottom">
@@ -386,8 +368,9 @@ export function AlmBlock() {
       <Section title="Balance sheet" meta={`as of ${fmtDateLong(v.as_of)} · parameters v${v.params_version} · in ${v.reporting_ccy}`} />
       <StatStrip cells={signed} testId="alm-strip" hero />
       <StatStrip cells={income} testId="alm-strip-2" />
-      <div className="ov-grid ov-bs">
-        <Card title="Limits">
+      <div className="panel-row ov-bs">
+        <div className="panel">
+          <div className="t-heading">Limits</div>
           <table className="table limits">
             <tbody>
               {limits.map((l) => (
@@ -405,16 +388,19 @@ export function AlmBlock() {
               ))}
             </tbody>
           </table>
-        </Card>
-        <Card title="LCR, last 30 snapshots">
+        </div>
+        <div className="panel">
+          <div className="t-heading">LCR, last 30 snapshots</div>
           <LineChart series={[{ name: 'LCR', points: trend }]} yFmt={(y) => fmtPct(y, 0)} xFmt={(x) => labels[Math.round(x)] ?? ''} />
-        </Card>
-        <Card title="NII by month, actual against budget">
+        </div>
+        <div className="panel">
+          <div className="t-heading">NII by month, actual against budget</div>
           <BarsPair data={nii} names={['actual', 'budget']} fmt={fmtMoneyShort} />
-        </Card>
-        <Card title="Repricing gap by bucket">
+        </div>
+        <div className="panel">
+          <div className="t-heading">Repricing gap by bucket</div>
           <Bars data={gap} color="var(--s3)" fmt={fmtMoneyShort} labels="extremes" />
-        </Card>
+        </div>
       </div>
     </>
   );

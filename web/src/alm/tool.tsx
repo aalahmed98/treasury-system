@@ -17,14 +17,16 @@ interface Rail {
 }
 const RailCtx = createContext<Rail>({ open: true, toggle: () => {} });
 
-export function ToolLayout({ assumptions, children, ready }: { assumptions: ReactNode; children: ReactNode; ready?: boolean }) {
+export function ToolLayout({ assumptions, children, ready, busy }: { assumptions: ReactNode; children: ReactNode; ready?: boolean; /** A recompute is on the way: the figures on screen are about to change. */ busy?: boolean }) {
   const [open, setOpen] = usePref<boolean>('alm-assumptions', true);
   const rail = useMemo<Rail>(() => ({ open, toggle: () => setOpen((o) => !o) }), [open, setOpen]);
   return (
     <RailCtx.Provider value={rail}>
       <div className={`alm-layout${open ? '' : ' single'}`} data-ready={ready ? '1' : undefined}>
         {open && <aside className="assumptions">{assumptions}</aside>}
-        <section className="alm-results">{children}</section>
+        <section className="alm-results" data-busy={busy ? '1' : undefined} aria-busy={busy || undefined}>
+          {children}
+        </section>
       </div>
     </RailCtx.Provider>
   );
@@ -296,7 +298,7 @@ export function ComparePicker() {
   );
 }
 
-export function ResultsHeader({ title, loading, error }: { title: string; loading: boolean; error?: string | null }) {
+export function ResultsHeader({ title, loading, error, onRetry }: { title: string; loading: boolean; error?: string | null; onRetry?: () => void }) {
   const { open, toggle } = useContext(RailCtx);
   const { overrides } = useAlm();
   return (
@@ -308,8 +310,21 @@ export function ResultsHeader({ title, loading, error }: { title: string; loadin
       )}
       <h1 className="t-title">{title}</h1>
       {!open && overrides && <Badge tone="warn">what-if</Badge>}
-      {loading && <span className="t-small">computing…</span>}
-      {error && <span className="t-bad">{error}</span>}
+      {loading && !error && (
+        <span className="t-small computing" role="status">
+          recomputing, the figures below are about to change…
+        </span>
+      )}
+      {error && (
+        <span className="row" role="alert">
+          <span className="t-bad">{error}</span>
+          {onRetry && (
+            <button type="button" className="btn btn-sm" onClick={onRetry}>
+              Try again
+            </button>
+          )}
+        </span>
+      )}
       <span style={{ flex: 1 }} />
       <button type="button" className="btn btn-ghost btn-sm noprint" onClick={() => window.print()} title="print this tool's results">
         Print

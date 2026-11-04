@@ -48,6 +48,9 @@ export interface DataTableProps<T> {
   empty?: ReactNode;
   /** Shown instead of rows while the first load is on the way. */
   loading?: boolean;
+  /** Rows picked with Shift-click, Ctrl-click or Ctrl A, for an action on all of them at once. */
+  multi?: ReadonlySet<string>;
+  onMulti?: (keys: Set<string>) => void;
 }
 
 export function useSort(initial: Sort | null = null): [Sort | null, (s: Sort | null) => void] {
@@ -72,12 +75,12 @@ interface RowProps<T> {
   columns: Col<T>[];
   cls: string;
   height: number;
-  onSelect?: (row: T, via: SelectVia) => void;
+  onPick?: (row: T, e: React.MouseEvent) => void;
 }
 
-function RowInner<T>({ row, dataKey, columns, cls, height, onSelect }: RowProps<T>) {
+function RowInner<T>({ row, dataKey, columns, cls, height, onPick }: RowProps<T>) {
   return (
-    <tr className={cls} style={{ height }} onClick={onSelect ? () => onSelect(row, 'click') : undefined} data-key={dataKey} aria-selected={cls.includes('selected') || undefined}>
+    <tr className={cls} style={{ height }} onClick={onPick ? (e) => onPick(row, e) : undefined} data-key={dataKey} aria-selected={cls.includes('selected') || cls.includes('checked') || undefined}>
       {columns.map((c) => (
         <td key={c.id} className={c.num ? 'num' : ''}>
           {c.cell(row)}
@@ -89,10 +92,40 @@ function RowInner<T>({ row, dataKey, columns, cls, height, onSelect }: RowProps<
 // A row re-renders only when its data, its classes or the column set change, not on every scroll.
 const Row = memo(RowInner) as typeof RowInner;
 
-export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActivate, onEscape, rowClass, sort, onSort, rowHeight = 22, testId, empty = 'nothing to show', loading }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActivate, onEscape, rowClass, sort, onSort, rowHeight = 22, testId, empty = 'nothing to show', loading, multi, onMulti }: DataTableProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const sorted = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
+  // The latest state behind a stable click handler, so rows keep their memo across clicks.
+  const latest = useRef({ sorted, selected, multi, onSelect, onMulti, rowKey, anchor: null as string | null });
+  latest.current = { ...latest.current, sorted, selected, multi, onSelect, onMulti, rowKey };
+  const pick = useCallback((row: T, e: React.MouseEvent) => {
+    const st = latest.current;
+    const key = st.rowKey(row);
+    if (st.onMulti && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const next = new Set(st.multi ?? []);
+      // The first modifier click starts the set from the row already selected, as a desk expects.
+      if (next.size === 0 && st.selected && st.selected !== key) {
+        next.add(st.selected);
+        if (st.anchor === null) latest.current.anchor = st.selected;
+      }
+      if (e.shiftKey && st.anchor !== null) {
+        const keys = st.sorted.map(st.rowKey);
+        const a = keys.indexOf(st.anchor);
+        const b = keys.indexOf(key);
+        if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) next.add(keys[i]);
+        else next.add(key);
+      } else if (next.has(key)) next.delete(key);
+      else next.add(key);
+      st.onMulti(next);
+      if (!e.shiftKey) latest.current.anchor = key;
+      return;
+    }
+    latest.current.anchor = key;
+    if (st.onMulti && st.multi && st.multi.size) st.onMulti(new Set());
+    st.onSelect?.(row, 'click');
+  }, []);
   const virt = useVirtualizer({ count: sorted.length, getScrollElement: () => scrollRef.current, estimateSize: () => rowHeight, overscan: 12 });
   const items = virt.getVirtualItems();
   const total = virt.getTotalSize();
@@ -147,7 +180,14 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActi
           }
           return;
         case 'Escape':
+          if (onMulti && multi && multi.size) onMulti(new Set());
           onEscape?.();
+          return;
+        case 'a':
+          if ((e.ctrlKey || e.metaKey) && onMulti) {
+            e.preventDefault();
+            onMulti(new Set(sorted.map(rowKey)));
+          }
           return;
         default:
           return;
@@ -158,7 +198,7 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActi
         virt.scrollToIndex(next, { align: 'auto' });
       }
     },
-    [sorted, selected, rowKey, rowHeight, onSelect, onActivate, onEscape, virt],
+    [sorted, selected, rowKey, rowHeight, onSelect, onActivate, onEscape, virt, multi, onMulti],
   );
 
   return (
@@ -218,8 +258,8 @@ export function DataTable<T>({ columns, rows, rowKey, selected, onSelect, onActi
           {items.map((vi) => {
             const row = sorted[vi.index];
             const key = rowKey(row);
-            const cls = [vi.index % 2 ? 'odd' : '', selected === key ? 'selected' : '', onSelect ? 'selectable' : '', rowClass?.(row) ?? ''].filter(Boolean).join(' ');
-            return <Row key={key} row={row} dataKey={key} columns={columns} cls={cls} height={rowHeight} onSelect={onSelect} />;
+            const cls = [vi.index % 2 ? 'odd' : '', selected === key ? 'selected' : '', multi?.has(key) ? 'checked' : '', onSelect ? 'selectable' : '', rowClass?.(row) ?? ''].filter(Boolean).join(' ');
+            return <Row key={key} row={row} dataKey={key} columns={columns} cls={cls} height={rowHeight} onPick={onSelect || onMulti ? pick : undefined} />;
           })}
           {after > 0 && (
             <tr aria-hidden style={{ height: after }}>
