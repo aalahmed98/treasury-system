@@ -1,0 +1,25 @@
+[package]
+name = "treasury-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "NBB Treasury desktop shell: the web client in a window of its own"
+publish = false
+
+# Not a member of the repository's workspace: it needs WebKitGTK on Linux and is built on Windows
+# only, through scripts\build-desktop.cmd.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+url = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

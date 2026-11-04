@@ -1,4 +1,6 @@
 [workspace]
+# The desktop shell builds on Windows only (WebView2); it has its own lockfile.
+exclude = ["web/src-tauri"]
 resolver = "3"
 members = ["crates/domain", "crates/alm", "crates/server", "crates/client", "crates/recon"]
 

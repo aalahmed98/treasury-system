@@ -30,5 +30,6 @@ for i in $(seq 1 60); do curl -sf "http://localhost:${BIND_ADDR##*:}/healthz" >/
 echo
 echo "API:         http://${BIND_ADDR}   (healthz: $(curl -s "http://localhost:${BIND_ADDR##*:}/healthz" || echo down))"
 echo "Reconciler:  running (log /tmp/treasury-recon.log)"
-echo "Client:      double-click dist\\treasury-client.exe on Windows, or from WSL: cargo run -p client"
+echo "Browser:     http://localhost:8787/app/   (after scripts\\build-web.cmd on Windows)"
+echo "Desktop:     dist\\NBB-Treasury-Setup.exe (web client in a window) or dist\\treasury-client.exe (native)"
 echo "Log in as:   fx1, fx2, mm1, alm1 or head1   password: password"

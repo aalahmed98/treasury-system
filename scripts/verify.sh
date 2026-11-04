@@ -136,6 +136,17 @@ print("  fx1 market rates: HTTP", st, "|", len(m["curves"]) if m else 0, "curves
 print("  checks:", "ok" if ok else "FAILED")
 PYALM
 
+echo "--- web client: the pages are served at /app, deep links included ---"
+if [ -f web/dist/index.html ]; then
+  APP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/app/")
+  DEEP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/app/alm/lcr")
+  ROOT=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")
+  echo "  GET /app/ -> $APP · deep link /app/alm/lcr -> $DEEP · GET / -> $ROOT (redirect)"
+  echo "  checks: $([ "$APP" = 200 ] && [ "$DEEP" = 200 ] && [ "$ROOT" = 307 ] && curl -s "$BASE/app/alm/lcr" | grep -q 'id="root"' && echo ok || echo FAILED)"
+else
+  echo "  web/dist is missing: build it on Windows with scripts\\build-web.cmd (check skipped)"
+fi
+
 echo "--- rebuild reproduces the projection ---"
 BEFORE=$(psql "$DATABASE_URL" -Atc "select (select count(*) from deals where merged_into is null) || '/' || (select count(*) from source_deals where deal_id is not null)")
 kill $RECON_PID; wait $RECON_PID 2>/dev/null || true

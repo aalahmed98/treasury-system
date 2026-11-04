@@ -82,3 +82,14 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
 ## Motion
 
 State changes only, 100 ms, ease out. Nothing animates on load.
+
+## In the web client
+
+The same system, in CSS and React. Every token above is a custom property in
+`web/src/styles/tokens.css` (`--canvas`, `--surface`, `--text-2`, `--good-soft`, `--s1` to `--s6`
+and so on), defined on `:root` for light, redefined for the OS dark preference unless the page is
+stamped light, and again for an explicit `data-theme="dark"` stamp. The type scale is the `.t-*`
+classes in `web/src/styles/base.css`; the components (stat strip, card, chip, tab, badge, dot,
+table, gauge, popups) are `web/src/styles/components.css` with their React counterparts in
+`web/src/components/`. Charts are plain SVG in `web/src/components/charts.tsx` with the same marks,
+labels and series order. The desktop shell's first-run page uses the same tokens inline.
