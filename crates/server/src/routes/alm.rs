@@ -17,7 +17,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::{Extension, Json};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use domain::{
-    AlmOverview, AlmParams, AlmParamsResponse, AlmParamsVersion, AlmRequest, AlmSnapshot, AsOfQuery, AttributionResult, BsPosition, CompareTo, CurvePoint,
+    AlmOverview, AlmParams, AlmParamsResponse, OverviewPrevious, AlmParamsVersion, AlmRequest, AlmSnapshot, AsOfQuery, AttributionResult, BsPosition, CompareTo, CurvePoint,
     EveResult, FundingResult, GapResult, LcrResult, LimitRow, NiiPeriodRow, NiiResult, NsfrResult, PeriodKind, PeriodLine, PositionsSummaryRow, RateCurve,
     RateScenario, SaveParamsRequest, StressResult, TrendPoint, TrendQuery, TrendResponse,
 };
@@ -581,6 +581,10 @@ async fn trend_points(state: &AppState, conn: &mut PgConnection, metric: &str, d
     Ok(points)
 }
 
+pub async fn trend_points_pub(state: &AppState, conn: &mut PgConnection, metric: &str, days: i64, version: i32, params: &AlmParams) -> Result<Vec<TrendPoint>, ApiError> {
+    trend_points(state, conn, metric, days, version, params).await
+}
+
 fn metric_tool(metric: &str) -> &'static str {
     match metric {
         "lcr" => "lcr",
@@ -675,7 +679,26 @@ pub async fn build_overview(state: &AppState, conn: &mut PgConnection) -> Result
         ceiling("Wholesale funding (% funding)", funding.wholesale_pct, params.funding.wholesale_share_limit_pct),
     ];
     let lcr_trend = trend_points(state, conn, "lcr", 30, active.version, &params).await?;
+    let ratios = alm::ratios::compute(&book.positions, &params, &book.spots, funding.wholesale_pct);
+
+    // The same headline figures on the previous snapshot, for "since yesterday".
+    let prev_date: Option<NaiveDate> = sqlx::query_scalar("SELECT max(as_of) FROM bs_snapshots WHERE complete AND as_of < $1").bind(book.as_of).fetch_one(&mut *conn).await?;
+    let previous = match prev_date {
+        Some(d) => {
+            let pb = load_book(conn, Some(d)).await?;
+            let plcr = official(state, "lcr", &pb, v, String::new(), || alm::lcr(&pb.positions, &params, &pb.spots, pb.as_of, v));
+            let pnsfr = official(state, "nsfr", &pb, v, String::new(), || alm::nsfr::compute(&pb.positions, &params, &pb.spots, pb.as_of, v));
+            let pfund = official(state, "funding", &pb, v, String::new(), || alm::funding::compute(&pb.positions, &pb.depositors, &params, &pb.spots, pb.as_of, v));
+            let pstress = official(state, "stress", &pb, v, "None".into(), || alm::stress::compute(&pb.positions, &params, &pb.spots, &pb.curves, pb.as_of, None, v));
+            let pnii = official(state, "nii", &pb, v, "BASE:0".into(), || nii_for(&pb, &params, RateScenario::Base, 0.0, v));
+            let pworst = pstress.worst_eve.and_then(|s| pstress.rate_scenarios.iter().find(|r| r.scenario == s)).and_then(|w| w.eve_loss_pct_tier1);
+            Some(OverviewPrevious { as_of: d, lcr: plcr.total.ratio, nsfr: pnsfr.ratio, worst_eve_loss_pct_tier1: pworst, top10_pct: pfund.top10_pct, nii_12m: pnii.nii })
+        }
+        None => None,
+    };
     Ok(Some(AlmOverview {
+        previous,
+        ratios: Some(ratios),
         as_of: book.as_of,
         params_version: active.version,
         reporting_ccy: params.reporting_ccy.clone(),

@@ -6,12 +6,16 @@ pub mod attribution;
 pub mod bucket;
 pub mod curve;
 pub mod eve;
+pub mod ewi;
 pub mod funding;
+pub mod fx;
 pub mod gap;
 pub mod ird;
 pub mod lcr;
+pub mod liquidity;
 pub mod nii;
 pub mod nsfr;
+pub mod ratios;
 pub mod schedule;
 pub mod stress;
 

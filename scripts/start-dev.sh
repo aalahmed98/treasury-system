@@ -16,11 +16,10 @@ if [ "$DEALS" = "0" ]; then
   echo "    no deals yet: replaying a 5-day synthetic world (about 40 s)"
   cargo run -q -p recon -- synth --mode replay --speed 20000 --days 5 2>&1 | grep -E "deals by|^  " | sed -E 's/\x1b\[[0-9;]*m//g' || true
 fi
-SNAPSHOTS=$(psql "$DATABASE_URL" -Atc "select count(*) from bs_snapshots where complete" 2>/dev/null || echo 0)
-if [ "${SNAPSHOTS:-0}" = "0" ]; then
-  echo "    no banking book yet: generating the synthetic balance sheet (a few seconds)"
-  cargo run -q -p recon -- alm-synth 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -o "snapshots=.*" || true
-fi
+# The balance sheet and the market up to the business date; snapshots already there are kept, so
+# this only adds the days since the last run (a few seconds).
+echo "    banking book and market data up to the business date"
+cargo run -q -p recon -- alm-synth 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -o "snapshots=.*" | tail -1 || true
 echo "5/5 services"
 pkill -f "[t]reasury-recon serve" 2>/dev/null || true
 pkill -f "[t]reasury-server serve" 2>/dev/null || true

@@ -405,7 +405,10 @@ fn gen_deal(rng: &mut StdRng, n: u32, day: NaiveDate, cal: &Calendar, cfg: &Synt
     let (cpty, _) = pick(rng, COUNTERPARTIES);
     let internal = rng.random_range(0.0..1.0) < cfg.world.internal_share;
     if is_fx {
-        let (c1, c2, mid) = *pick(rng, FX_PAIRS);
+        let (c1, c2, _) = *pick(rng, FX_PAIRS);
+        // Priced off the same synthetic market the ALM generator writes, so revaluation and the
+        // off-market check see deals done near the mid of their day.
+        let mid = crate::alm_synth::fx_cross(cfg.world.seed, c1, c2, day);
         let spot = cal.add_business_days(day, 2);
         let is_fwd = rng.random_range(0..100) < 35;
         let (product, value_date) = if is_fwd {
@@ -414,7 +417,9 @@ fn gen_deal(rng: &mut StdRng, n: u32, day: NaiveDate, cal: &Calendar, cfg: &Synt
             (Product::FxSpot, spot)
         };
         let jitter = 1.0 + rng.random_range(-0.003..0.003);
-        let fwd_points = if is_fwd { 1.0 + (value_date - spot).num_days() as f64 * 0.00002 } else { 1.0 };
+        // Covered interest parity on the two money-market levels: the quote currency's rate over the base's.
+        let t = (value_date - spot).num_days() as f64 / 360.0;
+        let fwd_points = if is_fwd { (1.0 + crate::alm_synth::money_rate(c2) / 100.0 * t) / (1.0 + crate::alm_synth::money_rate(c1) / 100.0 * t) } else { 1.0 };
         TrueDeal {
             n,
             product,

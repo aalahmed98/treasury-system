@@ -24,6 +24,10 @@ impl From<sqlx::Error> for ApiError {
         if let sqlx::Error::Database(db) = &e {
             match db.code().as_deref() {
                 // insufficient_privilege: an INSERT/UPDATE rejected by a row-level security policy
+                // Our definer functions say who may do what; a policy rejection says nothing useful.
+                Some("42501") if db.message().starts_with("only the") || db.message().starts_with("not entitled") => {
+                    return ApiError::Forbidden(db.message().to_string());
+                }
                 Some("42501") => return ApiError::Forbidden("not entitled to that desk".into()),
                 Some("23505") => return ApiError::BadRequest("duplicate record".into()),
                 // Our own RAISE EXCEPTION messages are written for users; constraint names are not.

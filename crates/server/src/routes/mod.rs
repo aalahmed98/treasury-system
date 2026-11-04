@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod alm;
+pub mod alm_ext;
 pub mod audit;
 pub mod auth;
 pub mod deals;
@@ -8,6 +9,7 @@ pub mod liquidity;
 pub mod market;
 pub mod positions;
 pub mod recon;
+pub mod risk;
 
 use axum::extract::Request;
 use axum::http::header::{self, HeaderName, HeaderValue};
@@ -77,6 +79,17 @@ pub fn router(state: AppState) -> Router {
         .route("/alm/stress", post(alm::stress))
         .route("/alm/attribution", post(alm::attribution))
         .route("/alm/funding", post(alm::funding))
+        .route("/alm/liquidity-gap", post(alm_ext::liquidity_gap))
+        .route("/alm/ewi", post(alm_ext::ewi))
+        .route("/alm/pack", get(alm_ext::pack))
+        .route("/alm/pack/note", post(alm_ext::pack_note))
+        .route("/alm/pack/sign", post(alm_ext::pack_sign))
+        .route("/risk/fx", get(risk::fx_risk))
+        .route("/risk/fx/deals", get(risk::fx_deals))
+        .route("/risk/fx/history", get(risk::fx_history))
+        .route("/risk/limits", get(risk::limits).post(risk::save_limits))
+        .route("/risk/breaches", get(risk::breaches))
+        .route("/risk/breaches/sign", post(risk::sign_breach))
         .route("/market/rates", get(market::rates))
         .route("/activity", get(activity::activity))
         .route("/attention", get(activity::attention))

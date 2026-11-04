@@ -13,6 +13,7 @@ pub mod desk;
 pub mod events;
 pub mod liquidity;
 pub mod recon;
+pub mod risk;
 pub mod user;
 
 pub use activity::*;
@@ -24,4 +25,5 @@ pub use desk::*;
 pub use events::*;
 pub use liquidity::*;
 pub use recon::*;
+pub use risk::*;
 pub use user::*;

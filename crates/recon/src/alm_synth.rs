@@ -71,17 +71,83 @@ fn day_count(ccy: &str) -> DayCount {
     if ccy == "GBP" { DayCount::Act365 } else { DayCount::Act360 }
 }
 
-/// BHD per one unit of the currency at the start of the history; pegs stay put.
+/// BHD per one unit of the currency on the anchor day; the pegged currencies stay there.
 pub fn base_spot(ccy: &str) -> f64 {
     match ccy {
         "BHD" => 1.0,
         "USD" => 0.376,
-        "EUR" => 0.410,
-        "GBP" => 0.482,
+        "EUR" => 0.408,
+        "GBP" => 0.47752,
         "SAR" => 0.1003,
         "AED" => 0.1024,
         _ => 1.0,
     }
+}
+
+/// The currencies held to the US dollar (and so to the dinar): their spot never moves.
+pub fn pegged(ccy: &str) -> bool {
+    matches!(ccy, "BHD" | "USD" | "SAR" | "AED" | "QAR" | "OMR")
+}
+
+/// The day the synthetic spot path is anchored to its base level. A fixed date, so the market
+/// generator and the deal generator see the same mid on any day without sharing state.
+const SPOT_ANCHOR: (i32, u32, u32) = (2026, 1, 1);
+/// Daily volatility of a floating currency against the dinar.
+const SPOT_VOL: f64 = 0.003;
+
+fn splitmix(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = x;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+fn unit(h: u64) -> f64 {
+    (h >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// The day's standard normal shock for a currency: a pure function of seed, currency and date.
+fn spot_shock(seed: u64, ccy: &str, day: NaiveDate) -> f64 {
+    let h = splitmix(seed ^ hash(ccy) ^ (day.num_days_from_ce() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    let u1 = unit(h).max(1e-12);
+    let u2 = unit(splitmix(h));
+    (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+}
+
+/// BHD per one unit of `ccy` at the close of `day`: the base level on the anchor day, walked by
+/// one shock a day forwards or backwards from it. Pegged currencies stay at their base.
+pub fn fx_mid(seed: u64, ccy: &str, day: NaiveDate) -> f64 {
+    let base = base_spot(ccy);
+    if pegged(ccy) {
+        return base;
+    }
+    let anchor = NaiveDate::from_ymd_opt(SPOT_ANCHOR.0, SPOT_ANCHOR.1, SPOT_ANCHOR.2).expect("anchor date");
+    let mut level = base;
+    if day >= anchor {
+        let mut d = anchor + Duration::days(1);
+        while d <= day {
+            level *= 1.0 + SPOT_VOL * spot_shock(seed, ccy, d);
+            d += Duration::days(1);
+        }
+    } else {
+        let mut d = anchor;
+        while d > day {
+            level /= 1.0 + SPOT_VOL * spot_shock(seed, ccy, d);
+            d -= Duration::days(1);
+        }
+    }
+    (level * 1e6).round() / 1e6
+}
+
+/// Units of `quote` per one unit of `base` on `day`, crossed through the dinar.
+pub fn fx_cross(seed: u64, base: &str, quote: &str, day: NaiveDate) -> f64 {
+    fx_mid(seed, base, day) / fx_mid(seed, quote, day)
+}
+
+/// The rate level a currency's money market sits around, percent; for synthetic forward points.
+pub fn money_rate(ccy: &str) -> f64 {
+    base_level(ccy)
 }
 
 fn hash(s: &str) -> u64 {
@@ -138,8 +204,7 @@ impl Market {
             let base = base_level(ccy);
             let mut level = base;
             let mut slope: f64 = 0.8;
-            let mut spot = base_spot(ccy);
-            let pegged = matches!(ccy, "BHD" | "USD" | "SAR" | "AED");
+            let mut spot = fx_mid(seed, ccy, start);
             let mut d = start;
             while d <= end {
                 level += 0.02 * (base - level) + 0.025 * normal(&mut rng);
@@ -153,8 +218,8 @@ impl Market {
                     m.rates.push(RatePoint { as_of: d, ccy: ccy.into(), index_code: index_for(ccy).into(), tenor: tenor.into(), tenor_days: td, rate });
                 }
                 m.curves.insert((ccy.to_string(), d), curve);
-                if !pegged {
-                    spot *= 1.0 + 0.003 * normal(&mut rng);
+                if d > start && !pegged(ccy) {
+                    spot *= 1.0 + SPOT_VOL * spot_shock(seed, ccy, d);
                 }
                 if ccy != "BHD" {
                     let mid = (spot * 1e6).round() / 1e6;

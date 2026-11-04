@@ -38,6 +38,7 @@ pub enum AttentionTarget {
     Provisional,
     Overview,
     Alm { tool: String },
+    Risk,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

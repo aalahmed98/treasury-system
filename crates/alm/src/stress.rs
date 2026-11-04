@@ -161,7 +161,32 @@ pub fn compute(
         .filter_map(|(ccy, shock)| exposure.get(ccy).map(|e| FxStressRow { ccy: ccy.clone(), shock_pct: *shock, exposure: *e, pnl: -e * shock / 100.0 }))
         .collect();
 
+    // The annual report's test: every currency's curve up and down 200 bp.
+    let uniform_200 = [200.0, -200.0]
+        .into_iter()
+        .map(|b| {
+            let n = nii::compute(positions, params, spots, curves, as_of, RateScenario::Custom, b, params_version);
+            let e = eve::compute(positions, params, spots, curves, as_of, RateScenario::Custom, b, params_version);
+            let nii_delta = n.nii - base_nii.nii;
+            let nii_delta_pct = (base_nii.nii.abs() > 1e-9).then(|| nii_delta / base_nii.nii.abs() * 100.0);
+            let eve_loss_pct_tier1 = (tier1 > 0.0).then(|| e.basel_loss / tier1 * 100.0);
+            StressScenarioRow {
+                scenario: RateScenario::Custom,
+                label: format!("All curves {b:+.0} bp"),
+                nii: n.nii,
+                nii_delta,
+                nii_delta_pct,
+                eve_delta: e.delta,
+                eve_loss: e.basel_loss,
+                eve_loss_pct_tier1,
+                nii_breach: nii_delta_pct.is_some_and(|p| p < -params.gap.nii_sensitivity_limit_pct),
+                eve_breach: eve_loss_pct_tier1.is_some_and(|p| p > params.gap.eve_limit_pct_tier1),
+            }
+        })
+        .collect();
+
     StressResult {
+        uniform_200,
         as_of,
         params_version,
         reporting_ccy: params.reporting_ccy.clone(),

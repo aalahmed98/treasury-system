@@ -178,8 +178,46 @@ pub async fn attention(State(state): State<AppState>, Extension(auth): Extension
         ));
     }
 
+    // FX limits outside or near their level today, and deals priced off the market lately.
+    if let Some(r) = crate::routes::risk::attention_view(&mut tx).await? {
+        for l in r.limits.iter().filter(|l| l.status != domain::LimitStatus::Ok) {
+            let breach = l.status == domain::LimitStatus::Breach;
+            items.push(item(
+                if breach { AttentionSeverity::Critical } else { AttentionSeverity::Warning },
+                format!("{} {}", l.label, if breach { "over its limit" } else { "near its limit" }),
+                format!("{} against a limit of {} ({:.0}% used)", short(l.value), short(l.limit), l.pct),
+                None,
+                AttentionTarget::Risk,
+            ));
+        }
+        let recent = today - chrono::Duration::days(2);
+        for d in r.off_market.iter().filter(|d| d.trade_date > recent).take(3) {
+            items.push(item(
+                AttentionSeverity::Warning,
+                format!("off-market {}", d.deal_ref),
+                format!("{} {} at {:.5}, {:+.0} bp from the mid of {:.5} on the trade date", d.pair, d.side.to_lowercase(), d.rate, d.off_market_bp.unwrap_or(0.0), d.trade_mid.unwrap_or(0.0)),
+                None,
+                AttentionTarget::Deal { id: d.deal_id },
+            ));
+        }
+    }
+
     // ALM limits, for users who may see them.
     if alm::can_see_alm(&mut tx).await? {
+        if let Ok(e) = crate::routes::alm_ext::build_ewi(&state, &mut tx, &domain::AlmRequest::default()).await
+            && e.stage != "NORMAL"
+        {
+            {
+                let flagged: Vec<&str> = e.indicators.iter().filter(|i| i.status != domain::EwiStatus::Green).map(|i| i.label.as_str()).collect();
+                items.push(item(
+                    if e.stage == "CRISIS" { AttentionSeverity::Critical } else { AttentionSeverity::Warning },
+                    format!("Contingency funding plan at {}", e.stage.to_lowercase()),
+                    format!("early warnings: {}", flagged.join(", ")),
+                    None,
+                    AttentionTarget::Alm { tool: "ewi".into() },
+                ));
+            }
+        }
         if let Some(o) = alm::build_overview(&state, &mut tx).await? {
             for l in &o.limits {
                 if !(l.breach || l.warn) {

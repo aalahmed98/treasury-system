@@ -115,6 +115,8 @@ pub struct AlmParams {
     pub stress: StressParams,
     pub nii: NiiParams,
     pub funding: FundingParams,
+    pub liquidity_gap: LiquidityGapParams,
+    pub ewi: EwiParams,
 }
 
 impl Default for AlmParams {
@@ -128,6 +130,8 @@ impl Default for AlmParams {
             stress: StressParams::default(),
             nii: NiiParams::default(),
             funding: FundingParams::default(),
+            liquidity_gap: LiquidityGapParams::default(),
+            ewi: EwiParams::default(),
         }
     }
 }
@@ -353,6 +357,88 @@ pub struct FundingParams {
 impl Default for FundingParams {
     fn default() -> Self {
         Self { top1_limit_pct: 10.0, top10_limit_pct: 25.0, wholesale_share_limit_pct: 35.0 }
+    }
+}
+
+/// The liquidity maturity ladder's behavioural assumptions and the bank's cumulative-gap limits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiquidityGapParams {
+    /// Share of non-maturity deposits that stays (spread over the behavioural life); the rest is
+    /// treated as leaving overnight. Per segment, percent.
+    pub stable_share_pct: BTreeMap<String, f64>,
+    /// Share of undrawn commitments assumed drawn within a month, percent.
+    pub commitment_draw_pct: f64,
+    /// The cumulative gap may not fall below minus this share of total assets, per bucket, percent.
+    pub cumulative_floor_pct_assets: BTreeMap<String, f64>,
+}
+
+impl Default for LiquidityGapParams {
+    fn default() -> Self {
+        Self {
+            stable_share_pct: map([("RETAIL", 85.0), ("SME", 70.0), ("CORPORATE", 60.0), ("FI", 0.0)]),
+            commitment_draw_pct: 5.0,
+            cumulative_floor_pct_assets: map([("ON", 10.0), ("1W", 12.0), ("1M", 15.0), ("3M", 20.0)]),
+        }
+    }
+}
+
+/// An early-warning indicator's thresholds. `rising` means higher values are worse.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct EwiThreshold {
+    pub amber: f64,
+    pub red: f64,
+}
+
+/// Thresholds for the early-warning indicators and the contingency funding plan's actions per stage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EwiParams {
+    pub thresholds: BTreeMap<String, EwiThreshold>,
+    pub actions: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for EwiParams {
+    fn default() -> Self {
+        let t = |a: f64, r: f64| EwiThreshold { amber: a, red: r };
+        Self {
+            thresholds: [
+                ("deposits_5d", t(-2.0, -5.0)),
+                ("retail_5d", t(-2.0, -4.0)),
+                ("wholesale_30d", t(8.0, 12.0)),
+                ("top10", t(22.5, 25.0)),
+                ("lcr_5d", t(-15.0, -30.0)),
+                ("bhibor_5d", t(25.0, 50.0)),
+                ("peg_spread_5d", t(25.0, 50.0)),
+                ("survival", t(60.0, 30.0)),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+            actions: [
+                ("NORMAL", vec!["Daily monitoring; indicators reported to ALCO monthly."]),
+                (
+                    "ALERT",
+                    vec![
+                        "Treasurer and CRO informed the same day; indicators reviewed daily by ALCO members.",
+                        "Raise term funding and lengthen interbank placements; avoid new long-dated lending in the affected currency.",
+                        "Confirm the repo capacity of the liquid securities with the counterparties and the CBB.",
+                    ],
+                ),
+                (
+                    "CRISIS",
+                    vec![
+                        "Emergency ALCO convened; the contingency funding plan's crisis team takes over.",
+                        "Draw on the repo capacity and the CBB facilities; sell level 1 securities if needed.",
+                        "Communicate with large depositors and the CBB as the plan sets out; stop discretionary lending.",
+                    ],
+                ),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.into_iter().map(String::from).collect()))
+            .collect(),
+        }
     }
 }
 
@@ -728,6 +814,9 @@ pub struct StressResult {
     pub worst_eve: Option<RateScenario>,
     pub liquidity: LiquidityStressResult,
     pub fx: Vec<FxStressRow>,
+    /// The test the annual report discloses: every curve up and down 200 bp.
+    #[serde(default)]
+    pub uniform_200: Vec<StressScenarioRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -874,6 +963,123 @@ pub struct AlmOverview {
     pub lcr_trend: Vec<TrendPoint>,
     pub nii_months: Vec<NiiPeriodRow>,
     pub gap_buckets: Vec<GapBucket>,
+    /// The same headline figures on the previous snapshot, for "since yesterday".
+    #[serde(default)]
+    pub previous: Option<OverviewPrevious>,
+    #[serde(default)]
+    pub ratios: Option<Ratios>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OverviewPrevious {
+    pub as_of: NaiveDate,
+    pub lcr: Option<f64>,
+    pub nsfr: Option<f64>,
+    pub worst_eve_loss_pct_tier1: Option<f64>,
+    pub top10_pct: f64,
+    pub nii_12m: f64,
+}
+
+/// Balance-sheet health ratios, percent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Ratios {
+    pub loan_to_deposit: Option<f64>,
+    pub liquid_assets_to_assets: Option<f64>,
+    /// Balance-weighted rate on interest-bearing liabilities.
+    pub cost_of_funds: Option<f64>,
+    /// Balance-weighted rate on earning assets.
+    pub asset_yield: Option<f64>,
+    pub net_spread: Option<f64>,
+    pub wholesale_funding: f64,
+    pub equity_to_assets: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Liquidity maturity ladder
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityBucket {
+    pub label: String,
+    pub inflows: f64,
+    pub outflows: f64,
+    pub gap: f64,
+    pub cumulative: f64,
+    pub cumulative_pct_assets: f64,
+    /// The floor the cumulative gap may not fall below, percent of assets (negative), if set.
+    pub floor_pct: Option<f64>,
+    pub breach: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityCcy {
+    pub ccy: String,
+    /// Gap per bucket and its running total, in the reporting currency.
+    pub gaps: Vec<f64>,
+    pub cumulative: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityLadder {
+    pub buckets: Vec<LiquidityBucket>,
+    pub by_ccy: Vec<LiquidityCcy>,
+    /// The first bucket in which the cumulative gap turns negative, if any.
+    pub first_negative: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityGapResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    pub reporting_ccy: String,
+    pub total_assets: f64,
+    pub contractual: LiquidityLadder,
+    pub behavioural: LiquidityLadder,
+    pub breaches: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Early-warning indicators and the contingency funding plan
+// ---------------------------------------------------------------------------------------------
+
+text_enum! {
+    /// Where an indicator stands, or the contingency plan's stage.
+    EwiStatus {
+        Green => "GREEN",
+        Amber => "AMBER",
+        Red => "RED",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EwiPoint {
+    pub as_of: NaiveDate,
+    pub value: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EwiIndicator {
+    pub key: String,
+    pub label: String,
+    pub what: String,
+    pub unit: String,
+    pub value: Option<f64>,
+    pub amber: f64,
+    pub red: f64,
+    /// Whether a higher value is worse.
+    pub rising_is_worse: bool,
+    pub status: EwiStatus,
+    pub series: Vec<EwiPoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EwiResult {
+    pub as_of: NaiveDate,
+    pub params_version: Option<i32>,
+    /// NORMAL, ALERT or CRISIS.
+    pub stage: String,
+    pub indicators: Vec<EwiIndicator>,
+    pub actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
