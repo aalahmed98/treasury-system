@@ -14,12 +14,29 @@ import { Attribution } from './Attribution';
 import { IrdPage } from './Ird';
 import { Funding } from './Funding';
 import { Setup } from './Setup';
+import { LiquidityGap } from './LiquidityGap';
+import { Ewi } from './Ewi';
+import { Pack } from './Pack';
 
-type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'funding' | 'gap' | 'nii' | 'stress' | 'ird' | 'attribution' | 'setup';
-const LABEL: Record<Tool, string> = { dashboard: 'Dashboard', lcr: 'LCR', nsfr: 'NSFR', funding: 'Funding', gap: 'Gap', nii: 'NII / NIM', stress: 'Stress', ird: 'IRD', attribution: 'Attribution', setup: 'Setup' };
+type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'ladder' | 'ewi' | 'funding' | 'gap' | 'nii' | 'stress' | 'ird' | 'attribution' | 'pack' | 'setup';
+const LABEL: Record<Tool, string> = {
+  dashboard: 'Dashboard',
+  lcr: 'LCR',
+  nsfr: 'NSFR',
+  ladder: 'Ladder',
+  ewi: 'Early warning',
+  funding: 'Funding',
+  gap: 'Gap',
+  nii: 'NII / NIM',
+  stress: 'Stress',
+  ird: 'IRD',
+  attribution: 'Attribution',
+  pack: 'ALCO pack',
+  setup: 'Setup',
+};
 const GROUPS: [string, Tool[]][] = [
   ['', ['dashboard']],
-  ['Liquidity', ['lcr', 'nsfr', 'funding']],
+  ['Liquidity', ['lcr', 'nsfr', 'ladder', 'ewi', 'funding']],
   ['Rates', ['gap', 'nii', 'stress', 'ird']],
   ['Income', ['attribution']],
 ];
@@ -57,6 +74,9 @@ export function Alm() {
           ))}
         </select>
         <span className="vsep" />
+        <Chip selected={tool === 'pack'} onClick={() => go('pack')}>
+          ALCO pack
+        </Chip>
         <Chip selected={tool === 'setup'} onClick={() => go('setup')}>
           Setup
         </Chip>
@@ -92,6 +112,12 @@ function ToolBody({ tool }: { tool: Tool }) {
       return <Attribution />;
     case 'setup':
       return <Setup />;
+    case 'ladder':
+      return <LiquidityGap />;
+    case 'ewi':
+      return <Ewi />;
+    case 'pack':
+      return <Pack />;
     default:
       return (
         <div className="alm-layout single">

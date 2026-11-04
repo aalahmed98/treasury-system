@@ -275,6 +275,33 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
         <Row label="Default deposit beta">
           <Pct value={d.nii.default_beta * 100} base={b.nii.default_beta * 100} onChange={(v) => onChange((p) => void (p.nii.default_beta = v / 100))} />
         </Row>
+        <Group title="Liquidity ladder" />
+        {Object.entries(d.liquidity_gap.stable_share_pct).map(([k, v]) => (
+          <Row key={k} label={`Stable share, ${nice(k).toLowerCase()} deposits`}>
+            <Pct value={v} base={b.liquidity_gap.stable_share_pct[k]} onChange={(x) => onChange((p) => void (p.liquidity_gap.stable_share_pct[k] = x))} />
+          </Row>
+        ))}
+        <Row label="Commitments drawn within a month">
+          <Pct value={d.liquidity_gap.commitment_draw_pct} base={b.liquidity_gap.commitment_draw_pct} onChange={(v) => onChange((p) => void (p.liquidity_gap.commitment_draw_pct = v))} />
+        </Row>
+        {Object.entries(d.liquidity_gap.cumulative_floor_pct_assets).map(([k, v]) => (
+          <Row key={k} label={`Gap floor to ${k} (% assets)`}>
+            <Pct value={v} base={b.liquidity_gap.cumulative_floor_pct_assets[k]} onChange={(x) => onChange((p) => void (p.liquidity_gap.cumulative_floor_pct_assets[k] = x))} />
+          </Row>
+        ))}
+        <Group title="Early-warning thresholds" />
+        <div className="t-small" style={{ marginBottom: 4 }}>
+          amber · red
+        </div>
+        <div className="factor-grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto auto' }}>
+          {Object.entries(d.ewi.thresholds).map(([k, t]) => (
+            <div key={k} style={{ display: 'contents' }}>
+              <span className="k">{nice(k)}</span>
+              <Num value={t.amber} base={b.ewi.thresholds[k]?.amber} min={-1000} max={1000} step={0.5} decimals={1} width={64} onChange={(x) => onChange((p) => void (p.ewi.thresholds[k].amber = x))} />
+              <Num value={t.red} base={b.ewi.thresholds[k]?.red} min={-1000} max={1000} step={0.5} decimals={1} width={64} onChange={(x) => onChange((p) => void (p.ewi.thresholds[k].red = x))} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

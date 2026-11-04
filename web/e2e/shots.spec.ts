@@ -21,6 +21,9 @@ const routes: [string, string][] = [
   ['alm-ird', '/app/alm/ird'],
   ['alm-funding', '/app/alm/funding'],
   ['alm-setup', '/app/alm/setup'],
+  ['alm-ladder', '/app/alm/ladder'],
+  ['alm-ewi', '/app/alm/ewi'],
+  ['alm-pack', '/app/alm/pack'],
 ];
 
 for (const theme of ['light', 'dark'] as const) {
@@ -30,10 +33,19 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/app/');
     await page.waitForTimeout(300);
     await page.screenshot({ path: join(dir, `login-${theme}.png`) });
-    await login(page, process.env.SHOTS_USER ?? 'alm1');
+    await login(page, process.env.SHOTS_USER ?? 'head1');
     for (const [name, path] of routes) {
       await page.goto(path);
       await ready(page);
+      await fullPage(page, join(dir, `${name}-${theme}.png`));
+    }
+    for (const [name, path] of [
+      ['risk', '/app/risk'],
+      ['risk-limits', '/app/risk/limits'],
+    ] as const) {
+      await page.goto(path);
+      await ready(page);
+      await page.waitForTimeout(800);
       await fullPage(page, join(dir, `${name}-${theme}.png`));
     }
     await page.goto('/app/');

@@ -85,3 +85,12 @@ function marketSpotDirect(m: MarketResponse, base: string, quote: string): numbe
   const i = m.spots.find((s) => s.pair === `${quote}/${base}` || s.pair === `${quote}${base}`);
   return i && i.mid > 0 ? 1 / i.mid : null;
 }
+
+/** The market outright for a pair and value date: spot crossed through the dinar, carried forward
+ * on the two currencies' curves. Units of ccy2 per ccy1; null when either currency has no spot. */
+export function marketOutright(m: MarketResponse, ccy1: string, ccy2: string, days: number): number | null {
+  const spot = marketSpot(m, ccy1, ccy2);
+  if (spot === null) return null;
+  if (days <= 0) return spot;
+  return forward(spot, days, marketRate(m, ccy1, days) ?? 0, basis(ccy1), marketRate(m, ccy2, days) ?? 0, basis(ccy2));
+}

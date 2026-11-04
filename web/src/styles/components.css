@@ -1544,3 +1544,88 @@ dialog.ticket::backdrop {
 .popup-row.static:hover {
   background: none;
 }
+
+.panel-row.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 1100px) {
+  .panel-row.two {
+    grid-template-columns: 1fr;
+  }
+}
+.table tfoot td {
+  border-top: 1px solid var(--hairline);
+  height: 26px;
+}
+
+/* early warnings */
+.ewi-list {
+  display: grid;
+  padding: 0;
+}
+.ewi-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(150px, 0.6fr) minmax(200px, 0.8fr);
+  gap: 16px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hairline);
+}
+.ewi-row:first-child {
+  border-top: 0;
+}
+.ewi-value {
+  text-align: right;
+}
+.actions {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: decimal;
+  display: grid;
+  gap: 4px;
+  max-width: 80ch;
+}
+
+/* the ALCO pack */
+.pack {
+  max-width: 1100px;
+}
+.pack-section {
+  margin: 18px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+.pack-section > h2 {
+  margin-bottom: 10px;
+}
+.pack-note {
+  margin-top: 12px;
+  display: grid;
+  gap: 4px;
+  max-width: 760px;
+}
+.pack-note textarea {
+  width: 100%;
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.pack-note .print-text {
+  display: none;
+}
+@media print {
+  .pack-note .print-text {
+    display: block;
+  }
+  .pack-section {
+    break-inside: avoid;
+  }
+}
+
+.alm-strip select.input {
+  width: 170px;
+}
+.alm-strip .chip {
+  padding: 0 9px;
+}

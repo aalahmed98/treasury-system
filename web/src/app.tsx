@@ -16,6 +16,7 @@ const Blotter = lazy(() => load.blotter().then((m) => ({ default: m.Blotter })))
 const Breaks = lazy(() => load.breaks().then((m) => ({ default: m.Breaks })));
 const Ladder = lazy(() => load.liquidity().then((m) => ({ default: m.Ladder })));
 const Alm = lazy(() => load.alm().then((m) => ({ default: m.Alm })));
+const Risk = lazy(() => load.risk().then((m) => ({ default: m.Risk })));
 
 function Gate() {
   const { current, canSeeAlm } = useSession();
@@ -32,6 +33,7 @@ function Gate() {
                   <Route path="blotter" element={<Blotter />} />
                   <Route path="breaks" element={<Breaks />} />
                   <Route path="liquidity" element={<Ladder />} />
+                  <Route path="risk/*" element={<Risk />} />
                   <Route
                     path="alm/:tool?"
                     element={

@@ -5,13 +5,14 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState, type FormE
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, endpoints } from '../api/client';
-import { useDeals } from '../api/queries';
+import { useDeals, useRiskLimits } from '../api/queries';
 import { useSession } from '../api/session';
 import { useLive } from '../api/live';
 import type { Deal, DeskAccess, NewDeal, Product, Side } from '../api/types';
 import { PRODUCT_LABEL, isFx } from '../api/types';
 import { fmtAmount, fmtDateShort, fmtLocal, titleCase } from '../lib/fmt';
 import { breakKindClass, dealRow, fmtRate, isTerminal, matchClass, matchLabel, statusClass, type DealRow } from '../lib/deals';
+import { marketOutright } from '../lib/ird';
 import { Badge, Chip } from '../components/ui';
 import { DataTable, byNumber, byString, exportCsv, useSort, useTableView, type Col } from '../components/table';
 import { SideToggle, WithSide } from '../components/positions';
@@ -544,6 +545,24 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
     counterparty: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [offMarketOk, setOffMarketOk] = useState(false);
+  const market = useQuery({ queryKey: ['market', 'rates'], queryFn: endpoints.marketRates, staleTime: 60_000 });
+  const limits = useRiskLimits();
+  // The market for the deal's value date, and how far the rate typed is from it.
+  const check = useMemo(() => {
+    if (!isFx(f.product) || !market.data) return null;
+    const c1 = f.ccy1.trim().toUpperCase();
+    const c2 = f.ccy2.trim().toUpperCase();
+    const rate = Number(f.rate);
+    if (c1.length !== 3 || c2.length !== 3 || !Number.isFinite(rate) || rate <= 0) return null;
+    const days = Math.round((Date.parse(f.value_date) - Date.parse(today)) / 86_400_000);
+    const mid = marketOutright(market.data, c1, c2, Number.isFinite(days) ? days : 2);
+    if (mid === null) return null;
+    const bp = (rate / mid - 1) * 10_000;
+    const tolerance = f.product === 'FX_FWD' ? (limits.data?.limits.off_market_bp_forward ?? 100) : (limits.data?.limits.off_market_bp_spot ?? 50);
+    return { mid, bp, tolerance, off: Math.abs(bp) > tolerance };
+  }, [f.product, f.ccy1, f.ccy2, f.rate, f.value_date, today, market.data, limits.data]);
+  useEffect(() => setOffMarketOk(false), [check?.off]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -658,6 +677,15 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
           <input className="input input-sm" value={f.notional} onChange={(e) => setF({ ...f, notional: e.target.value })} aria-label="Notional" />
           <span className="k">{fx ? 'Rate' : 'Rate (%)'}</span>
           <input className="input input-sm" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} aria-label="Rate" />
+          {check && (
+            <>
+              <span />
+              <span className={`t-small ${check.off ? 't-bad' : ''}`} data-testid="market-check">
+                market {check.mid.toFixed(5)} for the value date · {check.bp > 0 ? '+' : ''}
+                {check.bp.toFixed(0)} bp{check.off ? `, beyond the ${check.tolerance} bp tolerance` : ''}
+              </span>
+            </>
+          )}
           <span className="k">Trade date</span>
           <input className="input input-sm" type="date" value={f.trade_date} onChange={(e) => setF({ ...f, trade_date: e.target.value })} aria-label="Trade date" />
           <span className="k">Value date</span>
@@ -671,13 +699,19 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
           <span className="k">Counterparty</span>
           <input className="input input-sm" value={f.counterparty} onChange={(e) => setF({ ...f, counterparty: e.target.value })} aria-label="Counterparty" autoFocus />
         </div>
+        {check?.off && (
+          <label className="row notice bad" style={{ marginTop: 8, alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={offMarketOk} onChange={(e) => setOffMarketOk(e.target.checked)} />
+            <span>Book at this rate although it is {Math.abs(check.bp).toFixed(0)} bp from the market. The deal will show as off-market on the risk page.</span>
+          </label>
+        )}
         {error && (
           <div className="notice bad" role="alert" style={{ marginTop: 8 }}>
             {error}
           </div>
         )}
         <div className="row" style={{ marginTop: 12 }}>
-          <button type="submit" className="btn btn-primary" disabled={book.isPending}>
+          <button type="submit" className="btn btn-primary" disabled={book.isPending || (check?.off === true && !offMarketOk)}>
             {book.isPending ? 'Booking…' : 'Book'}
           </button>
           <button type="button" className="btn" onClick={onClose}>

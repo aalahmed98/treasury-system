@@ -36,10 +36,10 @@ test('arrow keys move the blotter selection and the address follows', async ({ p
   await page.keyboard.press('ArrowDown');
   await expect(page).toHaveURL(/deal=/);
   const firstKey = await table.locator('tbody tr[data-key]').first().getAttribute('data-key');
-  expect(page.url()).toContain(`deal=${firstKey}`);
-  await page.keyboard.press('ArrowDown');
+  await expect(page).toHaveURL(new RegExp(`deal=${firstKey}`));
   const secondKey = await table.locator('tbody tr[data-key]').nth(1).getAttribute('data-key');
-  expect(page.url()).toContain(`deal=${secondKey}`);
+  await page.keyboard.press('ArrowDown');
+  await expect(page).toHaveURL(new RegExp(`deal=${secondKey}`));
   await expect(table.locator('tr.selected')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(page).not.toHaveURL(/deal=/);
@@ -115,4 +115,81 @@ test('several breaks can be picked with Ctrl-click and acknowledged at once', as
   await expect(table.locator('tr.checked')).toHaveCount(3);
   await page.keyboard.press('Escape');
   await expect(bulk).toHaveCount(0);
+});
+
+test('the FX risk page shows positions, P&L, limits and VaR for a dealer', async ({ page }) => {
+  await login(page, 'fx1');
+  await page.getByRole('link', { name: /^Risk/ }).click();
+  await expect(page.getByTestId('risk-page')).toBeVisible();
+  await expect(page.getByTestId('risk-hero').locator('.cell')).toHaveCount(4);
+  await expect(page.getByTestId('positions').locator('tbody tr').first()).toBeVisible();
+  await expect(page.getByTestId('pnl-dealer')).toBeVisible();
+  await expect(page.getByTestId('counterparties')).toBeVisible();
+  await expect(page.locator('.section', { hasText: 'Value at risk' })).toBeVisible();
+  // A dealer reads the limits but cannot change them.
+  await page.getByRole('link', { name: 'Limits' }).click();
+  await expect(page.getByTestId('limits-page')).toContainText('Read only');
+  await expect(page.getByRole('button', { name: /Start from version/ })).toHaveCount(0);
+});
+
+test('the money-market desk has no FX risk tab or page', async ({ page }) => {
+  await login(page, 'mm1');
+  await expect(page.getByRole('link', { name: /^Risk/ })).toHaveCount(0);
+  await page.goto('/app/risk/limits');
+  await expect(page).not.toHaveURL(/risk/);
+});
+
+test('the treasury head drafts limits and the save box lists the change', async ({ page }) => {
+  await login(page, 'head1');
+  await page.goto('/app/risk/limits');
+  await page.getByRole('button', { name: /Start from version/ }).click();
+  const box = page.getByTestId('limits-save-box');
+  await expect(box).toContainText('Nothing differs');
+  await page.locator('label.arow', { hasText: 'Stop-loss, one day' }).locator('input').fill('175000');
+  await expect(box).toContainText('stop loss daily');
+  await expect(box.getByRole('button', { name: /Save as version/ })).toBeDisabled();
+  await box.getByRole('button', { name: 'Discard draft' }).click();
+});
+
+test('the ticket shows the market mid and asks before booking off-market', async ({ page }) => {
+  await login(page, 'fx1');
+  await page.goto('/app/blotter');
+  await expect(page.getByTestId('blotter').locator('tbody tr[data-key]').first()).toBeVisible();
+  await page.keyboard.press('n');
+  const sheet = page.getByRole('dialog', { name: 'Book a deal' });
+  await expect(sheet.getByTestId('market-check')).toContainText(/market 0\.376\d\d for the value date/);
+  await sheet.getByLabel('Rate').fill('0.39');
+  await expect(sheet.getByTestId('market-check')).toContainText('beyond the');
+  await sheet.getByLabel('Counterparty').fill('Off Market Bank');
+  await expect(sheet.getByRole('button', { name: 'Book', exact: true })).toBeDisabled();
+  await sheet.getByText(/Book at this rate although/).click();
+  await expect(sheet.getByRole('button', { name: 'Book', exact: true })).toBeEnabled();
+  await sheet.getByRole('button', { name: 'Discard' }).click();
+});
+
+test('the ALM workbench has the ladder, early warnings and the ALCO pack', async ({ page }) => {
+  await login(page, 'alm1');
+  await page.goto('/app/alm/ladder');
+  await ready(page);
+  await expect(page.getByTestId('headline')).toContainText('cumulative gap to one month');
+  await expect(page.getByTestId('liquidity-ladder').locator('tbody tr')).toHaveCount(9);
+  await page.getByRole('button', { name: 'Contractual' }).click();
+  await expect(page.getByTestId('headline')).toContainText('contractual');
+  await page.goto('/app/alm/ewi');
+  await ready(page);
+  await expect(page.getByTestId('headline')).toContainText('contingency plan stage');
+  await expect(page.locator('.ewi-row')).toHaveCount(8);
+  await page.goto('/app/alm/stress');
+  await ready(page);
+  await expect(page.getByTestId('uniform-200')).toContainText('All curves +200 bp');
+  await page.goto('/app/alm/pack');
+  await ready(page);
+  await expect(page.getByTestId('alco-pack')).toContainText('ALCO pack');
+  await expect(page.getByTestId('pack-signoff')).toContainText(/Awaiting the treasury head|Signed off/);
+  const note = page.getByLabel('Commentary on headline');
+  if (await note.count()) {
+    await note.fill(`Playwright note ${Date.now()}`);
+    await page.getByLabel('Commentary on limits').click();
+    await expect(page.locator('.pack-note').first()).toContainText('last edited by');
+  }
 });

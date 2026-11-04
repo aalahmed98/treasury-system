@@ -41,6 +41,7 @@ export const SHORTCUTS: [string[], string][] = [
   [['g', 'b'], 'Blotter'],
   [['g', 'k'], 'Breaks'],
   [['g', 'l'], 'Liquidity ladder'],
+  [['g', 'r'], 'FX risk'],
   [['g', 'a'], 'ALM workbench'],
   [['↑', '↓'], 'Move the selection in a table'],
   [['Enter'], 'Open the selected row'],
@@ -59,7 +60,7 @@ const isTyping = (t: EventTarget | null) => {
 export function PaletteProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const navigate = useNavigate();
-  const { canSeeAlm } = useSession();
+  const { canSeeAlm, canSeeRisk } = useSession();
   const open = useCallback((m: Mode = 'commands') => setMode(m), []);
   const close = useCallback(() => setMode(null), []);
   const pending = useRef<number | null>(null);
@@ -75,7 +76,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
       if (pending.current !== null) {
         window.clearTimeout(pending.current);
         pending.current = null;
-        const to = e.key === 'o' ? '/' : e.key === 'b' ? '/blotter' : e.key === 'k' ? '/breaks' : e.key === 'l' ? '/liquidity' : e.key === 'a' && canSeeAlm ? '/alm' : null;
+        const to = e.key === 'o' ? '/' : e.key === 'b' ? '/blotter' : e.key === 'k' ? '/breaks' : e.key === 'l' ? '/liquidity' : e.key === 'r' && canSeeRisk ? '/risk' : e.key === 'a' && canSeeAlm ? '/alm' : null;
         if (to) {
           e.preventDefault();
           navigate(to);
@@ -99,7 +100,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, canSeeAlm]);
+  }, [navigate, canSeeAlm, canSeeRisk]);
 
   const api = useMemo(() => ({ open, close }), [open, close]);
   return (
@@ -123,7 +124,7 @@ function score(item: Item, q: string): number {
 function useItems(q: string): Item[] {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canSeeAlm, bookableDesks, logout } = useSession();
+  const { canSeeAlm, canSeeRisk, bookableDesks, logout } = useSession();
   const withRecords = q.length >= 2;
   return useMemo(() => {
     const go = (to: string) => () => navigate(to);
@@ -133,6 +134,12 @@ function useItems(q: string): Item[] {
       { id: 'p-breaks', group: 'Pages', label: 'Breaks', hint: 'g k', keywords: 'breaks reconciliation exceptions', run: go('/breaks') },
       { id: 'p-ladder', group: 'Pages', label: 'Liquidity ladder', hint: 'g l', keywords: 'liquidity ladder cash nostro', run: go('/liquidity') },
     ];
+    if (canSeeRisk) {
+      items.push(
+        { id: 'p-risk', group: 'Pages', label: 'FX risk', hint: 'g r', keywords: 'risk fx position nop pnl p&l var limits counterparty', run: go('/risk') },
+        { id: 'p-limits', group: 'Pages', label: 'FX limits', keywords: 'limits stop-loss lines counterparty var nop', run: go('/risk/limits') },
+      );
+    }
     if (canSeeAlm) {
       const tools: [string, string, string][] = [
         ['', 'ALM dashboard', 'alm dashboard balance sheet'],
@@ -144,6 +151,9 @@ function useItems(q: string): Item[] {
         ['stress', 'Stress and EVE', 'stress eve scenarios survival'],
         ['ird', 'Interest rate differentials', 'ird differential forward points parity'],
         ['attribution', 'Variance attribution', 'attribution variance waterfall'],
+        ['ladder', 'Liquidity maturity ladder', 'liquidity gap maturity ladder mismatch behavioural contractual'],
+        ['ewi', 'Early warning and contingency funding', 'early warning ewi contingency funding plan cfp'],
+        ['pack', 'ALCO pack', 'alco pack committee paper sign-off commentary'],
         ['setup', 'ALM setup', 'setup parameters versions limits'],
       ];
       for (const [t, label, kw] of tools) items.push({ id: `t-${t || 'dash'}`, group: 'ALM', label, keywords: kw, hint: t === '' ? 'g a' : undefined, run: go(t ? `/alm/${t}` : '/alm') });
@@ -187,7 +197,7 @@ function useItems(q: string): Item[] {
       }
     }
     return items;
-  }, [navigate, qc, canSeeAlm, bookableDesks.length, logout, withRecords]);
+  }, [navigate, qc, canSeeAlm, canSeeRisk, bookableDesks.length, logout, withRecords]);
 }
 
 function setTheme(p: 'auto' | 'light' | 'dark') {

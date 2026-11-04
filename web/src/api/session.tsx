@@ -10,6 +10,9 @@ export interface SessionApi {
   homeDesk: DeskAccess | null;
   /** ALM and treasury-head users see the balance sheet; the server is the authority with 404. */
   canSeeAlm: boolean;
+  /** FX dealers and the treasury head see the FX risk page. */
+  canSeeRisk: boolean;
+  isHead: boolean;
   canBook: (deskId: number) => boolean;
   canResolve: (deskId: number) => boolean;
   bookableDesks: DeskAccess[];
@@ -45,6 +48,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       desks,
       homeDesk: desks.find((d) => d.desk_id === current?.user.home_desk_id) ?? null,
       canSeeAlm: codes.has('ALM') || codes.has('HEAD'),
+      canSeeRisk: codes.has('FX') || codes.has('HEAD'),
+      isHead: codes.has('HEAD'),
       canBook: (id) => desks.some((d) => d.desk_id === id && d.can_book),
       canResolve: (id) => desks.some((d) => d.desk_id === id && d.can_resolve),
       bookableDesks: desks.filter((d) => d.can_book),

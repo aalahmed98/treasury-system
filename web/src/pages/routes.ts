@@ -6,11 +6,13 @@ export const load = {
   breaks: () => import('./Breaks'),
   liquidity: () => import('./Ladder'),
   alm: () => import('./alm/Alm'),
+  risk: () => import('./Risk'),
 };
 
 export type PageKey = keyof typeof load;
 
-export const pageFor = (path: string): PageKey | null => (path.startsWith('/blotter') ? 'blotter' : path.startsWith('/breaks') ? 'breaks' : path.startsWith('/liquidity') ? 'liquidity' : path.startsWith('/alm') ? 'alm' : null);
+export const pageFor = (path: string): PageKey | null =>
+  path.startsWith('/blotter') ? 'blotter' : path.startsWith('/breaks') ? 'breaks' : path.startsWith('/liquidity') ? 'liquidity' : path.startsWith('/alm') ? 'alm' : path.startsWith('/risk') ? 'risk' : null;
 
 const warmed = new Set<PageKey>();
 /** Fetches a page's chunk ahead of the click; a second call is free. */

@@ -275,7 +275,8 @@ export type AttentionTarget =
   | { kind: 'breaks' }
   | { kind: 'provisional' }
   | { kind: 'overview' }
-  | { kind: 'alm'; tool: string };
+  | { kind: 'alm'; tool: string }
+  | { kind: 'risk' };
 export interface AttentionItem {
   severity: AttentionSeverity;
   title: string;
@@ -341,6 +342,25 @@ export interface AlmOverview {
   lcr_trend: TrendPoint[];
   nii_months: NiiPeriodRow[];
   gap_buckets: GapBucket[];
+  previous: OverviewPrevious | null;
+  ratios: Ratios | null;
+}
+export interface OverviewPrevious {
+  as_of: string;
+  lcr: number | null;
+  nsfr: number | null;
+  worst_eve_loss_pct_tier1: number | null;
+  top10_pct: number;
+  nii_12m: number;
+}
+export interface Ratios {
+  loan_to_deposit: number | null;
+  liquid_assets_to_assets: number | null;
+  cost_of_funds: number | null;
+  asset_yield: number | null;
+  net_spread: number | null;
+  wholesale_funding: number;
+  equity_to_assets: number | null;
 }
 export interface AlmSnapshot {
   as_of: string;
@@ -415,6 +435,21 @@ export interface AlmParams {
   stress: StressParams;
   nii: NiiParams;
   funding: FundingParams;
+  liquidity_gap: LiquidityGapParams;
+  ewi: EwiParams;
+}
+export interface LiquidityGapParams {
+  stable_share_pct: Record<string, number>;
+  commitment_draw_pct: number;
+  cumulative_floor_pct_assets: Record<string, number>;
+}
+export interface EwiThreshold {
+  amber: number;
+  red: number;
+}
+export interface EwiParams {
+  thresholds: Record<string, EwiThreshold>;
+  actions: Record<string, string[]>;
 }
 export interface AlmParamsVersion {
   version: number;
@@ -568,6 +603,7 @@ export interface StressResult {
   worst_eve: RateScenario | null;
   liquidity: LiquidityStressResult;
   fx: FxStressRow[];
+  uniform_200: StressScenarioRow[];
 }
 export interface AttributionLine {
   book: string;
@@ -646,4 +682,244 @@ export interface FxSpot {
 export interface MarketResponse {
   curves: RateCurve[];
   spots: FxSpot[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Liquidity ladder and early warnings (ALM)
+// ---------------------------------------------------------------------------------------------
+export interface LiquidityBucket {
+  label: string;
+  inflows: number;
+  outflows: number;
+  gap: number;
+  cumulative: number;
+  cumulative_pct_assets: number;
+  floor_pct: number | null;
+  breach: boolean;
+}
+export interface LiquidityCcy {
+  ccy: string;
+  gaps: number[];
+  cumulative: number[];
+}
+export interface LiquidityLadder {
+  buckets: LiquidityBucket[];
+  by_ccy: LiquidityCcy[];
+  first_negative: string | null;
+}
+export interface LiquidityGapResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  total_assets: number;
+  contractual: LiquidityLadder;
+  behavioural: LiquidityLadder;
+  breaches: string[];
+}
+export type EwiStatus = 'GREEN' | 'AMBER' | 'RED';
+export interface EwiPoint {
+  as_of: string;
+  value: number | null;
+}
+export interface EwiIndicator {
+  key: string;
+  label: string;
+  what: string;
+  unit: string;
+  value: number | null;
+  amber: number;
+  red: number;
+  rising_is_worse: boolean;
+  status: EwiStatus;
+  series: EwiPoint[];
+}
+export interface EwiResult {
+  as_of: string;
+  params_version: number | null;
+  stage: 'NORMAL' | 'ALERT' | 'CRISIS';
+  indicators: EwiIndicator[];
+  actions: string[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// FX market risk
+// ---------------------------------------------------------------------------------------------
+export interface CounterpartyLine {
+  pre_settlement: number;
+  settlement: number;
+}
+export interface RiskLimits {
+  base_ccy: string;
+  pegged: string[];
+  nop_overnight_total: number;
+  nop_intraday_total: number;
+  nop_overnight_ccy: Record<string, number>;
+  nop_default_floating: number;
+  nop_default_pegged: number;
+  dealer_nop: number;
+  stop_loss_daily: number;
+  stop_loss_monthly: number;
+  var_limit: number;
+  off_market_bp_spot: number;
+  off_market_bp_forward: number;
+  counterparty_lines: Record<string, CounterpartyLine>;
+  default_line: CounterpartyLine;
+  warn_pct: number;
+}
+export interface RiskLimitsVersion {
+  version: number;
+  created_at: string;
+  created_by: string | null;
+  note: string | null;
+  is_active: boolean;
+}
+export interface RiskLimitsResponse {
+  active: RiskLimitsVersion;
+  limits: RiskLimits;
+  history: RiskLimitsVersion[];
+  can_edit: boolean;
+}
+export type LimitStatus = 'OK' | 'WATCH' | 'BREACH';
+export interface LimitUse {
+  key: string;
+  label: string;
+  value: number;
+  limit: number;
+  pct: number;
+  status: LimitStatus;
+}
+export interface CcyPosition {
+  ccy: string;
+  amount: number;
+  bhd: number | null;
+  pegged: boolean;
+  spot: number | null;
+  limit: number;
+  pct: number;
+  status: LimitStatus;
+}
+export interface FwdLadderRow {
+  ccy: string;
+  amounts: number[];
+  bhd: number[];
+}
+export interface ForwardLadder {
+  buckets: string[];
+  rows: FwdLadderRow[];
+}
+export interface PnlSummary {
+  today: number;
+  new_deals: number;
+  market_move: number;
+  mtd: number;
+  ytd: number;
+  total: number;
+  open_mtm: number;
+  settled: number;
+}
+export interface PnlBy {
+  key: string;
+  today: number;
+  mtd: number;
+  ytd: number;
+  deals: number;
+  nop: number;
+}
+export interface CounterpartyExposure {
+  name: string;
+  deals: number;
+  mtm: number;
+  add_on: number;
+  pre_settlement: number;
+  pre_settlement_line: number;
+  pre_settlement_pct: number;
+  settlement_peak: number;
+  settlement_peak_date: string | null;
+  settlement_line: number;
+  settlement_pct: number;
+  status: LimitStatus;
+}
+export interface CcyVar {
+  ccy: string;
+  position: number;
+  var99: number;
+}
+export interface VarResult {
+  var99: number;
+  es99: number;
+  stressed_var99: number;
+  stressed_window_end: string | null;
+  observations: number;
+  by_ccy: CcyVar[];
+}
+export interface FxDealValue {
+  deal_id: string;
+  deal_ref: string;
+  desk_code: string;
+  trader: string;
+  counterparty: string;
+  pair: string;
+  side: string;
+  notional: number;
+  rate: number;
+  trade_date: string;
+  value_date: string;
+  market_rate: number | null;
+  mtm: number | null;
+  settled: boolean;
+  trade_mid: number | null;
+  off_market_bp: number | null;
+  off_market: boolean;
+  day_one: number | null;
+}
+export interface FxRiskResult {
+  as_of: string;
+  base_ccy: string;
+  limits_version: number | null;
+  positions: CcyPosition[];
+  nop_long: number;
+  nop_short: number;
+  nop_total: number;
+  nop_floating: number;
+  nop_pegged: number;
+  nop_intraday_peak: number;
+  ladder: ForwardLadder;
+  pnl: PnlSummary;
+  by_trader: PnlBy[];
+  by_pair: PnlBy[];
+  counterparties: CounterpartyExposure[];
+  var: VarResult;
+  limits: LimitUse[];
+  off_market: FxDealValue[];
+  unpriced: string[];
+  cancelled_30d: number;
+}
+export interface FxHistoryPoint {
+  date: string;
+  pnl_day: number;
+  pnl_total: number;
+  nop_total: number;
+  nop_floating: number;
+  var99: number;
+}
+export interface Breach {
+  date: string;
+  key: string;
+  label: string;
+  value: number;
+  limit: number;
+  signed_by: string | null;
+  signed_at: string | null;
+  note: string | null;
+}
+export interface AlcoNote {
+  body: string;
+  updated_by: string | null;
+  updated_at: string;
+}
+export interface AlcoPack {
+  period: string;
+  notes: Record<string, AlcoNote>;
+  signoff: { signed_by: string | null; signed_at: string; note: string | null } | null;
+  can_sign: boolean;
 }

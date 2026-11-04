@@ -356,8 +356,31 @@ export function AlmBlock() {
     );
   }
   const all = overviewCells(v).map((c) => ({ ...c, onClick: () => navigate(`/alm/${c.tool}`) }));
-  const signed = all.filter((c) => SIGNED.has(c.tool)).map((c) => ({ ...c, sub: `${STANDING_WORD[c.tone ?? 'neutral']} · ${c.sub}` }));
+  const p = v.previous;
+  const since = (now: number | null, then: number | null | undefined, unit: string) => {
+    if (!p || now === null || then === null || then === undefined) return '';
+    const d = now - then;
+    return ` · ${Math.abs(d) < 0.05 ? 'unchanged' : `${d > 0 ? '+' : ''}${d.toFixed(1)} ${unit}`} since ${fmtDate(p.as_of).slice(4)}`;
+  };
+  const delta: Record<string, string> = {
+    lcr: since(v.lcr, p?.lcr, 'pp'),
+    nsfr: since(v.nsfr, p?.nsfr, 'pp'),
+    stress: since(v.worst_eve_loss_pct_tier1, p?.worst_eve_loss_pct_tier1, 'pp'),
+    funding: since(v.top10_pct, p?.top10_pct, 'pp'),
+  };
+  const signedCells = all.filter((c) => SIGNED.has(c.tool)).map((c) => ({ ...c, sub: `${STANDING_WORD[c.tone ?? 'neutral']} · ${c.sub}${delta[c.tool] ?? ''}` }));
   const income = all.filter((c) => !SIGNED.has(c.tool));
+  const r = v.ratios;
+  const ratioCells: StatCell[] = r
+    ? [
+        { label: 'Loans to deposits', value: fmtPct(r.loan_to_deposit), sub: 'loan book over customer and bank deposits' },
+        { label: 'Liquid assets', value: fmtPct(r.liquid_assets_to_assets), sub: 'cash and unencumbered liquid securities, of assets' },
+        { label: 'Cost of funds', value: fmtPct(r.cost_of_funds, 2), sub: 'average rate on interest-bearing liabilities' },
+        { label: 'Asset yield', value: fmtPct(r.asset_yield, 2), sub: 'average rate on earning assets' },
+        { label: 'Net spread', value: fmtPct(r.net_spread, 2), sub: 'asset yield less cost of funds' },
+        { label: 'Equity to assets', value: fmtPct(r.equity_to_assets), sub: 'shareholders’ funds over total assets' },
+      ]
+    : [];
   const limits = limitRows(v);
   const trend = v.lcr_trend.map((p, i) => [i, p.value] as const).filter((p): p is readonly [number, number] => p[1] !== null).map(([x, y]) => [x, y] as [number, number]);
   const labels = v.lcr_trend.map((p) => fmtDate(p.as_of).slice(4));
@@ -366,8 +389,9 @@ export function AlmBlock() {
   return (
     <>
       <Section title="Balance sheet" meta={`as of ${fmtDateLong(v.as_of)} · parameters v${v.params_version} · in ${v.reporting_ccy}`} />
-      <StatStrip cells={signed} testId="alm-strip" hero />
+      <StatStrip cells={signedCells} testId="alm-strip" hero />
       <StatStrip cells={income} testId="alm-strip-2" />
+      {ratioCells.length > 0 && <StatStrip cells={ratioCells} testId="alm-ratios" />}
       <div className="panel-row ov-bs">
         <div className="panel">
           <div className="t-heading">Limits</div>

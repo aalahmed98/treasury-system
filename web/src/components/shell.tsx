@@ -6,7 +6,7 @@ import { NavLink, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../api/session';
 import { useLive } from '../api/live';
-import { useAttention, useBreaks, useDeals, useFeeds } from '../api/queries';
+import { useAttention, useBreaks, useDeals, useFeeds, useFxRisk } from '../api/queries';
 import type { AttentionItem, AttentionTarget, FeedsResponse } from '../api/types';
 import { fmtAge, fmtLocal, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
 import { readPref, writePref } from '../lib/prefs';
@@ -29,6 +29,8 @@ export function targetPath(t: AttentionTarget): string {
       return '/';
     case 'alm':
       return `/alm/${t.tool}`;
+    case 'risk':
+      return '/risk';
   }
 }
 
@@ -71,10 +73,12 @@ export function PageSkeleton() {
 }
 
 function TopBar() {
-  const { homeDesk, canSeeAlm } = useSession();
+  const { homeDesk, canSeeAlm, canSeeRisk } = useSession();
   const deals = useDeals();
   const breaks = useBreaks(false);
+  const risk = useFxRisk(canSeeRisk);
   const open = (breaks.data ?? []).filter((b) => b.status !== 'RESOLVED').length;
+  const breached = (risk.data?.limits ?? []).filter((l) => l.status === 'BREACH').length;
   return (
     <header className="topbar">
       <a className="skip" href="#main">
@@ -90,6 +94,7 @@ function TopBar() {
         <Tab to="/blotter" label="Blotter" count={deals.data ? String(deals.data.deals.length) : undefined} />
         <Tab to="/breaks" label="Breaks" count={open > 0 ? String(open) : undefined} tone={open > 0 ? 'bad' : 'neutral'} />
         <Tab to="/liquidity" label="Liquidity" />
+        {canSeeRisk && <Tab to="/risk" label="Risk" count={breached > 0 ? String(breached) : undefined} tone="bad" />}
         {canSeeAlm && <Tab to="/alm" label="ALM" />}
       </nav>
       <div className="cluster">

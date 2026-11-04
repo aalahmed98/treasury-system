@@ -26,3 +26,8 @@ export function useAlmOverview() {
   const { canSeeAlm } = useSession();
   return useQuery({ queryKey: ['alm', 'overview'], queryFn: endpoints.almOverview, refetchInterval: 15_000, enabled: canSeeAlm });
 }
+
+export const useFxRisk = (enabled = true) => useQuery({ queryKey: ['risk', 'fx'], queryFn: endpoints.fxRisk, refetchInterval: MINUTE, staleTime: 20_000, enabled });
+export const useFxHistory = (days = 30) => useQuery({ queryKey: ['risk', 'history', days], queryFn: () => endpoints.fxHistory(days), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
+export const useRiskLimits = () => useQuery({ queryKey: ['risk', 'limits'], queryFn: endpoints.riskLimits, staleTime: MINUTE });
+export const useBreaches = (days = 30) => useQuery({ queryKey: ['risk', 'breaches', days], queryFn: () => endpoints.breaches(days), staleTime: MINUTE });

@@ -2,7 +2,7 @@
 // header with the what-if state and the list of what changed, numeric inputs, the headline with
 // its standing, key-value rows, tables and scenario chips.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { AlmParams, CompareTo, RateScenario } from '../api/types';
+import type { CompareTo, RateScenario } from '../api/types';
 import { SCENARIO_LABEL, standingLabel, standingTone, type Standing } from '../lib/alm';
 import { nice } from '../lib/fmt';
 import { usePref } from '../lib/prefs';
@@ -49,7 +49,9 @@ function leaves(v: unknown, path: string[], out: Map<string, { path: string[]; v
 }
 
 /** Every leaf where the what-if differs from the bank's set. */
-export function diffParams(bank: AlmParams, working: AlmParams): Change[] {
+/** Every leaf that differs between two versions of a document: changed, added (bank null) or
+ * removed (now null). Works on any plain JSON document: ALM parameters, FX limits. */
+export function diffParams(bank: object, working: object): Change[] {
   const a = new Map<string, { path: string[]; value: Leaf }>();
   const b = new Map<string, { path: string[]; value: Leaf }>();
   leaves(bank, [], a);
@@ -59,14 +61,20 @@ export function diffParams(bank: AlmParams, working: AlmParams): Change[] {
     const base = a.get(k);
     if (!base || base.value !== w.value) out.push({ path: w.path, bank: base?.value ?? null, now: w.value });
   }
+  for (const [k, base] of a) if (!b.has(k)) out.push({ path: base.path, bank: base.value, now: null });
   return out;
 }
 
 function setPath(obj: unknown, path: string[], value: Leaf) {
   let cur = obj as Record<string, unknown>;
-  for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
+  for (const k of path.slice(0, -1)) {
+    if (cur[k] === undefined || cur[k] === null) cur[k] = {};
+    cur = cur[k] as Record<string, unknown>;
+  }
   const last = path[path.length - 1];
-  cur[last] = typeof value === 'string' && value.startsWith('[') ? JSON.parse(value) : value;
+  // Reverting something the bank's version does not have removes it.
+  if (value === null) delete cur[last];
+  else cur[last] = typeof value === 'string' && value.startsWith('[') ? JSON.parse(value) : value;
 }
 
 const fmtLeaf = (v: Leaf) => (v === null ? '—' : typeof v === 'number' ? String(Number(v.toFixed(4))) : String(v));
@@ -91,7 +99,7 @@ export function ChangeList({ changes, onRevert, empty }: { changes: Change[]; on
   );
 }
 
-export function revertPath(p: AlmParams, c: Change) {
+export function revertPath(p: object, c: Change) {
   setPath(p, c.path, c.bank);
 }
 

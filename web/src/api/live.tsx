@@ -44,6 +44,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             void qc.invalidateQueries({ queryKey: ['deals'] });
             void qc.invalidateQueries({ queryKey: ['positions'] });
             void qc.invalidateQueries({ queryKey: ['ladder'] });
+            void qc.invalidateQueries({ queryKey: ['risk'] });
             void qc.invalidateQueries({ queryKey: ['deal', ev.id] });
             break;
           case 'break':
@@ -54,6 +55,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             break;
           case 'alm':
             void qc.invalidateQueries({ queryKey: ['alm'] });
+            void qc.invalidateQueries({ queryKey: ['risk'] });
             void qc.invalidateQueries({ queryKey: ['attention'] });
             void qc.invalidateQueries({ queryKey: ['activity'] });
             break;

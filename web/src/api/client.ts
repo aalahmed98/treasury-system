@@ -1,7 +1,7 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -143,4 +143,14 @@ export const endpoints = {
   almParams: () => api<AlmParamsResponse>('/alm/params', { passive: true }),
   almSave: (params: AlmParams, note: string) => api<AlmParamsVersion>('/alm/params', { method: 'POST', body: { params, note } }),
   marketRates: () => api<MarketResponse>('/market/rates', { passive: true }),
+  fxRisk: () => api<FxRiskResult>('/risk/fx', { passive: true }),
+  fxHistory: (days: number) => api<{ points: import('./types').FxHistoryPoint[] }>(`/risk/fx/history${q({ days })}`, { passive: true }),
+  fxDeals: () => api<FxDealValue[]>('/risk/fx/deals', { passive: true }),
+  riskLimits: () => api<RiskLimitsResponse>('/risk/limits', { passive: true }),
+  saveLimits: (limits: RiskLimits, note: string) => api<RiskLimitsVersion>('/risk/limits', { method: 'POST', body: { limits, note } }),
+  breaches: (days: number) => api<Breach[]>(`/risk/breaches${q({ days })}`, { passive: true }),
+  signBreach: (date: string, key: string, note: string) => api<void>('/risk/breaches/sign', { method: 'POST', body: { date, key, note } }),
+  pack: (period?: string) => api<AlcoPack>(`/alm/pack${q({ period })}`, { passive: true }),
+  packNote: (period: string, section: string, body: string) => api<void>('/alm/pack/note', { method: 'POST', body: { period, section, body } }),
+  packSign: (period: string, note: string) => api<void>('/alm/pack/sign', { method: 'POST', body: { period, note } }),
 };

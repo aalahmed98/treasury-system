@@ -5,7 +5,7 @@ import { Bars, LineChart } from '../../components/charts';
 import { useAlm, useTool } from '../../alm/state';
 import { AssumptionsHeader, Bp, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { stressView } from '../../alm/views';
-import { fmtDateLong, fmtMoneyShort } from '../../lib/fmt';
+import { fmtDateLong, fmtMoneyShort, signed } from '../../lib/fmt';
 import { ShockGrid } from './Nii';
 
 function Assumptions() {
@@ -81,6 +81,14 @@ export function Stress() {
           <Card title="Rate scenarios" width={900}>
             <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1', 'Standing']} rows={v.rows} />
           </Card>
+          {raw.uniform_200.length > 0 && (
+            <Card title="Annual-report test: every curve ±200 bp" width={900} style={{ marginTop: 10 }}>
+              <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1']} rows={raw.uniform_200.map((s) => [s.label, signed(s.nii_delta), s.nii_delta_pct === null ? '—' : `${s.nii_delta_pct >= 0 ? '+' : ''}${s.nii_delta_pct.toFixed(1)}%`, signed(s.eve_delta), fmtMoneyShort(s.eve_loss), s.eve_loss_pct_tier1 === null ? '—' : `${s.eve_loss_pct_tier1.toFixed(1)}%`])} testId="uniform-200" />
+              <div className="t-small" style={{ marginTop: 4 }}>
+                The supplementary test the bank discloses in its annual report, alongside the six Basel shapes above.
+              </div>
+            </Card>
+          )}
           <div className="row-wrap" style={{ marginTop: 10 }}>
             <Card title="ΔNII by scenario" width={440}>
               <Bars data={v.niiBars} color="var(--s1)" height={160} fmt={fmtMoneyShort} labels="extremes" />
