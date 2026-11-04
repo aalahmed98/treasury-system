@@ -15,9 +15,11 @@ goes out; the head of treasury wants one page that says whether anything needs t
 ## Product Purpose
 
 A web client over the treasury server, in the browser or in its own Windows window: a golden deal blotter reconciled against Kondor,
-Bloomberg and Quantum, breaks and their resolution, the intraday liquidity ladder, and the ALM
-workbench (LCR, NSFR, repricing gap, NII and NIM, EVE and stress, variance attribution, interest rate
-differentials, funding concentration) against the bank's own parameters. Success is a screen a
+Bloomberg and Quantum, breaks and their resolution, the intraday liquidity ladder, the FX desk's
+risk and P&L against the bank's limits, and the ALM workbench (LCR, NSFR, the liquidity maturity
+ladder, early warnings and the contingency plan, repricing gap, NII and NIM, EVE and stress, variance
+attribution, interest rate differentials, funding concentration, the ALCO pack) against the bank's
+own parameters. Success is a screen a
 treasury professional trusts at a glance: the number, the limit it is measured against, and what
 changed, with nothing decorative in the way.
 

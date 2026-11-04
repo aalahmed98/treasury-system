@@ -100,6 +100,12 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
 - **Assumption group**: a collapsible `details` with an eyebrow summary, a one-line help text in
   `text_2` and, when closed, the count of inputs inside. An edited input shows the bank's value as a
   `warn_soft` ghost that puts it back.
+- **Limit row**: dot, label, figure, "of" limit, an 8 px gauge, then the percentage used and the
+  standing in words; the same row on the risk page, the ALM limits and the ALCO pack.
+- **Breach run**: consecutive days a limit stood breached are one line (limit, span, days, worst,
+  limit, sign-off), never a row per day.
+- **Market check**: a small line under the ticket's rate with the market outright for the value
+  date and the distance in basis points; beyond tolerance it turns `bad` and a confirmation appears.
 - **Save box**: the one surface for a bank-wide write: the list of changes, the note, a full-size
   primary button named for the version it creates, and one sentence of consequence.
 

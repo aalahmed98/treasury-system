@@ -104,8 +104,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div class="meta">
     <span>Status as of <b>4 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
-    <span>Tests passing <b>116</b> (88 Rust, 6 Vitest, 22 Playwright)</span>
-    <span>Phases complete <b>8 of 12</b></span>
+    <span>Tests passing <b>135</b> (103 Rust, 6 Vitest, 26 Playwright)</span>
+    <span>Phases complete <b>9 of 13</b></span>
   </div>
 </header>
 
@@ -118,13 +118,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2c" class="is-done"><span class="num">Phase 2C</span><span class="name">Dashboard and ALM workbench</span><span class="badge done">Done</span></a>
   <a href="#p2d" class="is-done"><span class="num">Phase 2D</span><span class="name">Web client and desktop shell</span><span class="badge done">Done</span></a>
   <a href="#p2e" class="is-done"><span class="num">Phase 2E</span><span class="name">Redesign, hardening, one interface</span><span class="badge done">Done</span></a>
+  <a href="#p2f" class="is-done"><span class="num">Phase 2F</span><span class="name">FX risk and the ALCO toolkit</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>8</b> phases done</span>
+  <span><b>9</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -329,6 +330,26 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <li>4 Nov, late night: a design critique (Nielsen heuristics 27 of 40, two P1 findings) drove a second pass, run as harden, distill, layout, clarify, typeset and polish in turn: Setup now lists exactly what a new parameter version changes and refuses an unchanged or unexplained save; dismissing a break asks once more; every failed load offers a retry; the Overview separates decisions from system health and folds stale feeds into one line; the bell counts only what is new; the signed numbers sit in a hero row with their standing in words; the top bar is down to tabs, search, one feeds pill, the bell and the user menu; the ALM assumptions are explained, collapsible groups with the bank's value as a ghost beside an edit; small text is 12 px. 22 Playwright scenarios pass.</li>
     <li>4 Nov, late night: a second critique scored 30 of 40 (from 27) with nothing above P2, and its items were taken in one more pass: several breaks can be picked with Shift-click, Ctrl-click or Ctrl A and acknowledged or dismissed together with one note (batched calls, no server change); the ALM results dim and say "recomputing" while a what-if runs, with a retry on failure; the four balance-sheet charts and the operations pair sit on one surface each instead of cards; the bell groups system health as the page does; the stress and NII charts label only their extremes; the ladder opens on the days with flows. 23 Playwright scenarios pass.</li>
     <li>4 Nov, night: the native client is retired. It had served as the proof of the server and the design; its screens live on as the React pages, which are now the whole interface. Open for the desk test: the desktop shell's first visual check on an unlocked Windows session, and the bank's code signing.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2f">
+  <div class="phase-head"><span class="num">Phase 2F</span><h3>FX risk and the ALCO toolkit</h3><span class="badge done">Done</span><span class="when">5 November 2026</span></div>
+  <p class="goal">Give the FX desk the risk and P&amp;L view it lacked, and give ALM the remaining pieces an ALCO pack expects, chosen from research into what dealing desks and ALCOs monitor and what the CBB rulebook and NBB's own disclosures ask for. NBB's published market-risk capital charge for FX (5.1) is larger than for interest rates (2.0), which put the FX desk first. Everything runs on data the system already holds; nothing waits on the bank.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">FX risk and P&amp;L</td><td>Every FX deal valued at the day's market; P&amp;L today, month and year, split into new-deal spread and market move; net open position per currency and in total (shorthand), pegged apart from floating, with the intraday peak; the forward ladder; by dealer and by pair.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Limits and breaches</td><td>Versioned FX limits set by the treasury head (positions overall, per currency and per dealer, stop-losses, VaR, off-market tolerance, counterparty lines); every figure against its limit; breaches over 30 days as runs, signed off with a note.</td><td>FX risk</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Counterparty exposure and VaR</td><td>Pre-settlement (MTM plus the Basel add-on) and settlement exposure per counterparty against lines; one-day 99% historical VaR, expected shortfall and stressed VaR.</td><td>FX risk</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Off-market check</td><td>The booking ticket shows the market outright for the value date and asks for confirmation beyond tolerance; deals priced away from the trade-date mid are listed and raised in the attention list.</td><td>FX risk</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Liquidity maturity ladder</td><td>Contractual and behavioural ladders by bucket and currency, the cumulative gap against floors, the stable share of deposits and commitment drawdown as assumptions.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Early warning and contingency plan</td><td>Eight indicators over recent snapshots and the market (deposit runs, wholesale maturities, concentration, LCR moves, BHIBOR and its spread over SOFR as the peg signal, stressed survival), the plan's stage and its actions.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Ratios, &plusmn;200 bp, since yesterday</td><td>Loan-to-deposit, liquid assets, cost of funds, asset yield, net spread, equity; the annual report's &plusmn;200 bp test; the headline figures against the previous snapshot.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">ALCO pack</td><td>The committee paper from the official figures in seven sections, commentary per section, the head's sign-off that freezes it, printable.</td><td>All above</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2f">
+    <li>5 Nov, early hours: phase complete. The synthetic market and synthetic deals now share one spot path, so revaluation and the off-market check see realistic numbers. 15 new Rust tests (the FX maths hand-worked, the ladder, the early warnings, and three over HTTP for a hand-worked book, limits rights and the ALCO pack) bring the suite to 103; 26 Playwright scenarios pass; the verification script checks the risk view, limits rights and the new ALM endpoints from a clean database. Placeholder limits are set to the synthetic book's scale and wait for the board-approved ones; intraday liquidity and funds transfer pricing stay on the list, waiting on timestamped payment data and product-level data from the bank.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

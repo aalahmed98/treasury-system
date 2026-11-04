@@ -20,7 +20,11 @@ Windows desktop application with its own icon. Phase 2E, the current state, rede
 around the user's work (a command palette, keyboard selection, an attention-first overview, side
 sheets instead of modals, a break queue, toasts and skeletons), split them into chunks that load on
 demand, hardened the server's responses and the desktop shell, and retired the native egui client:
-the React pages are now the whole interface. The implementation plan with what is blocked and what
+the React pages are now the whole interface. Phase 2F, the current state, added the FX desk's risk
+and P&L view (positions, P&L, the forward ladder, counterparty exposure, VaR, versioned limits set
+by the treasury head, breach sign-off, an off-market check on the ticket) and the rest of the ALCO
+toolkit (the liquidity maturity ladder, early-warning indicators with the contingency plan's stage,
+balance-sheet ratios, the annual report's ±200 bp test, and a signed-off ALCO pack). The implementation plan with what is blocked and what
 is not lives in `docs/implementation-plan.html`.
 
 ## Layout
@@ -35,7 +39,7 @@ is not lives in `docs/implementation-plan.html`.
 | `web/src-tauri` | the Windows desktop shell (Tauri 2): the web client in a window of its own, with a tray entry and a remembered server; built on Windows only |
 | `assets/` | the bundled typeface, Inter (OFL 1.1) as a static build with tabular figures, the favicon and the theme bootstrap script; served by the server under `/app` |
 | `DESIGN.md`, `PRODUCT.md` | the visual system and the product brief it serves |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed) |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
 
@@ -313,7 +317,12 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-88 Rust tests. Recon: 18 unit tests (tolerances, normaliser, matcher, SLA maths, generator determinism
+103 Rust tests. FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
+interest parity and discounting, the shorthand position, the P&L split, VaR and expected shortfall,
+no VaR on pegged currencies, counterparty add-on and settlement peak, the off-market measure, the
+forward ladder); the liquidity ladder's two views; the early-warning thresholds and stage; and 3
+over HTTP (a hand-worked book with desk scoping, who may set limits and sign off breaches, the ALCO
+pack's commentary and sign-off). Recon: 18 unit tests (tolerances, normaliser, matcher, SLA maths, generator determinism
 and scenario coverage), 12 pipeline scenarios on a fresh database each (three-way match, reversed
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
@@ -327,7 +336,9 @@ reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege b
 ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 22 Playwright checks on the installed Edge: sign-in and its errors, the ALM entitlement
+cases) and 26 Playwright checks on the installed Edge, among them the FX risk page, the limits
+page as a dealer and as the head, the ticket's off-market check, and the ladder, early-warning and
+ALCO pack tools: sign-in and its errors, the ALM entitlement
 of the tab and the address, the overview strips per desk and the attention list, booking a deal from
 the side sheet and its toast, filters, provenance, keyboard selection with the address following, the
 positions panel preference, a break's actions, the ladder drill-down, every ALM tool's headline, a

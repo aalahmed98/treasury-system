@@ -136,6 +136,49 @@ print("  fx1 market rates: HTTP", st, "|", len(m["curves"]) if m else 0, "curves
 print("  checks:", "ok" if ok else "FAILED")
 PYALM
 
+echo "--- FX risk: positions, P&L, VaR and limits from the visible deals; limits set by the head only ---"
+python3 - "$BASE" "$FX" "$MM" "$HEAD" <<'PY'
+import json, sys, urllib.request, urllib.error
+base, fx, mm, head = sys.argv[1:5]
+def call(path, tok, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    r = urllib.request.Request(base + path, data=data, headers={"authorization": "Bearer " + tok, "content-type": "application/json"}, method="POST" if body is not None else "GET")
+    try:
+        with urllib.request.urlopen(r) as res: return res.status, json.loads(res.read() or b"null")
+    except urllib.error.HTTPError as e: return e.code, None
+s, r = call("/risk/fx", fx)
+print(f"  fx1 risk: HTTP {s} | positions {len(r['positions'])} | NOP {r['nop_total']/1e6:.1f}m | VaR {r['var']['var99']/1e3:.0f}k | limits {len(r['limits'])}")
+s2, m = call("/risk/fx", mm)
+print(f"  mm1 risk: HTTP {s2} | positions {len(m['positions'])} (expect 0)")
+_, l = call("/risk/limits", fx)
+s3, _ = call("/risk/limits", fx, {"limits": l["limits"], "note": "verify: dealer may not"})
+print(f"  fx1 save limits: HTTP {s3} (expect 403) | head1 may edit: {call('/risk/limits', head)[1]['can_edit']}")
+s4, h = call("/risk/fx/history?days=10", fx)
+print(f"  history: HTTP {s4} | {len(h['points'])} days")
+ok = s == 200 and len(r["positions"]) > 0 and s2 == 200 and len(m["positions"]) == 0 and s3 == 403 and s4 == 200
+print("  checks:", "ok" if ok else "FAILED")
+PY
+
+echo "--- ALM additions: liquidity ladder, early warnings, the ALCO pack ---"
+python3 - "$BASE" "$ALM" "$FX" <<'PY'
+import json, sys, urllib.request, urllib.error
+base, alm, fx = sys.argv[1:4]
+def call(path, tok, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    r = urllib.request.Request(base + path, data=data, headers={"authorization": "Bearer " + tok, "content-type": "application/json"}, method="POST" if body is not None else "GET")
+    try:
+        with urllib.request.urlopen(r) as res: return res.status, json.loads(res.read() or b"null")
+    except urllib.error.HTTPError as e: return e.code, None
+s1, g = call("/alm/liquidity-gap", alm, {})
+s2, e = call("/alm/ewi", alm, {})
+s3, p = call("/alm/pack", alm)
+f1, _ = call("/alm/liquidity-gap", fx, {})
+f2, _ = call("/alm/pack", fx)
+print(f"  alm1 ladder: HTTP {s1} | buckets {len(g['behavioural']['buckets'])} | early warnings: HTTP {s2} stage {e['stage']} | pack: HTTP {s3} {p['period']}")
+print(f"  fx1 ladder: HTTP {f1} | pack: HTTP {f2} (expect 404)")
+print("  checks:", "ok" if s1 == s2 == s3 == 200 and f1 == f2 == 404 else "FAILED")
+PY
+
 echo "--- web client: the pages are served at /app, deep links included ---"
 if [ -f web/dist/index.html ]; then
   APP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/app/")
