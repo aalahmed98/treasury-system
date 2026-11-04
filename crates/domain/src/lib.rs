@@ -5,6 +5,7 @@
 mod macros;
 
 pub mod api;
+pub mod calendar;
 pub mod deal;
 pub mod desk;
 pub mod events;
@@ -13,6 +14,7 @@ pub mod recon;
 pub mod user;
 
 pub use api::*;
+pub use calendar::*;
 pub use deal::*;
 pub use desk::*;
 pub use events::*;

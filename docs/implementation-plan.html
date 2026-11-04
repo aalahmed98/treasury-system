@@ -105,7 +105,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <span>Status as of <b>4 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
     <span>Tests passing <b>62</b></span>
-    <span>Phases complete <b>5 of 9</b></span>
+    <span>Phases complete <b>5 of 10</b></span>
   </div>
 </header>
 
@@ -115,6 +115,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p1h" class="is-done"><span class="num">Phase 1H</span><span class="name">Security hardening</span><span class="badge done">Done</span></a>
   <a href="#p2a" class="is-done"><span class="num">Phase 2A</span><span class="name">Reconciliation core</span><span class="badge done">Done</span></a>
   <a href="#p2b" class="is-done"><span class="num">Phase 2B</span><span class="name">Liquidity ladder, booking, history</span><span class="badge done">Done</span></a>
+  <a href="#p2c" class="is-ready"><span class="num">Phase 2C</span><span class="name">Dashboard and ALM workbench</span><span class="badge ready">In progress</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
@@ -122,6 +123,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
 </nav>
 <div class="tally">
   <span><b>5</b> phases done</span>
+  <span><b>1</b> in progress</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -132,6 +134,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div>
     <h3><span class="badge ready">Not blocked</span> Can start today</h3>
     <ul>
+      <li>Dashboard shell and ALM workbench, phase 2C, in progress<small>Tabs, an overview after login, an attention panel, light and dark mode; LCR, NSFR, NII and NIM, stress testing, variance attribution, interest rate differential, repricing gap and funding concentration on a synthetic banking book with bank-editable parameters.</small></li>
       <li>Login against a local Keycloak to prove the OIDC shape<small>The real directory is swapped in once the bank confirms Active Directory or Entra.</small></li>
       <li>Continuous integration: tests and dependency audit on every push<small>58 tests and <code>cargo audit</code> already run locally.</small></li>
       <li>Packaging the server and reconciler as services, log files for the client, settlement-date SLAs, allocations, a shared store for the login limiter<small>Engineering backlog with no external dependency.</small></li>
@@ -147,6 +150,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
       <li>Login against the bank directory<small>Blocker: Active Directory or Entra. Owner: IT security.</small></li>
       <li>Certificates and code signing<small>Blocker: certificates from the bank's own authority. Owner: infrastructure.</small></li>
       <li>Nostro intraday statements and BaNCS customer flows<small>Blocker: access to SWIFT MT942 or camt.052 and MT900/910, and to BaNCS. Owner: operations and core banking.</small></li>
+      <li>Banking book, market curves, budget and Tier 1 figures for the ALM workbench<small>Blocker: a daily extract of loans, deposits and securities from BaNCS or Finacle; Bloomberg curves and spots; Finance budget and actual figures; the CBB LM-11 and LM-12 calibration and the bank's internal limits. Owner: core banking, market data and Finance. The workbench runs on synthetic data and editable parameters until then.</small></li>
       <li>Desk list and data-sharing matrix<small>Blocker: sign-off by desk heads. Owner: treasury management. Needed before real entitlements are loaded.</small></li>
       <li>Production environment<small>Blocker: on-premises server provisioning in the bank's data centre. Owner: infrastructure.</small></li>
     </ul>
@@ -255,6 +259,25 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </ul></div></div>
 </section>
 
+<section class="phase is-ready" id="p2c">
+  <div class="phase-head"><span class="num">Phase 2C</span><h3>Dashboard and ALM workbench</h3><span class="badge ready">In progress</span><span class="when">Started 4 November 2026</span></div>
+  <p class="goal">Turn the client into a dashboard: an overview after login, tabs per view, an attention panel, light and dark mode, and an ALM workbench with the analysis tools the desk needs. Built on a synthetic banking book and bank-editable parameters until the bank's own data arrives.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Dashboard shell</td><td>Top bar with tabs (Overview, Blotter, Breaks, Liquidity, ALM), an attention bell with a popup list, feed health, a System, Light or Dark theme that is remembered, and a user menu. One palette of semantic colours so every view reads in both themes.</td><td>None</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">Overview</td><td>The page after login. Desk-aware tiles: deals and volume, provisional and unmatched counts, open breaks and SLA breaches, settlements next business day, feeds; recent activity; for ALM and HEAD users the LCR, NSFR, NII and NIM, gap and limit tiles with 30-day trends.</td><td>Shell</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">Attention panel</td><td>Server-computed, severity-sorted items for the user's desks: SLA breaches, breaks awaiting a decision, stale feeds, deals unconfirmed beyond a business day, large settlements, limit breaches, parameter changes. Click to navigate.</td><td>Shell, ALM metrics</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">Synthetic banking book and market data</td><td>An NBB-scale balance sheet of loans, deposits, securities and funding as daily and month-end snapshots, rate curves and spots for six currencies, depositor groups, actual and budget net interest income by month. Deterministic by seed, generated with the synthetic deal feeds.</td><td>None (real feeds blocked)</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">Bank parameters</td><td>LCR run-off rates, haircuts and caps, NSFR factors, gap and EVE limits, stress shocks, behavioural assumptions and concentration limits as a versioned, audited parameter set with Basel defaults. Any ALM user may save a new version; what-if overrides never change the saved set.</td><td>Confirmation of the CBB LM-11 and LM-12 calibration (bank)</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">ALM workbench</td><td>One ALM tab with a tool strip: LCR, NSFR, NII and NIM projection, stress testing (the six Basel rate scenarios with NII and EVE sensitivity, liquidity stress with a survival horizon, FX shocks), NII variance attribution against the prior period or the budget, an interest rate differential calculator, the repricing gap report, funding concentration, and Setup. All maths in one pure library with hand-worked tests.</td><td>Banking book, parameters</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">Activity feed</td><td>Recent bookings, amendments, break actions and parameter changes for the user's desks through a definer function, since the audit and history tables stay closed to the API role.</td><td>None</td><td><span class="badge ready">Planned</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2c">
+    <li>4 Nov, late morning: phase planned and started. Order of work: move the business-day calendar into the shared domain crate; the client shell with theme, palette, charts and the Overview; an LCR slice end to end (types, maths, schema, generator, endpoints, client tool); the remaining maths; the remaining endpoints, activity and attention; the remaining client tools; verification and documentation.</li>
+  </ul></div></div>
+</section>
 <section class="phase is-blocked" id="p3">
   <div class="phase-head"><span class="num">Phase 3</span><h3>Real source adapters</h3><span class="badge blocked">Blocked</span><span class="when">After the bank answers</span></div>
   <p class="goal">Replace the synthetic feeds with the real ones. The adapter interface, the event log and the per-source normalisers already exist; each adapter maps one system's rows into the same observation shape.</p>
