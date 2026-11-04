@@ -23,24 +23,58 @@
   </head>
   <body>
     <div class="wordmark"><span class="brand">NBB</span> Treasury</div>
-    <div class="sub">Connect to the treasury server</div>
+    <div class="sub" id="sub">Connect to the treasury server</div>
     <form id="f">
       <label for="url">Server address</label>
-      <input id="url" value="https://treasury.nbb.internal" autofocus spellcheck="false" />
+      <input id="url" placeholder="https://treasury.example.internal" autofocus spellcheck="false" />
       <div class="err" id="err"></div>
-      <button type="submit">Connect</button>
-      <div class="hint">The address the treasury team gave you. On a development PC with the server running locally, use http://localhost:8787. The choice is remembered; the tray menu can change it.</div>
+      <button type="submit" id="go">Connect</button>
+      <div class="hint">The address the treasury team gave you. On a development PC with the server running locally, use http://localhost:8787. An address is remembered only once it answers; the tray menu can change it later.</div>
     </form>
     <script>
       const f = document.getElementById('f');
       const err = document.getElementById('err');
+      const field = document.getElementById('url');
+      const sub = document.getElementById('sub');
+      const go = document.getElementById('go');
+      const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+      // The shell says what to show; it calls render() again when that changes.
+      window.render = async () => {
+        let st = { server: null, connecting: false, error: null };
+        try {
+          st = await invoke('status');
+        } catch (x) {
+          // not inside the shell: a plain first-run page
+        }
+        err.textContent = '';
+        if (st.connecting && st.server) {
+          sub.textContent = 'Connecting to ' + st.server + '…';
+          field.value = st.server;
+          field.disabled = true;
+          go.disabled = true;
+          go.textContent = 'Connecting…';
+        } else {
+          sub.textContent = 'Connect to the treasury server';
+          field.disabled = false;
+          go.disabled = false;
+          go.textContent = 'Connect';
+          if (st.server) field.value = st.server;
+          if (st.error) err.textContent = 'Could not reach ' + st.server + ': ' + st.error + '. Check the address and try again.';
+          field.focus();
+        }
+      };
+      window.render();
       f.addEventListener('submit', async (e) => {
         e.preventDefault();
         err.textContent = '';
+        go.disabled = true;
+        go.textContent = 'Checking…';
         try {
-          await window.__TAURI__.core.invoke('connect', { url: document.getElementById('url').value });
+          await invoke('connect', { url: field.value });
         } catch (x) {
           err.textContent = String(x);
+          go.disabled = false;
+          go.textContent = 'Connect';
         }
       });
     </script>
