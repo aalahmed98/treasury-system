@@ -309,6 +309,23 @@ pub async fn attention(State(state): State<AppState>, Extension(auth): Extension
                 AttentionTarget::Pmu { page: "risk".into() },
             ));
         }
+        // Bookings made in the app still without a Kondor id after a business day.
+        let provisional: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM bond_lots WHERE origin = 'INTERNAL' AND kondor_id IS NULL AND booked_at < now() - interval '1 day') \
+                  + (SELECT count(*) FROM repos WHERE origin = 'INTERNAL' AND kondor_id IS NULL AND booked_at < now() - interval '1 day') \
+                  + (SELECT count(DISTINCT sale_ref) FROM lot_sales WHERE origin = 'INTERNAL' AND kondor_id IS NULL AND booked_at < now() - interval '1 day')",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if provisional > 0 {
+            items.push(item(
+                AttentionSeverity::Warning,
+                format!("{provisional} PMU {} still provisional", if provisional == 1 { "booking is" } else { "bookings are" }),
+                "booked here more than a day ago and not yet matched to a Kondor deal id".into(),
+                None,
+                AttentionTarget::Pmu { page: "positions".into() },
+            ));
+        }
         let stale: Vec<(String, NaiveDate)> = sqlx::query_as("SELECT counterparty, max(as_of) FROM repo_quotes GROUP BY counterparty HAVING max(as_of) < $1 ORDER BY 1")
             .bind(cal.add_business_days(today, -2))
             .fetch_all(&mut *tx)

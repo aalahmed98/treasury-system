@@ -236,3 +236,125 @@ async fn deals_are_booked_on_the_dealing_desks_only(owner: PgPool) {
     .unwrap_err();
     assert!(e.to_string().contains("not entitled to book deals on the PMU desk"), "{e}");
 }
+
+async fn post(router: &axum::Router, uri: &str, tok: &str, body: serde_json::Value) -> Response<Body> {
+    router.clone().oneshot(req(Method::POST, uri, Some(tok), Some(body.to_string()))).await.unwrap()
+}
+
+async fn patch(router: &axum::Router, uri: &str, tok: &str, body: serde_json::Value) -> Response<Body> {
+    router.clone().oneshot(req(Method::PATCH, uri, Some(tok), Some(body.to_string()))).await.unwrap()
+}
+
+async fn error_of(res: Response<Body>) -> String {
+    let v: serde_json::Value = json(res).await;
+    v["error"].as_str().unwrap_or_default().to_string()
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn pmu_buys_sells_and_repos_and_nobody_else_may(owner: PgPool) {
+    use domain::{BondSearchHit, Booked, RepoPreview, TicketPreview};
+    let router = fixture(&owner).await;
+    let pmu = token(&router, "pmu1").await;
+    let today = Utc::now().date_naive();
+    let isin = "XSSYN0000011";
+
+    // Search by ISIN: the bond, held 10m in AFS USD, 6m of it pledged.
+    let hits: Vec<BondSearchHit> = json(get(&router, "/pmu/bonds?q=syn00000", &pmu).await).await;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].holdings, vec![("AFS USD".to_string(), 10_000_000.0, 6_000_000.0, 4_000_000.0)]);
+
+    // Buy 2m at 99.5 settling today: the preview prices it and warns there is no FTP curve.
+    let buy = serde_json::json!({ "side": "BUY", "isin": isin, "book": "AFS USD", "face": 2_000_000.0, "clean_price": 99.5, "trade_date": today, "settle_date": today });
+    let pv: TicketPreview = json(post(&router, "/pmu/ticket/preview", &pmu, buy.clone()).await).await;
+    assert!(pv.blocking.is_empty(), "{:?}", pv.blocking);
+    assert!(pv.quote.ytm > 5.0 && pv.quote.accrued > 0.0 && pv.quote.dv01_bhd < 0.0, "{:?}", pv.quote);
+    assert!(close(pv.quote.consideration, (99.5 * 20_000.0) + pv.quote.accrued, 1e-6));
+    assert!(pv.warnings.iter().any(|w| w.contains("no FTP curve")), "{:?}", pv.warnings);
+    let res = post(&router, "/pmu/buy", &pmu, buy).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let lot: Booked = json(res).await;
+    let p: PmuPositions = json(get(&router, "/pmu/positions", &pmu).await).await;
+    let new_lot = p.rows.iter().find(|r| r.lot_id.map(|x| x.to_string()) == Some(lot.id.clone())).expect("the new lot");
+    assert!(new_lot.provisional);
+    assert!(p.rows[0].provisional, "the book shows it holds a provisional lot");
+    // Attaching its Kondor id makes it final.
+    assert_eq!(patch(&router, &format!("/pmu/lot/{}", lot.id), &pmu, serde_json::json!({ "kondor_id": "KND0001234" })).await.status(), StatusCode::OK);
+    let p: PmuPositions = json(get(&router, "/pmu/positions", &pmu).await).await;
+    assert!(!p.rows.iter().any(|r| r.provisional));
+
+    // Sell 5m settling in two days: oldest first, 4m from the first lot (6m pledged) and 1m from the new.
+    let settle = today + Duration::days(2);
+    let sell = serde_json::json!({ "side": "SELL", "isin": isin, "face": 5_000_000.0, "clean_price": 100.25, "trade_date": today, "settle_date": settle });
+    let pv: TicketPreview = json(post(&router, "/pmu/ticket/preview", &pmu, sell.clone()).await).await;
+    assert!(pv.blocking.is_empty(), "{:?}", pv.blocking);
+    assert_eq!(pv.legs.iter().map(|l| l.face).collect::<Vec<_>>(), vec![4_000_000.0, 1_000_000.0]);
+    assert!(pv.legs[0].realised > 0.0, "sold above book value: {:?}", pv.legs[0]);
+    assert_eq!(post(&router, "/pmu/sell", &pmu, sell).await.status(), StatusCode::CREATED);
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM lot_sales").fetch_one(&owner).await.unwrap();
+    assert_eq!(n, 2);
+    // Nothing of the first lot is free any more until the repo ends.
+    let first = uuid::Uuid::from_u128(1);
+    let more = serde_json::json!({ "side": "SELL", "isin": isin, "face": 1_000_000.0, "clean_price": 100.25, "trade_date": today, "settle_date": settle, "lots": [{ "lot_id": first, "face": 1_000_000.0 }] });
+    let res = post(&router, "/pmu/sell", &pmu, more).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(error_of(res).await.contains("free"));
+
+    // A repo on what is left of the new lot (1m), then closed early.
+    let repo = serde_json::json!({ "direction": "REPO", "counterparty": "JPMorgan Chase", "ccy": "USD", "start": settle, "end": settle + Duration::days(30), "rate": 4.6, "haircut_pct": 5.0,
+        "collateral": [{ "lot_id": lot.id, "face": 1_000_000.0 }] });
+    let pv: RepoPreview = json(post(&router, "/pmu/repo/preview", &pmu, repo.clone()).await).await;
+    assert!(pv.blocking.is_empty(), "{:?}", pv.blocking);
+    assert!(close(pv.cash, pv.collateral_value * 0.95, 1e-6) && pv.cash > 900_000.0, "{pv:?}");
+    let res = post(&router, "/pmu/repo", &pmu, repo.clone()).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let r: Booked = json(res).await;
+    // The same face cannot be pledged twice.
+    let res = post(&router, "/pmu/repo", &pmu, repo).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = post(&router, &format!("/pmu/repo/{}/close", r.id), &pmu, serde_json::json!({ "on": settle + Duration::days(10) })).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    // The fixture's repo rolls at its end for another month.
+    let old = uuid::Uuid::from_u128(3);
+    let res = post(&router, &format!("/pmu/repo/{old}/roll"), &pmu, serde_json::json!({ "on": today + Duration::days(5), "end": today + Duration::days(35), "rate": 4.7 })).await;
+    assert_eq!(res.status(), StatusCode::CREATED, "{}", error_of(res).await);
+    let rolled: (i64, Option<uuid::Uuid>) = sqlx::query_as("SELECT count(*), max(rolled_from::text)::uuid FROM repos WHERE rolled_from IS NOT NULL").fetch_one(&owner).await.unwrap();
+    assert_eq!(rolled, (1, Some(old)));
+    // A reverse repo: 3m lent against 3.2m of the counterparty's bond.
+    let rev = serde_json::json!({ "direction": "REVERSE", "counterparty": "Citibank N.A.", "ccy": "USD", "start": today, "end": today + Duration::days(14), "rate": 4.4, "cash": 3_000_000.0,
+        "collateral_isin": "US0378331005", "collateral_face": 3_200_000.0, "collateral_note": "their collateral" });
+    assert_eq!(post(&router, "/pmu/repo", &pmu, rev).await.status(), StatusCode::CREATED);
+    let f: PmuFunding = json(get(&router, "/pmu/funding", &pmu).await).await;
+    assert!(close(f.summary.reverse_bhd, 3_000_000.0 * SPOT, 1e-6) && f.summary.reverse_active == 1, "{:?}", f.summary);
+    assert!(f.repos.iter().any(|r| r.direction == "REVERSE" && r.provisional));
+
+    // Off the market: with a price of 100 on file, buying at 95 needs a confirmation.
+    sqlx::query("INSERT INTO bond_prices (as_of, isin, clean_price, ytm) VALUES ($1, $2, 100, 5.0)").bind(today).bind(isin).execute(&owner).await.unwrap();
+    let cheap = serde_json::json!({ "side": "BUY", "isin": isin, "book": "AFS USD", "face": 1_000_000.0, "clean_price": 95.0 });
+    let res = post(&router, "/pmu/buy", &pmu, cheap.clone()).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(error_of(res).await.contains("off the market"));
+    let mut ok = cheap.clone();
+    ok["confirm_off_market"] = serde_json::json!(true);
+    assert_eq!(post(&router, "/pmu/buy", &pmu, ok).await.status(), StatusCode::CREATED);
+
+    // A new bond: the ISIN must check out, and it can then be bought.
+    let nb = |isin: &str| serde_json::json!({ "isin": isin, "name": "Test corporate 5.25% 2031", "issuer": "Test corporate", "issuer_type": "CORPORATE", "ccy": "USD",
+        "coupon": 5.25, "coupon_freq": 2, "day_count": "30/360", "issue_date": "2024-03-01", "maturity": "2031-03-01", "rate_type": "FIXED" });
+    let res = post(&router, "/pmu/bonds", &pmu, nb("US0378331006")).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(error_of(res).await.contains("not a valid ISIN"));
+    assert_eq!(post(&router, "/pmu/bonds", &pmu, nb("US0378331005")).await.status(), StatusCode::CREATED);
+    assert_eq!(post(&router, "/pmu/bonds", &pmu, nb("US0378331005")).await.status(), StatusCode::BAD_REQUEST);
+    let res = post(&router, "/pmu/buy", &pmu, serde_json::json!({ "side": "BUY", "isin": "US0378331005", "book": "AFS USD", "face": 1_000_000.0, "ytm": 5.4 })).await;
+    assert_eq!(res.status(), StatusCode::CREATED, "{}", error_of(res).await);
+
+    // ALM and the head read the portfolio but may not book.
+    for user in ["alm1", "head1"] {
+        let t = token(&router, user).await;
+        let res = post(&router, "/pmu/buy", &t, serde_json::json!({ "side": "BUY", "isin": isin, "book": "AFS USD", "face": 1_000_000.0, "clean_price": 100.0 })).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "{user}");
+    }
+    // Every booking was audited.
+    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action LIKE 'pmu_%'").fetch_one(&owner).await.unwrap();
+    assert!(audits >= 9, "{audits}");
+}

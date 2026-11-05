@@ -9,6 +9,7 @@ pub mod ftp;
 pub mod liquidity;
 pub mod market;
 pub mod pmu;
+pub mod pmu_book;
 pub mod positions;
 pub mod recon;
 pub mod risk;
@@ -17,7 +18,7 @@ use axum::extract::{DefaultBodyLimit, Request};
 use axum::http::header::{self, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Router, middleware};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::services::{ServeDir, ServeFile};
@@ -105,6 +106,17 @@ pub fn router(state: AppState) -> Router {
         .route("/pmu/risk", get(pmu::risk))
         .route("/pmu/funding", get(pmu::funding))
         .route("/pmu/bond/{isin}", get(pmu::bond))
+        .route("/pmu/bonds", get(pmu_book::search).post(pmu_book::add_bond))
+        .route("/pmu/ticket/preview", post(pmu_book::preview))
+        .route("/pmu/buy", post(pmu_book::buy))
+        .route("/pmu/sell", post(pmu_book::sell))
+        .route("/pmu/repo/preview", post(pmu_book::repo_preview))
+        .route("/pmu/repo", post(pmu_book::repo_book))
+        .route("/pmu/repo/{id}/close", post(pmu_book::repo_close))
+        .route("/pmu/repo/{id}/roll", post(pmu_book::repo_roll))
+        .route("/pmu/repo/{id}", patch(pmu_book::repo_kondor))
+        .route("/pmu/lot/{id}", patch(pmu_book::lot_kondor))
+        .route("/pmu/sale/{sale}", patch(pmu_book::sale_kondor))
         .route("/activity", get(activity::activity))
         .route("/attention", get(activity::attention))
         .route("/events", get(events::stream))
