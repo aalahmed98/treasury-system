@@ -682,6 +682,8 @@ pub async fn run(pool: &PgPool, _cal: &Calendar, cfg: &AlmCfg, business_date: Na
     tracing::info!(snapshots = book.dates.len(), positions = book.positions.len(), digest = format!("{:016x}", digest(&book)), "banking book generated");
     let mut summary = write(pool, &market, &book, business_date, seed).await?;
     summary.ftp = crate::pmu_synth::write_ftp(pool, _cal, &market).await?;
+    let pmu = crate::pmu_synth::write_portfolio(pool, _cal, &market, business_date, seed).await?;
+    tracing::info!(bonds = pmu.bonds, lots = pmu.lots, swaps = pmu.swaps, repos = pmu.repos, prices = pmu.prices, quotes = pmu.quotes, "bond portfolio written");
     Ok(summary)
 }
 

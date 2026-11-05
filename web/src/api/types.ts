@@ -289,7 +289,7 @@ export type ServerEvent =
   | { type: 'deal'; op: string; id: string; desk_id: number; version: number }
   | { type: 'break'; id: number; desk_id: number; deal_id: string | null; status: BreakStatus }
   | { type: 'resync' }
-  | { type: 'alm'; params_version: number | null; snapshot: string | null; ftp?: string | null };
+  | { type: 'alm'; params_version: number | null; snapshot: string | null; ftp?: string | null; pmu?: boolean };
 
 // ALM overview block (the balance-sheet section of the Overview and the ALM dashboard).
 export interface LimitRow {

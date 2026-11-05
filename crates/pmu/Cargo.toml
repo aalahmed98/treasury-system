@@ -1,0 +1,13 @@
+[package]
+name = "pmu"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+alm.workspace = true
+chrono.workspace = true
+serde.workspace = true
+uuid.workspace = true

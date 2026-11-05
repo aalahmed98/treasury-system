@@ -25,6 +25,8 @@ struct AlmPayload {
     snapshot: Option<chrono::NaiveDate>,
     #[serde(default)]
     ftp: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pmu: bool,
 }
 
 #[derive(Deserialize)]
@@ -43,7 +45,7 @@ fn parse(channel: &str, payload: &str) -> Result<ServerEvent, serde_json::Error>
         }
         "alm_events" => {
             let p: AlmPayload = serde_json::from_str(payload)?;
-            Ok(ServerEvent::Alm { params_version: p.version, snapshot: p.snapshot, ftp: p.ftp })
+            Ok(ServerEvent::Alm { params_version: p.version, snapshot: p.snapshot, ftp: p.ftp, pmu: p.pmu })
         }
         _ => {
             let p: DealPayload = serde_json::from_str(payload)?;

@@ -2,7 +2,7 @@
 # The desktop shell builds on Windows only (WebView2); it has its own lockfile.
 exclude = ["web/src-tauri"]
 resolver = "3"
-members = ["crates/domain", "crates/alm", "crates/server", "crates/recon"]
+members = ["crates/domain", "crates/alm", "crates/pmu", "crates/server", "crates/recon"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ license = "UNLICENSED"
 domain = { path = "crates/domain" }
 recon = { path = "crates/recon" }
 alm = { path = "crates/alm" }
+pmu = { path = "crates/pmu" }
 
 # shared
 serde = { version = "1.0.229", features = ["derive"] }

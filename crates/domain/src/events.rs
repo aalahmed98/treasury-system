@@ -36,6 +36,9 @@ pub enum ServerEvent {
         snapshot: Option<NaiveDate>,
         #[serde(default)]
         ftp: Option<NaiveDate>,
+        /// The bond portfolio changed (new lots, swaps, repos, prices or quotes).
+        #[serde(default)]
+        pmu: bool,
     },
 }
 
