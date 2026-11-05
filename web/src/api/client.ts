@@ -1,7 +1,7 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { Booked, BondSearchHit, BondTerms, RepoPreview, RepoRequest, TicketPreview, TicketRequest, PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -188,4 +188,14 @@ export const endpoints = {
   pmuRisk: () => api<PmuRisk>('/pmu/risk', { passive: true }),
   pmuFunding: () => api<PmuFunding>('/pmu/funding', { passive: true }),
   pmuBond: (isin: string) => api<PmuBondDetail>(`/pmu/bond/${encodeURIComponent(isin)}`, { passive: true }),
+  pmuBonds: (q: string) => api<BondSearchHit[]>(`/pmu/bonds${q ? `?q=${encodeURIComponent(q)}` : ''}`, { passive: true }),
+  pmuAddBond: (b: BondTerms) => api<Booked>('/pmu/bonds', { method: 'POST', body: b }),
+  pmuTicketPreview: (t: TicketRequest) => api<TicketPreview>('/pmu/ticket/preview', { method: 'POST', body: t, passive: true }),
+  pmuBuy: (t: TicketRequest) => api<Booked>('/pmu/buy', { method: 'POST', body: t }),
+  pmuSell: (t: TicketRequest) => api<Booked>('/pmu/sell', { method: 'POST', body: t }),
+  pmuRepoPreview: (r: RepoRequest) => api<RepoPreview>('/pmu/repo/preview', { method: 'POST', body: r, passive: true }),
+  pmuRepo: (r: RepoRequest) => api<Booked>('/pmu/repo', { method: 'POST', body: r }),
+  pmuRepoClose: (id: string, on: string) => api<Booked>(`/pmu/repo/${id}/close`, { method: 'POST', body: { on } }),
+  pmuRepoRoll: (id: string, body: { on: string; end: string; rate: number; cash?: number | null; kondor_id?: string | null }) => api<Booked>(`/pmu/repo/${id}/roll`, { method: 'POST', body }),
+  pmuKondor: (kind: 'lot' | 'repo' | 'sale', id: string, kondor_id: string) => api<Booked>(`/pmu/${kind}/${encodeURIComponent(id)}`, { method: 'PATCH', body: { kondor_id } }),
 };

@@ -3,6 +3,8 @@
 // the latest quotes over SOFR, the coupons and redemptions of the next year, and the swaps'
 // settlement cash kept apart from income.
 import { useMemo } from 'react';
+import { useSearchParams } from 'react-router';
+import { useSession } from '../../api/session';
 import { usePmuFunding, usePmuOverview } from '../../api/queries';
 import type { PmuFunding } from '../../api/types';
 import { fmtDateLong, fmtDateShort, fmtMonth } from '../../lib/fmt';
@@ -25,6 +27,14 @@ const mon = (m: string) => fmtMonth(m);
 
 function Body({ f, names }: { f: PmuFunding; names: Record<string, string> }) {
   const s = f.summary;
+  const { canBookPmu } = useSession();
+  const [params, setParams] = useSearchParams();
+  const act = (id: string) => {
+    const next = new URLSearchParams(params);
+    next.set('repo', id);
+    next.delete('book');
+    setParams(next, { replace: true });
+  };
   const thisMonth = f.as_of.slice(0, 7);
   return (
     <>
@@ -38,6 +48,7 @@ function Body({ f, names }: { f: PmuFunding; names: Record<string, string> }) {
           { label: 'Due within 7 days', value: bhd(s.due_7d_bhd), sub: 'to repay or roll', tone: s.due_7d_bhd > 0 ? 'warn' : 'good' },
           { label: 'Average repo rate', value: pct(s.avg_rate), sub: `haircut ${pct(s.avg_haircut, 1)} · ${Math.round(s.wtd_maturity_days)} days to run` },
           { label: 'Receipts, next 12 months', value: bhd(s.receipts_12m_bhd), sub: 'coupons and redemptions' },
+          { label: 'Cash lent', value: bhd(s.reverse_bhd), sub: `${s.reverse_active} reverse ${s.reverse_active === 1 ? 'repo' : 'repos'}` },
         ]}
       />
 
@@ -70,21 +81,40 @@ function Body({ f, names }: { f: PmuFunding; names: Record<string, string> }) {
             <th className="num">Haircut</th>
             <th className="num">Collateral face</th>
             <th>Bonds</th>
+            {canBookPmu && <th />}
           </tr>
         </thead>
         <tbody>
           {f.repos.map((r) => (
             <tr key={r.id}>
-              <td>{r.counterparty}</td>
-              <td className="t-small">{r.kondor_id ?? '—'}</td>
+              <td>
+                {r.counterparty} {r.direction === 'REVERSE' && <Badge tone="info">reverse</Badge>}
+              </td>
+              <td className="t-small">{r.kondor_id ?? (r.provisional ? <Badge tone="warn">provisional</Badge> : '—')}</td>
               <td>{fmtDateShort(r.start)}</td>
-              <td>{fmtDateShort(r.end)}</td>
+              <td>
+                {fmtDateShort(r.end)} {r.closed_early && <Badge>closed early</Badge>}
+              </td>
               <td className="num">{r.days_left <= 7 ? <Badge tone="warn">{r.days_left}</Badge> : r.days_left}</td>
               <td className="num">{bhd(r.cash_bhd)}</td>
               <td className="num">{pct(r.rate, 3)}</td>
               <td className="num">{pct(r.haircut_pct, 1)}</td>
               <td className="num">{bhd(r.collateral_face_bhd)}</td>
-              <td className="t-small">{r.isins.join(', ')}</td>
+              <td className="t-small" title={r.collateral_note ?? ''}>
+                {r.isins.join(', ')}
+              </td>
+              {canBookPmu && (
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => act(r.id)}
+                    aria-label={r.closed_early ? `roll the repo with ${r.counterparty}, closing ${r.end}` : `close or roll the repo with ${r.counterparty} to ${r.end}`}
+                  >
+                    {r.closed_early ? 'Roll' : 'Close or roll'}
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

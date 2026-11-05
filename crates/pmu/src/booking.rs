@@ -248,7 +248,7 @@ pub fn repo_preview(m: &Market, p: &Portfolio, direction: &str, counterparty: &s
             let b = &p.bonds[&l.isin];
             let free = l.face_on(start).min(l.face_on(end)) - pledged_between(p, l.id, start, end, except);
             if c.face > free + 0.005 {
-                blocking.push(format!("{} has only {:.0} free to pledge over the term", b.name, free.max(0.0)));
+                blocking.push(format!("{} has only {} free to pledge over the term", b.name, short(free.max(0.0))));
             }
             if b.maturity <= end {
                 blocking.push(format!("{} matures before the repo ends", b.name));
@@ -294,7 +294,14 @@ pub fn repo_preview(m: &Market, p: &Portfolio, direction: &str, counterparty: &s
             (Some(q), Some(s)) => Some(s + q.spread_bp / 100.0),
             _ => None,
         },
-        available: if direction == "REPO" { pledge_candidates(m, p, None, start, end) } else { Vec::new() },
+        available: if direction == "REPO" {
+            // Bonds in the cash currency first, then the rest, each by free face.
+            let mut a = pledge_candidates(m, p, None, start, end);
+            a.sort_by(|x, y| (x.ccy != ccy).cmp(&(y.ccy != ccy)).then(y.free.total_cmp(&x.free)));
+            a
+        } else {
+            Vec::new()
+        },
         warnings,
         blocking,
     }
@@ -303,4 +310,18 @@ pub fn repo_preview(m: &Market, p: &Portfolio, direction: &str, counterparty: &s
 /// A repo as the engine sees it, for checking a roll against the rest of the book.
 pub fn find_repo(p: &Portfolio, id: Uuid) -> Option<&Repo> {
     p.repos.iter().find(|r| r.id == id)
+}
+
+/// 13000000 -> "13.0m", for messages.
+pub fn short(v: f64) -> String {
+    let a = v.abs();
+    if a >= 1e9 {
+        format!("{:.2}bn", v / 1e9)
+    } else if a >= 1e6 {
+        format!("{:.1}m", v / 1e6)
+    } else if a >= 1e3 {
+        format!("{:.1}k", v / 1e3)
+    } else {
+        format!("{v:.0}")
+    }
 }

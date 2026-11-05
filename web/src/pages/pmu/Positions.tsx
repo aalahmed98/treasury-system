@@ -4,7 +4,11 @@
 // its swaps, the repos it is pledged to and its cash flows.
 import { useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ApiError, endpoints } from '../../api/client';
 import { usePmuBond, usePmuPositions } from '../../api/queries';
+import { useSession } from '../../api/session';
+import { useToast } from '../../components/feedback';
 import type { PositionRow } from '../../api/types';
 import { fmtDateLong, fmtDateShort } from '../../lib/fmt';
 import { Badge, Chip, Section, StatStrip } from '../../components/ui';
@@ -46,6 +50,7 @@ const COLS: Record<View, ColDef[]> = {
     { id: 'carry', header: 'Bond carry', num: true, cell: (r) => <span className={`t-medium ${r.income.carry < 0 ? 't-bad' : ''}`}>{bhd(r.income.carry)}</span>, csv: (r) => n2(r.income.carry), title: 'coupon + amortisation - FTP' },
     { id: 'irs', header: 'IRS', num: true, cell: (r) => bhd(r.income.irs), csv: (r) => n2(r.income.irs) },
     { id: 'nii', header: 'Net NII', num: true, cell: (r) => bhd(r.income.net_nii), csv: (r) => n2(r.income.net_nii) },
+    { id: 'realised', header: 'Realised', num: true, cell: (r) => (r.income.realised ? bhd(r.income.realised) : '—'), csv: (r) => n2(r.income.realised), title: 'gains on sales against amortised cost; not NII' },
     { id: 'daily', header: 'Today after FTP', num: true, cell: (r) => bhd(r.daily_carry_bhd), csv: (r) => n2(r.daily_carry_bhd) },
   ],
   risk: [
@@ -243,6 +248,12 @@ export function PositionsPage() {
                               <span>{r.label}</span>
                             )}
                             {r.level === 'BOND' && <span className="t-small"> {r.isin}</span>}
+                            {r.provisional && r.level !== 'BOOK' && (
+                              <span title="booked here and not yet matched to a Kondor deal id">
+                                {' '}
+                                <Badge tone="warn">provisional</Badge>
+                              </span>
+                            )}
                           </td>
                           {cols.map((c) => (
                             <td key={c.id} className={c.num ? 'num' : ''}>
@@ -265,9 +276,42 @@ export function PositionsPage() {
   );
 }
 
+function KondorAttach({ lotId }: { lotId: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [v, setV] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const m = useMutation({
+    mutationFn: () => endpoints.pmuKondor('lot', lotId, v.trim()),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ['pmu'] });
+      toast({ tone: 'good', title: r.message });
+    },
+    onError: (e) => setErr(e instanceof ApiError ? e.message : 'the id could not be attached'),
+  });
+  return (
+    <span className="row" style={{ gap: 4 }}>
+      <input className="input input-sm" style={{ width: 110 }} placeholder="Kondor id" value={v} onChange={(e) => setV(e.target.value)} aria-label="Kondor id for the lot" />
+      <button type="button" className="btn btn-sm" disabled={!v.trim() || m.isPending} onClick={() => m.mutate()}>
+        Attach
+      </button>
+      {err && <span className="t-small t-bad">{err}</span>}
+    </span>
+  );
+}
+
 function BondDetail({ isin, onClose }: { isin: string; onClose: () => void }) {
   const q = usePmuBond(isin);
   const d = q.data;
+  const { canBookPmu } = useSession();
+  const [params, setParams] = useSearchParams();
+  const ticket = (mode: 'buy' | 'sell') => {
+    const next = new URLSearchParams(params);
+    next.set('book', mode);
+    next.set('isin', isin);
+    next.delete('bond');
+    setParams(next, { replace: true });
+  };
   return (
     <aside className="detail-pane" data-testid="pmu-bond">
       <div className="row" style={{ gap: 6 }}>
@@ -301,6 +345,16 @@ function BondDetail({ isin, onClose }: { isin: string; onClose: () => void }) {
               {d.bond.ccy}, {d.bond.hqla_level ?? 'not HQLA'}
             </span>
           </div>
+          {canBookPmu && (
+            <div className="row" style={{ gap: 6, marginTop: 10 }}>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => ticket('buy')}>
+                Buy more
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => ticket('sell')}>
+                Sell
+              </button>
+            </div>
+          )}
           <div className="t-label" style={{ marginTop: 10 }}>
             Purchase lots
           </div>
@@ -313,10 +367,33 @@ function BondDetail({ isin, onClose }: { isin: string; onClose: () => void }) {
                   <td className="num">{bhd(l.face_local ?? 0)}</td>
                   <td className="num">{l.price.toFixed(3)}</td>
                   <td className="num">{pct(l.eir, 3)}</td>
+                  <td>{l.provisional ? canBookPmu && l.lot_id ? <KondorAttach lotId={l.lot_id} /> : <Badge tone="warn">provisional</Badge> : <span className="t-small">{l.kondor_id}</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {d.sales.length > 0 && (
+            <>
+              <div className="t-label" style={{ marginTop: 10 }}>
+                Sales
+              </div>
+              <table className="table" data-testid="bond-sales">
+                <tbody>
+                  {d.sales.map((x) => (
+                    <tr key={`${x.sale_ref}${x.lot_id}`}>
+                      <td>{fmtDateShort(x.settle_date)}</td>
+                      <td className="t-small">{x.sale_ref}</td>
+                      <td className="num">{bhd(x.face)}</td>
+                      <td className="num">{x.clean_price.toFixed(3)}</td>
+                      <td className={`num ${x.realised_bhd < 0 ? 't-bad' : ''}`} title="realised against amortised cost, BHD">
+                        {bhd(x.realised_bhd)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
           {d.swaps.length > 0 && (
             <>
               <div className="t-label" style={{ marginTop: 10 }}>

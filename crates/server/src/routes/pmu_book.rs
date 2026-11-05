@@ -24,6 +24,8 @@ use crate::routes::audit::{self, AuditCtx};
 use crate::routes::pmu::context;
 use crate::state::{AppState, PmuData};
 
+use pmu::booking::short as short_;
+
 fn bad(m: impl Into<String>) -> ApiError {
     ApiError::BadRequest(m.into())
 }
@@ -206,19 +208,19 @@ fn preview_of(data: &PmuData, cal: &Calendar, on: NaiveDate, req: &TicketRequest
         let (l, c, short) = pmu::booking::allocate(m, p, &b.isin, req.book.as_deref(), settle, quote.clean_price, req.face, picks);
         free_total = c.iter().map(|x| x.free).sum();
         if short > 0.005 {
-            blocking.push(format!("only {free_total:.0} of face is free to sell on {settle}; {short:.0} short"));
+            blocking.push(format!("only {} of face is free to sell on {settle}; {} short", short_(free_total), short_(short)));
         }
         for leg in &l {
             if let Some(cand) = c.iter().find(|x| x.lot_id == leg.lot_id)
                 && leg.face > cand.free + 0.005
             {
-                blocking.push(format!("the lot bought on {} has only {:.0} free", cand.trade_date, cand.free));
+                blocking.push(format!("the lot bought on {} has only {} free", cand.trade_date, short_(cand.free)));
             }
         }
         if let Some(picks) = picks {
             let total: f64 = picks.iter().map(|x| x.face).sum();
             if (total - req.face).abs() > 0.005 {
-                blocking.push(format!("the lots chosen add up to {total:.0}, not {:.0}", req.face));
+                blocking.push(format!("the lots chosen add up to {}, not {}", short_(total), short_(req.face)));
             }
         }
         realised = l.iter().map(|x| x.realised_bhd).sum();

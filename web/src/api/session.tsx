@@ -16,6 +16,8 @@ export interface SessionApi {
   canSeePmu: boolean;
   /** Users who can see a dealing desk (FX or money market): the blotter, breaks and liquidity. */
   canSeeTrading: boolean;
+  /** The PMU desk's bookers: purchases, sales and repos of the bond portfolio. */
+  canBookPmu: boolean;
   isHead: boolean;
   canBook: (deskId: number) => boolean;
   canResolve: (deskId: number) => boolean;
@@ -59,6 +61,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canSeeRisk: codes.has('FX') || codes.has('HEAD'),
       canSeePmu: codes.has('PMU') || codes.has('ALM') || codes.has('HEAD'),
       canSeeTrading: codes.has('FX') || codes.has('MM'),
+      canBookPmu: desks.some((d) => d.code === 'PMU' && d.can_book),
       isHead: codes.has('HEAD'),
       canBook: (id) => desks.some((d) => d.desk_id === id && d.can_book),
       canResolve: (id) => desks.some((d) => d.desk_id === id && d.can_resolve),

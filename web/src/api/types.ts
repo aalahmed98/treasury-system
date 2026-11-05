@@ -1000,6 +1000,7 @@ export interface PmuIncomeParts {
   net_nii: number;
   repo: number;
   accounting_nii: number;
+  realised: number;
 }
 export type RowLevel = 'BOOK' | 'BOND' | 'LOT';
 export interface PositionRow {
@@ -1033,6 +1034,9 @@ export interface PositionRow {
   share: number;
   income: PmuIncomeParts;
   daily_carry_bhd: number;
+  provisional: boolean;
+  lot_id: string | null;
+  free_face_local: number | null;
 }
 export interface SwapView {
   id: string;
@@ -1095,6 +1099,8 @@ export interface RepoSummary {
   avg_haircut: number;
   wtd_maturity_days: number;
   receipts_12m_bhd: number;
+  reverse_bhd: number;
+  reverse_active: number;
 }
 export interface PmuHeadline {
   portfolio_face_bhd: number;
@@ -1195,6 +1201,10 @@ export interface RepoView {
   days_left: number;
   collateral_face_bhd: number;
   isins: string[];
+  direction: 'REPO' | 'REVERSE';
+  provisional: boolean;
+  collateral_note: string | null;
+  closed_early: boolean;
 }
 export interface MonthFlow {
   month: string;
@@ -1231,7 +1241,154 @@ export interface PmuBondDetail {
     hqla_level: string | null;
   };
   lots: PositionRow[];
+  sales: SaleView[];
   swaps: SwapView[];
   repos: RepoView[];
   cash_flows: { date: string; kind: string; amount_local: number; amount_bhd: number }[];
+}
+
+// PMU booking
+export interface SaleView {
+  sale_ref: string;
+  lot_id: string;
+  book: string;
+  trade_date: string;
+  settle_date: string;
+  face: number;
+  clean_price: number;
+  realised_bhd: number;
+  kondor_id: string | null;
+}
+export interface BondQuote {
+  isin: string;
+  ccy: string;
+  trade_date: string;
+  settle_date: string;
+  face: number;
+  clean_price: number;
+  dirty_price: number;
+  ytm: number;
+  accrued: number;
+  consideration: number;
+  consideration_bhd: number;
+  spot: number;
+  eir: number;
+  ftp_rate: number | null;
+  ftp_published: string | null;
+  carry_bp: number | null;
+  carry_bhd_year: number | null;
+  dv01_bhd: number;
+  mod_duration: number;
+  market_price: number | null;
+  market_ytm: number | null;
+  market_as_of: string | null;
+  off_market_bp: number | null;
+  off_market: boolean;
+}
+export interface SaleLeg {
+  lot_id: string;
+  book: string;
+  trade_date: string;
+  purchase_price: number;
+  held: number;
+  pledged: number;
+  free: number;
+  face: number;
+  book_value: number;
+  accrued: number;
+  realised: number;
+  realised_bhd: number;
+  kondor_id: string | null;
+}
+export interface TicketPreview {
+  quote: BondQuote;
+  legs: SaleLeg[];
+  candidates: SaleLeg[];
+  free_total: number;
+  realised_bhd: number;
+  warnings: string[];
+  blocking: string[];
+}
+export interface LotPick {
+  lot_id: string;
+  face: number;
+}
+export interface TicketRequest {
+  side: 'BUY' | 'SELL';
+  isin: string;
+  book?: string | null;
+  face: number;
+  clean_price?: number | null;
+  ytm?: number | null;
+  trade_date?: string | null;
+  settle_date?: string | null;
+  lots?: LotPick[] | null;
+  kondor_id?: string | null;
+  confirm_off_market?: boolean;
+}
+export interface BondTerms {
+  isin: string;
+  name: string;
+  issuer: string;
+  issuer_type: string;
+  ccy: string;
+  coupon: number;
+  coupon_freq: number;
+  day_count: string;
+  issue_date: string;
+  maturity: string;
+  rate_type: 'FIXED' | 'FLOAT';
+  float_index: string | null;
+  float_spread: number;
+  hqla_level: string | null;
+}
+export interface BondSearchHit {
+  bond: BondTerms;
+  market_price: number | null;
+  market_ytm: number | null;
+  holdings: [string, number, number, number][];
+}
+export interface RepoRequest {
+  direction: 'REPO' | 'REVERSE';
+  counterparty: string;
+  ccy: string;
+  start: string;
+  end: string;
+  rate: number;
+  haircut_pct: number;
+  cash?: number | null;
+  collateral: LotPick[];
+  collateral_isin?: string | null;
+  collateral_face?: number | null;
+  collateral_note?: string | null;
+  kondor_id?: string | null;
+}
+export interface PledgeCandidate {
+  lot_id: string;
+  isin: string;
+  name: string;
+  book: string;
+  ccy: string;
+  free: number;
+  price: number;
+}
+export interface RepoPreview {
+  collateral_value: number;
+  cash: number;
+  cash_bhd: number;
+  interest: number;
+  interest_bhd: number;
+  days: number;
+  quote_spread_bp: number | null;
+  quote_tenor: string | null;
+  quote_as_of: string | null;
+  sofr: number | null;
+  indicative_rate: number | null;
+  available: PledgeCandidate[];
+  warnings: string[];
+  blocking: string[];
+}
+export interface Booked {
+  id: string;
+  message: string;
 }

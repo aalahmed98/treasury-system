@@ -1877,3 +1877,63 @@ button.link:hover {
     width: auto;
   }
 }
+
+/* PMU tickets: the same floating panel as the bond detail, a little wider */
+.detail-pane.sheet {
+  width: 460px;
+  z-index: 25;
+}
+.sheet .field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.sheet .form-grid {
+  margin-top: 8px;
+}
+.hits {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.hits .hit {
+  display: grid;
+  text-align: left;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.hits .hit:hover,
+.hits .hit:focus-visible {
+  background: var(--hover);
+}
+.bond-card {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  display: grid;
+  gap: 2px;
+}
+.kv.quote {
+  grid-template-columns: auto 1fr;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.kv.quote > span:nth-child(odd) {
+  color: var(--text-2);
+}
+.kv.quote > span:nth-child(even) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pledge-list {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+}

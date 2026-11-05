@@ -106,9 +106,13 @@ pub struct LotSale {
 }
 
 impl Lot {
-    /// Face held on `d`: the purchase face less the sales settled by then.
+    /// Face held on `d` on a trade-date basis: the purchase face less the sales traded by then.
+    /// (Accrual runs on settlement dates; positions and risk move when the trade is done.)
     pub fn face_on(&self, d: NaiveDate) -> f64 {
-        self.face - self.sales.iter().filter(|s| s.settle_date <= d).map(|s| s.face).sum::<f64>()
+        if self.trade_date > d {
+            return 0.0;
+        }
+        self.face - self.sales.iter().filter(|s| s.trade_date <= d).map(|s| s.face).sum::<f64>()
     }
     /// Booked in the app and not yet carrying a Kondor deal id.
     pub fn provisional(&self) -> bool {
@@ -579,6 +583,9 @@ pub struct RepoView {
     pub collateral_note: Option<String>,
     #[serde(default)]
     pub rolled_from: Option<Uuid>,
+    /// Closed before its contractual end; `end` is then the close date.
+    #[serde(default)]
+    pub closed_early: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

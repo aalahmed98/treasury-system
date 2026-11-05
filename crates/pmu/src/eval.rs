@@ -98,8 +98,9 @@ impl LotNow {
     }
 }
 
+/// Held on `on` from the trade date (a purchase not yet settled is a position already).
 pub fn held_on(lot: &Lot, b: &Bond, on: NaiveDate) -> bool {
-    lot.settle_date <= on && lot.settle_date >= b.issue_date && b.maturity > on && lot.face_on(on) > 0.005
+    lot.trade_date <= on && lot.settle_date >= b.issue_date && b.maturity > on && lot.face_on(on) > 0.005
 }
 
 /// Local face of a lot hedged on `on`: each linked swap's assigned notional, scaled by how much
@@ -449,7 +450,11 @@ impl<'a> Snapshot<'a> {
                             parent: Some(format!("{}|{}", l.book, l.isin)),
                             book: l.book.clone(),
                             isin: Some(l.isin.clone()),
-                            label: format!("Bought {}", l.trade_date.format("%d %b %Y")),
+                            label: if l.settle_date > self.on {
+                                format!("Bought {}, settles {}", l.trade_date.format("%d %b %Y"), l.settle_date.format("%d %b"))
+                            } else {
+                                format!("Bought {}", l.trade_date.format("%d %b %Y"))
+                            },
                             issuer: Some(b.issuer.clone()),
                             ccy: Some(b.ccy.clone()),
                             kondor_id: l.kondor_id.clone(),
@@ -752,17 +757,18 @@ impl<'a> Snapshot<'a> {
                     kondor_id: r.kondor_id.clone(),
                     ccy: r.ccy.clone(),
                     start: r.start,
-                    end: r.end,
+                    end: r.end_on(),
                     cash_bhd: r.cash * self.m.spot(&r.ccy, self.on),
                     rate: r.rate,
                     haircut_pct: r.haircut_pct,
-                    days_left: (r.end - self.on).num_days(),
+                    days_left: (r.end_on() - self.on).num_days(),
                     collateral_face_bhd: if r.reverse() { r.collateral_face.unwrap_or(0.0) * self.m.spot(&r.ccy, self.on) } else { coll },
                     isins: if r.reverse() { r.collateral_isin.clone().into_iter().collect() } else { isins },
                     direction: r.direction.clone(),
                     provisional: r.origin == "INTERNAL" && r.kondor_id.is_none(),
                     collateral_note: r.collateral_note.clone(),
                     rolled_from: None,
+                    closed_early: r.closed_on.is_some(),
                 }
             })
             .collect();
