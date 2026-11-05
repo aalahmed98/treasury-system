@@ -14,13 +14,19 @@ export interface SessionApi {
   canSeeRisk: boolean;
   /** The PMU desk, ALM and the head see the bond portfolio. */
   canSeePmu: boolean;
+  /** Users who can see a dealing desk (FX or money market): the blotter, breaks and liquidity. */
+  canSeeTrading: boolean;
   isHead: boolean;
   canBook: (deskId: number) => boolean;
   canResolve: (deskId: number) => boolean;
+  /** Dealing desks (FX, MM) the user may book on; a PMU user's booking right is not for deals. */
   bookableDesks: DeskAccess[];
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
+
+/** The desks that book deals. */
+export const DEALING = new Set(['FX', 'MM']);
 
 const Ctx = createContext<SessionApi | null>(null);
 
@@ -52,10 +58,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canSeeAlm: codes.has('ALM') || codes.has('HEAD'),
       canSeeRisk: codes.has('FX') || codes.has('HEAD'),
       canSeePmu: codes.has('PMU') || codes.has('ALM') || codes.has('HEAD'),
+      canSeeTrading: codes.has('FX') || codes.has('MM'),
       isHead: codes.has('HEAD'),
       canBook: (id) => desks.some((d) => d.desk_id === id && d.can_book),
       canResolve: (id) => desks.some((d) => d.desk_id === id && d.can_resolve),
-      bookableDesks: desks.filter((d) => d.can_book),
+      bookableDesks: desks.filter((d) => d.can_book && DEALING.has(d.code)),
       login,
       logout,
     };

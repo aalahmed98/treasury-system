@@ -31,7 +31,7 @@ export const useFxRisk = (enabled = true) => useQuery({ queryKey: ['risk', 'fx']
 export const useFxHistory = (days = 30) => useQuery({ queryKey: ['risk', 'history', days], queryFn: () => endpoints.fxHistory(days), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
 export const useRiskLimits = () => useQuery({ queryKey: ['risk', 'limits'], queryFn: endpoints.riskLimits, staleTime: MINUTE });
 export const useBreaches = (days = 30) => useQuery({ queryKey: ['risk', 'breaches', days], queryFn: () => endpoints.breaches(days), staleTime: MINUTE });
-export const usePmuOverview = () => useQuery({ queryKey: ['pmu', 'overview'], queryFn: endpoints.pmuOverview, refetchInterval: 5 * MINUTE, staleTime: MINUTE });
+export const usePmuOverview = (enabled = true) => useQuery({ queryKey: ['pmu', 'overview'], queryFn: endpoints.pmuOverview, refetchInterval: 5 * MINUTE, staleTime: MINUTE, enabled });
 export const usePmuPositions = (from?: string, to?: string) =>
   useQuery({ queryKey: ['pmu', 'positions', from, to], queryFn: () => endpoints.pmuPositions(from, to), staleTime: MINUTE, placeholderData: (p) => p });
 export const usePmuIncome = (from?: string, to?: string) =>

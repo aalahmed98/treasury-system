@@ -45,7 +45,7 @@ implementation plan with what is blocked and what is not lives in `docs/implemen
 | `assets/` | the bundled typeface, Inter (OFL 1.1) as a static build with tabular figures, the favicon and the theme bootstrap script; served by the server under `/app` |
 | `DESIGN.md`, `PRODUCT.md` | the visual system and the product brief it serves |
 | `docs/pmu-desk-spec.md` | the PMU desk's eight Power BI tabs as described by the desk, the decisions taken, the proposed definitions, where each tab went, and the open questions |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off), `0006_ftp` (the PMU desk, FTP publications), `0007_pmu` (books, bonds, purchase lots, swaps with their hedges and unwinds, repos and collateral, repo quotes, bond prices) |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off), `0006_ftp` (the PMU desk, FTP publications), `0007_pmu` (books, bonds, purchase lots, swaps with their hedges and unwinds, repos and collateral, repo quotes, bond prices), `0008_dealing_desks` (deals only on the FX and money-market desks, each with its own products) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
 
@@ -207,6 +207,11 @@ collateral, quotes over SOFR with their age, receipts, swap settlement cash, ful
 portfolio). The portfolio loads once per business date and data stamp; each page computes in under
 0.1 s. Attention items: a held currency with no FTP curve, lots without a Kondor ID, repos maturing
 within seven days, large unhedged positions, repo quotes more than two business days old.
+
+A user who sees no dealing desk (a PMU user) gets no Blotter, Breaks or Liquidity tab and no feed
+health: their Overview leads with the bond portfolio. Deals are booked on the FX and money-market
+desks only, each with its own products; the ticket offers nothing else and the database refuses
+anything else (`0008`), whatever booking rights a user holds on another desk.
 
 **Synthetic portfolio.** Until the Kondor feed and Bloomberg prices are connected, `alm-synth`
 also writes daily FTP publications (the interbank curve plus a term premium; never over a day ALM
@@ -372,13 +377,13 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-121 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
+122 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
 interest under each day count, price and yield inverting and DV01 against duration, a premium bond
 amortised to par exactly at maturity, FTP locked to the trade-date curve, a par swap worth nothing
 and its carry with an unwind, the parts of income adding up with hedged face and the tree, the
 forecast running off or reinvesting), 5 on the workbook reader (both layouts, fractions, bad cells by
 reference, the template read back), 2 over HTTP for publishing (preview, publish, supersede, rights)
-and 2 for the portfolio (a hand-built bond, swap and repo; who may see it). FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
+and 3 for the portfolio (a hand-built bond, swap and repo; who may see it; deals only on the dealing desks). FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
 interest parity and discounting, the shorthand position, the P&L split, VaR and expected shortfall,
 no VaR on pegged currencies, counterparty add-on and settlement peak, the off-market measure, the
 forward ladder); the liquidity ladder's two views; the early-warning thresholds and stage; and 3
@@ -397,7 +402,7 @@ reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege b
 ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 37 Playwright checks on the installed Edge, among them the FTP page and ALM's
+cases) and 39 Playwright checks on the installed Edge, among them the FTP page and ALM's
 template-drop-publish round trip, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged), the FX risk page, the limits
 page as a dealer and as the head, the ticket's off-market check, and the ladder, early-warning and

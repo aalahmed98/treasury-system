@@ -520,7 +520,8 @@ function Retry({ q, what }: { q: { isError: boolean; error: unknown; refetch: ()
   );
 }
 
-const PRODUCTS: Product[] = ['FX_SPOT', 'FX_FWD', 'MM_DEPO', 'MM_LOAN'];
+/** What each dealing desk books. */
+const PRODUCTS_OF = (code: string | undefined): Product[] => (code === 'MM' ? ['MM_DEPO', 'MM_LOAN'] : ['FX_SPOT', 'FX_FWD']);
 /** The currencies the book deals in; anything else is almost certainly a typo. */
 const CURRENCIES = new Set(['BHD', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR', 'OMR', 'JPY', 'CHF', 'INR', 'CNY', 'AUD', 'CAD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'TRY', 'EGP', 'JOD', 'MYR', 'NZD', 'ZAR', 'PKR']);
 
@@ -632,7 +633,21 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
         </div>
         <div className="form-grid">
           <span className="k">Desk</span>
-          <select className="input input-sm" value={f.desk_id} onChange={(e) => setF({ ...f, desk_id: Number(e.target.value) })} aria-label="Desk for the deal">
+          <select
+            className="input input-sm"
+            value={f.desk_id}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              const toMm = desks.find((d) => d.desk_id === id)?.code === 'MM';
+              // A desk books its own products: switching desk switches the ticket to one of them.
+              setF(
+                toMm
+                  ? { ...f, desk_id: id, product: 'MM_DEPO', side: 'LEND', ccy1: 'BHD', ccy2: '', rate: '5.25', maturity_date: f.maturity_date || plus(32) }
+                  : { ...f, desk_id: id, product: 'FX_SPOT', side: 'BUY', ccy1: 'USD', ccy2: 'BHD', rate: '0.37600', maturity_date: '' },
+              );
+            }}
+            aria-label="Desk for the deal"
+          >
             {desks.map((d) => (
               <option key={d.desk_id} value={d.desk_id}>
                 {d.code}
@@ -649,7 +664,7 @@ function Ticket({ desks, onClose, onBooked }: { desks: DeskAccess[]; onClose: ()
               setF({ ...f, product: p, side: isFx(p) ? 'BUY' : 'LEND', ccy2: isFx(p) ? f.ccy2 || 'BHD' : '' });
             }}
           >
-            {PRODUCTS.map((p) => (
+            {PRODUCTS_OF(desks.find((d) => d.desk_id === f.desk_id)?.code).map((p) => (
               <option key={p} value={p}>
                 {PRODUCT_LABEL[p]}
               </option>

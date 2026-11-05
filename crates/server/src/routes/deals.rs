@@ -58,6 +58,13 @@ pub async fn create(
     // A desk the user cannot even read is reported as forbidden before touching the database.
     let desk = auth.desk(new.desk_id).ok_or_else(|| ApiError::Forbidden("not entitled to that desk".into()))?;
     let desk_code = desk.code.clone();
+    // Deals live on the dealing desks; the database refuses the rest too (0008), this says why first.
+    if !matches!(desk_code.as_str(), "FX" | "MM") {
+        return Err(ApiError::Forbidden(format!("not entitled to book deals on the {desk_code} desk: deals are booked on the FX and money-market desks")));
+    }
+    if (desk_code == "FX") != new.product.as_str().starts_with("FX_") {
+        return Err(ApiError::BadRequest(format!("the {desk_code} desk does not book {}", new.product.as_str())));
+    }
 
     let id = Uuid::now_v7();
     let mut tx = db::begin_as(&state.pool, auth.user.id).await?;

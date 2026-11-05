@@ -77,7 +77,7 @@ export function PageSkeleton() {
 }
 
 function TopBar() {
-  const { homeDesk, canSeeAlm, canSeeRisk, canSeePmu } = useSession();
+  const { homeDesk, canSeeAlm, canSeeRisk, canSeePmu, canSeeTrading } = useSession();
   const deals = useDeals();
   const breaks = useBreaks(false);
   const risk = useFxRisk(canSeeRisk);
@@ -95,16 +95,20 @@ function TopBar() {
       {homeDesk && <Badge title="home desk">{homeDesk.code}</Badge>}
       <nav className="tabs" aria-label="Pages">
         <Tab to="/" end label="Overview" />
-        <Tab to="/blotter" label="Blotter" count={deals.data ? String(deals.data.deals.length) : undefined} />
-        <Tab to="/breaks" label="Breaks" count={open > 0 ? String(open) : undefined} tone={open > 0 ? 'bad' : 'neutral'} />
-        <Tab to="/liquidity" label="Liquidity" />
+        {canSeeTrading && (
+          <>
+            <Tab to="/blotter" label="Blotter" count={deals.data ? String(deals.data.deals.length) : undefined} />
+            <Tab to="/breaks" label="Breaks" count={open > 0 ? String(open) : undefined} tone={open > 0 ? 'bad' : 'neutral'} />
+            <Tab to="/liquidity" label="Liquidity" />
+          </>
+        )}
         {canSeeRisk && <Tab to="/risk" label="Risk" count={breached > 0 ? String(breached) : undefined} tone="bad" />}
         {canSeePmu && <Tab to="/pmu" label="PMU" />}
         {canSeeAlm && <Tab to="/alm" label="ALM" />}
       </nav>
       <div className="cluster">
         <SearchButton />
-        <FeedsPill />
+        {canSeeTrading && <FeedsPill />}
         <Bell />
         <UserMenu />
       </div>

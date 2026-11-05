@@ -3,7 +3,8 @@
 // changed recently. Everything on it is built from data the page already holds.
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useActivity, useAlmOverview, useAttention, useBreaks, useDeals, useFeeds, useLadder, usePositions } from '../api/queries';
+import { useActivity, useAlmOverview, useAttention, useBreaks, useDeals, useFeeds, useLadder, usePmuOverview, usePositions } from '../api/queries';
+import { pmuHeadlineCells } from './pmu/cells';
 import { useSession } from '../api/session';
 import type { ActivityRow, BreakView, Deal } from '../api/types';
 import { PRODUCT_LABEL } from '../api/types';
@@ -192,18 +193,16 @@ function HBars({ data, color }: { data: [string, number][]; color: string }) {
 
 export function Overview() {
   const navigate = useNavigate();
-  const { canSeeAlm, desks } = useSession();
+  const { canSeeAlm, canSeePmu, canSeeTrading, desks } = useSession();
   // Someone who books deals reads their desk first; the balance sheet leads for everyone else.
-  const tradesFirst = desks.some((d) => d.can_book);
+  const tradesFirst = canSeeTrading && desks.some((d) => d.can_book && (d.code === 'FX' || d.code === 'MM'));
   const deals = useDeals();
   const breaks = useBreaks(false);
   const feeds = useFeeds();
-  const positions = usePositions();
-  const ladder = useLadder();
-  const activity = useActivity(24);
   const alm = useAlmOverview();
   const now = referenceNow(feeds.data);
-  const ready = deals.data !== undefined && breaks.data !== undefined && (!canSeeAlm || alm.data !== undefined || alm.isError);
+  const pmu = usePmuOverview(canSeePmu);
+  const ready = (!canSeeTrading || (deals.data !== undefined && breaks.data !== undefined)) && (!canSeeAlm || alm.data !== undefined || alm.isError) && (!canSeePmu || pmu.data !== undefined || pmu.isError);
 
   const rows = deals.data?.deals ?? [];
   const open = (breaks.data ?? []).filter((b) => b.status !== 'RESOLVED');
@@ -239,17 +238,6 @@ export function Overview() {
     }
   }
 
-  const breaksByKind: [string, number][] = KINDS.map((k) => [titleCase(k), open.filter((b) => b.kind === k).length]);
-  const matchCounts: [string, number][] = MATCH.map((m) => [titleCase(m), rows.filter((d) => d.match_status === m).length]);
-  const ladderBars: [string, number][] = (ladder.data?.rows ?? [])
-    .filter((r) => r.date >= today)
-    .slice(0, 5)
-    .map((r) => [fmtDate(r.date).slice(4), Number(r.net_expected)]);
-  const ladderTitle = ladder.data ? `Expected net cash ${ladder.data.ccy} · next five value dates` : 'Expected net cash';
-
-  const acts: Activity[] = groupActivity(activity.data && activity.data.length ? activity.data.map(fromServer) : localActivity(rows, breaks.data ?? [])).slice(0, 10);
-  const largest = [...(positions.data ?? [])].sort((a, b) => Math.abs(Number(b.net_notional)) - Math.abs(Number(a.net_notional))).slice(0, 8);
-
   return (
     <div className="page" data-ready={ready ? '1' : undefined}>
       <div className="page-title">
@@ -259,12 +247,77 @@ export function Overview() {
       <Attention now={now} />
 
       {canSeeAlm && !tradesFirst && <AlmBlock />}
+      {canSeePmu && !canSeeTrading && <PmuBlock />}
 
-      <Section title="Trading" meta="your desks, from the blotter and the breaks" />
-      {deals.data && breaks.data ? <StatStrip cells={cells} testId="trading-strip" /> : <SkeletonStrip cells={6} />}
+      {canSeeTrading && (
+        <>
+          <Section title="Trading" meta="your desks, from the blotter and the breaks" />
+          {deals.data && breaks.data ? <StatStrip cells={cells} testId="trading-strip" /> : <SkeletonStrip cells={6} />}
+        </>
+      )}
 
       {canSeeAlm && tradesFirst && <AlmBlock />}
+      {canSeePmu && canSeeTrading && <PmuBlock />}
 
+      {canSeeTrading && <TradingDetail />}
+      <div style={{ height: 12 }} />
+    </div>
+  );
+}
+
+/** The bond portfolio's headline on the Overview, for those who may see it. */
+function PmuBlock() {
+  const navigate = useNavigate();
+  const q = usePmuOverview(true);
+  const o = q.data;
+  return (
+    <>
+      <Section title="Bond portfolio" meta={o ? `PMU desk · as of ${fmtDateLong(o.as_of)} · in BHD` : 'PMU desk'} />
+      {o ? (
+        <>
+          <StatStrip cells={pmuHeadlineCells(o.headline, o.headline_prev ?? undefined, navigate)} testId="ov-pmu-strip" />
+          <div className="row" style={{ gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
+            <span className="t-small">
+              repos {fmtMoneyShort(o.repo.amount_bhd)} · {fmtMoneyShort(o.repo.due_7d_bhd)} due within seven days · {fmtMoneyShort(o.repo.available_face_bhd)} of face free to pledge
+            </span>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--info)' }} onClick={() => navigate('/pmu')}>
+              open the bond portfolio
+            </button>
+          </div>
+        </>
+      ) : q.isError ? (
+        <div className="t-muted">The bond portfolio could not be loaded.</div>
+      ) : (
+        <SkeletonStrip cells={6} />
+      )}
+    </>
+  );
+}
+
+/** Reconciliation, cash, activity and positions: the dealing desks' detail. */
+function TradingDetail() {
+  const navigate = useNavigate();
+  const deals = useDeals();
+  const breaks = useBreaks(false);
+  const feeds = useFeeds();
+  const positions = usePositions();
+  const ladder = useLadder();
+  const activity = useActivity(24);
+  const now = referenceNow(feeds.data);
+  const rows = deals.data?.deals ?? [];
+  const open = (breaks.data ?? []).filter((b) => b.status !== 'RESOLVED');
+  const today = now.slice(0, 10);
+  const breaksByKind: [string, number][] = KINDS.map((k) => [titleCase(k), open.filter((b) => b.kind === k).length]);
+  const matchCounts: [string, number][] = MATCH.map((m) => [titleCase(m), rows.filter((d) => d.match_status === m).length]);
+  const ladderBars: [string, number][] = (ladder.data?.rows ?? [])
+    .filter((r) => r.date >= today)
+    .slice(0, 5)
+    .map((r) => [fmtDate(r.date).slice(4), Number(r.net_expected)]);
+  const ladderTitle = ladder.data ? `Expected net cash ${ladder.data.ccy} · next five value dates` : 'Expected net cash';
+  const acts: Activity[] = groupActivity(activity.data && activity.data.length ? activity.data.map(fromServer) : localActivity(rows, breaks.data ?? [])).slice(0, 10);
+  const largest = [...(positions.data ?? [])].sort((a, b) => Math.abs(Number(b.net_notional)) - Math.abs(Number(a.net_notional))).slice(0, 8);
+  return (
+    <>
       <Section title="Operations" />
       <div className="panel-row ov-ops">
         <div className="panel">
@@ -324,8 +377,7 @@ export function Overview() {
           </div>
         </div>
       </div>
-      <div style={{ height: 12 }} />
-    </div>
+    </>
   );
 }
 

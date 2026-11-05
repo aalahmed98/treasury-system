@@ -78,3 +78,27 @@ test('funding shows the repo book and flags old quotes', async ({ page }) => {
   expect(await page.getByTestId('pmu-repos').locator('tbody tr').count()).toBeGreaterThan(5);
   await expect(page.getByTestId('pmu-quotes')).toContainText('days old');
 });
+
+test('a PMU user sees the bond portfolio, not the dealing desks, and cannot book a deal', async ({ page }) => {
+  await login(page, 'pmu1');
+  await ready(page);
+  const tabs = page.locator('nav.tabs');
+  await expect(tabs.getByRole('link', { name: 'PMU' })).toBeVisible();
+  for (const name of ['Blotter', 'Breaks', 'Liquidity']) await expect(tabs.getByRole('link', { name })).toHaveCount(0);
+  // The Overview leads with the bond portfolio and has no trading section.
+  await expect(page.getByTestId('ov-pmu-strip').locator('.cell')).toHaveCount(6);
+  await expect(page.getByTestId('trading-strip')).toHaveCount(0);
+  // The blotter's address sends them home, and the palette offers no deal booking.
+  await page.goto('/app/blotter?book=1');
+  await expect(page).toHaveURL(/\/app\/?$/);
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('book');
+  await expect(page.getByText('Book a deal')).toHaveCount(0);
+});
+
+test('the treasury head sees the bond portfolio on the Overview beside the trading desks', async ({ page }) => {
+  await login(page, 'head1');
+  await ready(page);
+  await expect(page.getByTestId('trading-strip')).toBeVisible();
+  await expect(page.getByTestId('ov-pmu-strip').locator('.cell')).toHaveCount(6);
+});

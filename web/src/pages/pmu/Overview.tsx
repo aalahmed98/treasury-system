@@ -6,9 +6,10 @@ import { useNavigate } from 'react-router';
 import { usePmuOverview } from '../../api/queries';
 import type { PmuOverview } from '../../api/types';
 import { fmtDateLong, fmtMonth } from '../../lib/fmt';
-import { Chip, Section, StatStrip, type StatCell } from '../../components/ui';
+import { Chip, Section, StatStrip } from '../../components/ui';
+import { pmuHeadlineCells } from './cells';
 import { Bars, SERIES, StackedBars } from '../../components/charts';
-import { Loading, bhd, dv01, pct, share, since } from './common';
+import { Loading, bhd, dv01, pct, share } from './common';
 
 export function PmuOverviewPage() {
   const q = usePmuOverview();
@@ -24,14 +25,7 @@ function Body({ o }: { o: PmuOverview }) {
   const [yearEnd, setYearEnd] = useState(false);
   const h = o.headline;
   const p = o.headline_prev ?? undefined;
-  const cells: StatCell[] = [
-    { label: 'Portfolio size', value: bhd(h.portfolio_face_bhd), sub: `face held · market value ${bhd(h.market_value_bhd)}`, onClick: () => navigate('/pmu/positions') },
-    { label: 'Net MTM', value: bhd(h.net_mtm_bhd), sub: `bonds and swaps · ${since(h.net_mtm_bhd, p?.net_mtm_bhd)}`, tone: h.net_mtm_bhd < 0 ? 'warn' : 'good', onClick: () => navigate('/pmu/risk') },
-    { label: 'Bond carry, month to date', value: bhd(h.mtd_carry_bhd), sub: `after FTP · ${bhd(h.daily_carry_bhd)} today`, tone: h.mtd_carry_bhd < 0 ? 'bad' : 'good', onClick: () => navigate('/pmu/income') },
-    { label: 'Net DV01', value: dv01(h.net_dv01_bhd), sub: `BHD per bp, after hedges · ${since(h.net_dv01_bhd, p?.net_dv01_bhd)}`, onClick: () => navigate('/pmu/risk') },
-    { label: 'NII, month to date', value: bhd(h.mtd_nii_bhd), sub: 'carry after FTP plus swap carry', tone: h.mtd_nii_bhd < 0 ? 'bad' : 'good', onClick: () => navigate('/pmu/income') },
-    { label: 'Portfolio yield', value: pct(h.portfolio_yield), sub: `effective rate on book value · duration ${h.mod_duration.toFixed(2)}`, onClick: () => navigate('/pmu/risk') },
-  ];
+  const cells = pmuHeadlineCells(h, p, navigate);
   const maxFace = Math.max(1, ...o.by_book.map((b) => b.face_bhd));
   const buckets = yearEnd ? o.maturity_year_end : o.maturity_now;
   const months = o.monthly;

@@ -197,3 +197,42 @@ async fn the_dealers_do_not_see_the_portfolio_and_alm_does(owner: PgPool) {
     let business = domain::Calendar::new(Vec::<NaiveDate>::new()).is_business_day(Utc::now().date_naive());
     assert_eq!(items.iter().any(|i| i.target == AttentionTarget::Ftp), business);
 }
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn deals_are_booked_on_the_dealing_desks_only(owner: PgPool) {
+    let router = fixture(&owner).await;
+    let desk = |code: &'static str| {
+        let owner = owner.clone();
+        async move { sqlx::query_scalar::<_, i16>("SELECT id FROM desks WHERE code = $1").bind(code).fetch_one(&owner).await.unwrap() }
+    };
+    let today = Utc::now().date_naive();
+    let deal = |desk_id: i16, product: &str| {
+        serde_json::json!({ "desk_id": desk_id, "product": product, "side": if product.starts_with("FX") { "BUY" } else { "LEND" },
+            "ccy1": "USD", "ccy2": if product.starts_with("FX") { serde_json::json!("BHD") } else { serde_json::Value::Null },
+            "notional": "1000000", "rate": "0.376", "trade_date": today, "value_date": today + Duration::days(2),
+            "maturity_date": if product.starts_with("MM") { serde_json::json!(today + Duration::days(30)) } else { serde_json::Value::Null },
+            "counterparty": "Citibank N.A." })
+    };
+    // pmu1 may book on its desk (for the PMU tickets to come) but not a deal.
+    let pmu = token(&router, "pmu1").await;
+    let res = router.clone().oneshot(req(Method::POST, "/deals", Some(&pmu), Some(deal(desk("PMU").await, "FX_SPOT").to_string()))).await.unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body: serde_json::Value = json(res).await;
+    assert!(body["error"].as_str().unwrap().contains("FX and money-market desks"), "{body}");
+    // The FX desk books FX products only.
+    let fx = token(&router, "fx1").await;
+    let res = router.clone().oneshot(req(Method::POST, "/deals", Some(&fx), Some(deal(desk("FX").await, "MM_DEPO").to_string()))).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = router.clone().oneshot(req(Method::POST, "/deals", Some(&fx), Some(deal(desk("FX").await, "FX_SPOT").to_string()))).await.unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    // And the database refuses it whoever asks: a direct insert on the PMU desk as the owner.
+    let e = sqlx::query(
+        "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, trade_date, value_date, counterparty, trader_id, status) \
+         SELECT gen_random_uuid(), 'PMU-1', id, 'FX_SPOT', 'BUY', 'USD', 'BHD', 1, 0.376, now()::date, now()::date, 'x', $1, 'BOOKED' FROM desks WHERE code = 'PMU'",
+    )
+    .bind(seed::user_id("pmu1"))
+    .execute(&owner)
+    .await
+    .unwrap_err();
+    assert!(e.to_string().contains("not entitled to book deals on the PMU desk"), "{e}");
+}

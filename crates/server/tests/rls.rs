@@ -123,15 +123,23 @@ async fn desks_seen(app: &PgPool, user: &str) -> Vec<String> {
 }
 
 /// Book a money-market deal on `desk_code` as `user`, attributed to `trader`.
+/// Books a deal of the desk's own kind (an FX spot on FX, a deposit on MM) as `user`.
 async fn insert_as(app: &PgPool, user: &str, desk_code: &str, trader: &str) -> sqlx::Result<()> {
     let mut tx = db::begin_as(app, seed::user_id(user)).await?;
-    sqlx::query(
+    let sql = if desk_code == "FX" {
+        "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \
+                            trade_date, value_date, counterparty, trader_id, status) \
+         SELECT $1, $2, id, 'FX_SPOT', 'BUY', 'USD', 'BHD', 1000000, 0.376, \
+                current_date, current_date, 'Test Bank', $3, 'BOOKED' \
+         FROM desks WHERE code = $4"
+    } else {
         "INSERT INTO deals (id, deal_ref, desk_id, product, side, ccy1, ccy2, notional, rate, \
                             trade_date, value_date, counterparty, trader_id, status) \
          SELECT $1, $2, id, 'MM_DEPO', 'LEND', 'BHD', NULL, 1000000, 5.0, \
                 current_date, current_date, 'Test Bank', $3, 'BOOKED' \
-         FROM desks WHERE code = $4",
-    )
+         FROM desks WHERE code = $4"
+    };
+    sqlx::query(sql)
     .bind(Uuid::now_v7())
     .bind(format!("T-{}", Uuid::now_v7()))
     .bind(seed::user_id(trader))

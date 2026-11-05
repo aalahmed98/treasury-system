@@ -89,9 +89,17 @@ pub async fn attention(State(state): State<AppState>, Extension(auth): Extension
         }
     }
 
-    // Feeds and the reconciler.
-    let feeds: Vec<(String, Option<DateTime<Utc>>)> =
-        sqlx::query_as("SELECT source, last_heartbeat_at FROM feed_status WHERE source NOT IN ('INTERNAL', 'USER') ORDER BY source").fetch_all(&mut *tx).await?;
+    // Feeds and the reconciler: about the dealing desks' deals, so only for those who see one.
+    let sees_dealing: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM user_desk_access a JOIN desks k ON k.id = a.desk_id WHERE a.user_id = current_app_user() AND k.code IN ('FX', 'MM'))",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let feeds: Vec<(String, Option<DateTime<Utc>>)> = if sees_dealing {
+        sqlx::query_as("SELECT source, last_heartbeat_at FROM feed_status WHERE source NOT IN ('INTERNAL', 'USER') ORDER BY source").fetch_all(&mut *tx).await?
+    } else {
+        Vec::new()
+    };
     for (source, hb) in feeds {
         let secs = hb.map(|h| (now - h).num_seconds().max(0));
         let severity = match secs {
@@ -296,7 +304,7 @@ pub async fn attention(State(state): State<AppState>, Extension(auth): Extension
             items.push(item(
                 AttentionSeverity::Info,
                 format!("Large unhedged position: {}", r.label),
-                format!("{} of face in {}, DV01 {} a basis point", short(r.face_bhd - r.hedged_face_bhd), r.book, short(r.dv01_bhd)),
+                format!("{} of face in {}, DV01 {:.1}k a basis point", short(r.face_bhd - r.hedged_face_bhd), r.book, r.dv01_bhd / 1000.0),
                 None,
                 AttentionTarget::Pmu { page: "risk".into() },
             ));

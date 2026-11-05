@@ -21,7 +21,7 @@ const Ftp = lazy(() => load.ftp().then((m) => ({ default: m.Ftp })));
 const Pmu = lazy(() => load.pmu().then((m) => ({ default: m.Pmu })));
 
 function Gate() {
-  const { current, canSeeAlm } = useSession();
+  const { current, canSeeAlm, canSeeTrading } = useSession();
   if (!current) return <Login />;
   return (
     <LiveProvider>
@@ -32,9 +32,9 @@ function Gate() {
               <Suspense fallback={<PageSkeleton />}>
                 <Routes>
                   <Route index element={<Overview />} />
-                  <Route path="blotter" element={<Blotter />} />
-                  <Route path="breaks" element={<Breaks />} />
-                  <Route path="liquidity" element={<Ladder />} />
+                  <Route path="blotter" element={canSeeTrading ? <Blotter /> : <Navigate to="/" replace />} />
+                  <Route path="breaks" element={canSeeTrading ? <Breaks /> : <Navigate to="/" replace />} />
+                  <Route path="liquidity" element={canSeeTrading ? <Ladder /> : <Navigate to="/" replace />} />
                   <Route path="risk/*" element={<Risk />} />
                   <Route path="ftp" element={<Ftp />} />
                   <Route path="pmu/*" element={<Pmu />} />

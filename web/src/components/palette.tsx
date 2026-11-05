@@ -61,7 +61,7 @@ const isTyping = (t: EventTarget | null) => {
 export function PaletteProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const navigate = useNavigate();
-  const { canSeeAlm, canSeeRisk, canSeePmu } = useSession();
+  const { canSeeAlm, canSeeRisk, canSeePmu, canSeeTrading } = useSession();
   const open = useCallback((m: Mode = 'commands') => setMode(m), []);
   const close = useCallback(() => setMode(null), []);
   const pending = useRef<number | null>(null);
@@ -77,7 +77,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
       if (pending.current !== null) {
         window.clearTimeout(pending.current);
         pending.current = null;
-        const to = e.key === 'o' ? '/' : e.key === 'b' ? '/blotter' : e.key === 'k' ? '/breaks' : e.key === 'l' ? '/liquidity' : e.key === 'r' && canSeeRisk ? '/risk' : e.key === 'a' && canSeeAlm ? '/alm' : e.key === 'p' && canSeePmu ? '/pmu' : null;
+        const to = e.key === 'o' ? '/' : e.key === 'b' && canSeeTrading ? '/blotter' : e.key === 'k' && canSeeTrading ? '/breaks' : e.key === 'l' && canSeeTrading ? '/liquidity' : e.key === 'r' && canSeeRisk ? '/risk' : e.key === 'a' && canSeeAlm ? '/alm' : e.key === 'p' && canSeePmu ? '/pmu' : null;
         if (to) {
           e.preventDefault();
           navigate(to);
@@ -101,7 +101,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, canSeeAlm, canSeeRisk, canSeePmu]);
+  }, [navigate, canSeeAlm, canSeeRisk, canSeePmu, canSeeTrading]);
 
   const api = useMemo(() => ({ open, close }), [open, close]);
   return (
@@ -125,15 +125,19 @@ function score(item: Item, q: string): number {
 function useItems(q: string): Item[] {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canSeeAlm, canSeeRisk, canSeePmu, bookableDesks, logout } = useSession();
+  const { canSeeAlm, canSeeRisk, canSeePmu, canSeeTrading, bookableDesks, logout } = useSession();
   const withRecords = q.length >= 2;
   return useMemo(() => {
     const go = (to: string) => () => navigate(to);
     const items: Item[] = [
       { id: 'p-overview', group: 'Pages', label: 'Overview', hint: 'g o', keywords: 'overview home dashboard', run: go('/') },
-      { id: 'p-blotter', group: 'Pages', label: 'Deal blotter', hint: 'g b', keywords: 'blotter deals trades', run: go('/blotter') },
-      { id: 'p-breaks', group: 'Pages', label: 'Breaks', hint: 'g k', keywords: 'breaks reconciliation exceptions', run: go('/breaks') },
-      { id: 'p-ladder', group: 'Pages', label: 'Liquidity ladder', hint: 'g l', keywords: 'liquidity ladder cash nostro', run: go('/liquidity') },
+      ...(canSeeTrading
+        ? [
+            { id: 'p-blotter', group: 'Pages', label: 'Deal blotter', hint: 'g b', keywords: 'blotter deals trades', run: go('/blotter') },
+            { id: 'p-breaks', group: 'Pages', label: 'Breaks', hint: 'g k', keywords: 'breaks reconciliation exceptions', run: go('/breaks') },
+            { id: 'p-ladder', group: 'Pages', label: 'Liquidity ladder', hint: 'g l', keywords: 'liquidity ladder cash nostro', run: go('/liquidity') },
+          ]
+        : []),
       { id: 'p-ftp', group: 'Pages', label: 'FTP curves', keywords: 'ftp funds transfer pricing curves funding rate', run: go('/ftp') },
     ];
     if (canSeeRisk) {
@@ -210,7 +214,7 @@ function useItems(q: string): Item[] {
       }
     }
     return items;
-  }, [navigate, qc, canSeeAlm, canSeeRisk, canSeePmu, bookableDesks.length, logout, withRecords]);
+  }, [navigate, qc, canSeeAlm, canSeeRisk, canSeePmu, canSeeTrading, bookableDesks.length, logout, withRecords]);
 }
 
 function setTheme(p: 'auto' | 'light' | 'dark') {
