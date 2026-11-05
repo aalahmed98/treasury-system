@@ -124,6 +124,11 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
 - **Drop zone**: a dashed `border` box that washes on hover and turns `info_soft` while a file is
   over it; the preview below it lists errors (bad, with sheet and cell), warnings and changes before
   anything is stored.
+- **Ticket sheet**: the PMU tickets use the detail overlay, 460 px wide: chips for the kind of
+  trade at the top, a search that lists matches as plain rows, a `surface_alt` card naming the bond
+  chosen, a label-and-field grid, then the server's preview as a right-aligned key-value list,
+  blocking problems in `bad` and warnings in `warn` above one primary button named for what it books.
+  Off-market needs a tick beside the button, as on the FX ticket.
 - **Period picker**: preset chips (month, quarter, year to date, last 30 days) and two date inputs;
   the period lives in the address so a view can be shared.
 

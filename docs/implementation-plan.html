@@ -104,8 +104,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div class="meta">
     <span>Status as of <b>5 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
-    <span>Tests passing <b>164</b> (121 Rust, 6 Vitest, 37 Playwright)</span>
-    <span>Phases complete <b>10 of 14</b></span>
+    <span>Tests passing <b>177</b> (127 Rust, 6 Vitest, 44 Playwright)</span>
+    <span>Phases complete <b>11 of 15</b></span>
   </div>
 </header>
 
@@ -120,13 +120,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2e" class="is-done"><span class="num">Phase 2E</span><span class="name">Redesign, hardening, one interface</span><span class="badge done">Done</span></a>
   <a href="#p2f" class="is-done"><span class="num">Phase 2F</span><span class="name">FX risk and the ALCO toolkit</span><span class="badge done">Done</span></a>
   <a href="#p2g" class="is-done"><span class="num">Phase 2G</span><span class="name">FTP and the PMU desk</span><span class="badge done">Done</span></a>
+  <a href="#p2h" class="is-done"><span class="num">Phase 2H</span><span class="name">PMU booking</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>10</b> phases done</span>
+  <span><b>11</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -369,6 +370,21 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div class="cols"><div><h4>Progress log</h4><ul id="log2g">
     <li>5 Nov, midday: phase complete. M2: migration 0007 and a new <code>pmu</code> crate that accrues each purchase lot daily at its effective interest rate (the amortised cost reaches zero exactly at maturity), charges FTP on book value at the rate locked from the trade-date curve, carries and values the linked swaps, charges repo interest, revalues for DV01 and ±50/100/200 bp, projects cash flows and forecasts income, running off or reinvesting; 8 hand-worked tests. A synthetic portfolio of 41 bonds, 127 lots, 23 swaps and 22 repos with daily prices and quotes. M3: seven PMU endpoints for the PMU desk, ALM and the head, loaded once per data stamp and cached per page (every page under 0.1 s after a 0.2 s load, with the engine optimised in development builds); attention items for FTP not published, currencies with no curve, lots without a Kondor ID, repos due within a week, large unhedged positions and old quotes; 2 HTTP tests on a hand-built portfolio. M4: the five pages (Overview, Positions as one tree from book to bond to lot, Income with the forecast, Risk and hedges, Funding and repo); every one of the 39 elements of the desk's eight Power BI tabs is traced to a page in the spec. M5: the verification script checks the FTP round trip and the PMU pages from a clean database; the start script now generates market data, FTP and the portfolio up to today. Still to confirm with the desk: the definitions of carry and NII, the Kondor ID measure, closed notional, the shock set, and a real copy of ALM's workbook.</li>
     <li>5 Nov, morning: M1 done. Decisions taken with the user: FTP from ALM's workbook; each bond charged the FTP rate for its term locked on its trade date; the income forecast runs the portfolio off, with a switch to reinvest maturing face; synthetic data now, Kondor later. Synthetic daily publications (the market curve plus a term premium) stand in until ALM's arrive and are never written over a day ALM published. 8 new Rust tests (the workbook reader in both layouts, fractions, bad cells, the template round trip, and publishing over HTTP with its rights) and 3 Playwright scenarios (a dealer reads the curves; ALM downloads the template, drops it, publishes; a bad file is refused). Open with the bank: a real copy of ALM's workbook, and whether the proposed definitions of carry and NII match PMU's.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2h">
+  <div class="phase-head"><span class="num">Phase 2H</span><h3>PMU booking</h3><span class="badge done">Done</span><span class="when">5 November 2026</span></div>
+  <p class="goal">Let the PMU desk book its own trades: buy and sell bonds picked by ISIN with everything needed to price them, and go to the repo market. Decided with the user: sales draw on the oldest lots first and the dealer may choose others; an unknown ISIN is set up on the ticket; repos, early close and roll, and reverse repos; a booking counts at once and is provisional until it has a Kondor id. Along the way the dealer's deal ticket stopped being offered to PMU (deals live on the FX and money-market desks only, enforced in the database) and PMU users stopped seeing the dealing desks' pages.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Data and engine</td><td>Migration 0009: lot sales, repo direction, early close and roll, origin and booker of each row, definer functions that check free face under row locks. The engine: the face held on a date, sales in the daily accrual (amortised cost and accrued go with the face sold, the realised gain kept apart from NII), reverse repo interest as income, the ticket maths (quote, FIFO allocation, pledge candidates, repo preview).</td><td>Phase 2G</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">API</td><td>Bond search and set-up with the ISIN check digit, the ticket preview, buy, sell, repo and reverse repo, close and roll, Kondor ids; recomputed at booking, audited, for the PMU desk's bookers only. An attention item for bookings still provisional after a day.</td><td>Data and engine</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Tickets</td><td>"Buy or sell a bond" and "Book a repo" on the PMU strip; a sheet with the search, the new-bond form, the live preview (price, yield, accrued, consideration, EIR, the FTP lock and carry, DV01, the market), the lots of a sale, the bonds free to pledge, the counterparty's quote; close or roll on the repo book; provisional lots, Kondor ids and sales on the bond detail.</td><td>API</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2h">
+    <li>5 Nov, afternoon: phase complete. Holdings now count from the trade date (a purchase not yet settled is already a position) while accrual starts at settlement. 5 new Rust tests (a half sale, allocation around pledged face, reverse and closed repos, the ISIN check digit, and the whole booking flow over HTTP with its refusals) and 6 Playwright scenarios; the verification script books a purchase, a sale and a repo from a clean database. Out of scope still: booking swaps, correcting or cancelling a booking, and the Kondor feed matching bookings.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

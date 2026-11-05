@@ -238,6 +238,43 @@ ok &= o["lots"] > 0 and levels == {"BOOK", "BOND", "LOT"} and adds and len(r["sh
 print("  checks:", "ok" if ok else "FAILED")
 PY
 
+echo "--- PMU booking: buy by ISIN, sell oldest first, repo against free face; only the desk's bookers ---"
+python3 - "$BASE" "$PMU" "$ALM" <<'PY'
+import json, sys, urllib.request, urllib.error
+base, pmu, alm = sys.argv[1:4]
+def call(path, tok, body=None, method=None):
+    data = None if body is None else json.dumps(body).encode()
+    r = urllib.request.Request(base + path, data=data, headers={"authorization": "Bearer " + tok, "content-type": "application/json"}, method=method or ("POST" if data else "GET"))
+    try:
+        with urllib.request.urlopen(r) as res: return res.status, json.loads(res.read() or b"null")
+    except urllib.error.HTTPError as e:
+        try: return e.code, json.loads(e.read() or b"null")
+        except Exception: return e.code, None
+_, hits = call("/pmu/bonds?q=saudi%20sov", pmu)
+held = next(h for h in hits if h["holdings"])
+isin = held["bond"]["isin"]; book = held["holdings"][0][0]
+buy = {"side": "BUY", "isin": isin, "book": book, "face": 2000000, "clean_price": held["market_price"]}
+s1, pv = call("/pmu/ticket/preview", pmu, buy)
+s2, b = call("/pmu/buy", pmu, buy)
+print(f"  pmu1 preview {isin}: HTTP {s1} | yield {pv['quote']['ytm']:.3f}% | EIR {pv['quote']['eir']:.3f}% | FTP {pv['quote']['ftp_rate']} | carry {pv['quote']['carry_bp']:.0f} bp | buy: HTTP {s2}")
+sell = {"side": "SELL", "isin": isin, "face": 1000000, "clean_price": held["market_price"]}
+s3, sp = call("/pmu/ticket/preview", pmu, sell)
+s4, _ = call("/pmu/sell", pmu, sell)
+print(f"  sell 1m: preview HTTP {s3} | {len(sp['legs'])} lot(s), realised {sp['realised_bhd']:.0f} BHD | book: HTTP {s4}")
+import datetime
+start = datetime.date.today().isoformat(); end = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+rp = {"direction": "REPO", "counterparty": "Citibank N.A.", "ccy": "USD", "start": start, "end": end, "rate": 4.6, "haircut_pct": 5, "collateral": []}
+_, rpv = call("/pmu/repo/preview", pmu, rp)
+cand = next(c for c in rpv["available"] if c["ccy"] == "USD")
+rp["collateral"] = [{"lot_id": cand["lot_id"], "face": min(cand["free"], 5000000)}]
+s5, r = call("/pmu/repo", pmu, rp)
+s6, _ = call("/pmu/buy", alm, buy)
+s7, _ = call(f"/pmu/lot/{b['id']}", pmu, {"kondor_id": "KND-VERIFY"}, "PATCH")
+print(f"  repo on {cand['name']}: HTTP {s5} | alm1 buy: HTTP {s6} (expect 403) | Kondor id attached: HTTP {s7}")
+ok = s1 == 200 and s2 == 201 and s3 == 200 and s4 == 201 and s5 == 201 and s6 == 403 and s7 == 200 and sp["legs"]
+print("  checks:", "ok" if ok else "FAILED")
+PY
+
 echo "--- web client: the pages are served at /app, deep links included ---"
 if [ -f web/dist/index.html ]; then
   APP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/app/")

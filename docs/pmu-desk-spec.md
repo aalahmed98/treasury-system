@@ -248,6 +248,21 @@ ticked as each one is built.
 
 ---
 
+## Booking (Phase 2H)
+
+PMU books its own trades from the PMU strip ("Buy or sell a bond", "Book a repo"):
+
+- **Bonds by ISIN.** Search by ISIN, name or issuer; an unknown ISIN is set up on the ticket with
+  its terms (check digit verified). The ticket shows what a purchase or sale needs: clean and dirty
+  price, yield, accrued, consideration in local currency and BHD, the effective rate, the FTP rate
+  it locks and the carry after FTP, DV01 and duration, and the distance from the market.
+- **Sales** draw on the oldest lots first, or the lots chosen, with the gain realised on each
+  against amortised cost. Pledged face cannot be sold.
+- **Repo market.** Repo (borrow cash against bonds whose face is free for the whole term) or
+  reverse repo (lend cash against the counterparty's bond); the rate starts at the counterparty's
+  latest quote over SOFR. A repo can be closed early or rolled.
+- Bookings count at once and are **provisional** until they carry a Kondor deal id.
+
 ## Open questions
 
 | # | Question | Answer |
