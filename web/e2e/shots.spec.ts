@@ -24,6 +24,8 @@ const routes: [string, string][] = [
   ['alm-ladder', '/app/alm/ladder'],
   ['alm-ewi', '/app/alm/ewi'],
   ['alm-pack', '/app/alm/pack'],
+  ['ftp', '/app/ftp'],
+  ['alm-ftp', '/app/alm/ftp'],
 ];
 
 for (const theme of ['light', 'dark'] as const) {

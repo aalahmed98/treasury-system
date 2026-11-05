@@ -10,6 +10,7 @@ pub mod matcher;
 pub mod normalise;
 pub mod nostro;
 pub mod pipeline;
+pub mod pmu_synth;
 pub mod sla;
 pub mod store;
 pub mod synth;

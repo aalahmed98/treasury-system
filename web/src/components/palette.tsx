@@ -133,6 +133,7 @@ function useItems(q: string): Item[] {
       { id: 'p-blotter', group: 'Pages', label: 'Deal blotter', hint: 'g b', keywords: 'blotter deals trades', run: go('/blotter') },
       { id: 'p-breaks', group: 'Pages', label: 'Breaks', hint: 'g k', keywords: 'breaks reconciliation exceptions', run: go('/breaks') },
       { id: 'p-ladder', group: 'Pages', label: 'Liquidity ladder', hint: 'g l', keywords: 'liquidity ladder cash nostro', run: go('/liquidity') },
+      { id: 'p-ftp', group: 'Pages', label: 'FTP curves', keywords: 'ftp funds transfer pricing curves funding rate', run: go('/ftp') },
     ];
     if (canSeeRisk) {
       items.push(
@@ -154,6 +155,7 @@ function useItems(q: string): Item[] {
         ['ladder', 'Liquidity maturity ladder', 'liquidity gap maturity ladder mismatch behavioural contractual'],
         ['ewi', 'Early warning and contingency funding', 'early warning ewi contingency funding plan cfp'],
         ['pack', 'ALCO pack', 'alco pack committee paper sign-off commentary'],
+        ['ftp', 'Publish FTP curves', 'ftp funds transfer pricing publish workbook excel upload curves'],
         ['setup', 'ALM setup', 'setup parameters versions limits'],
       ];
       for (const [t, label, kw] of tools) items.push({ id: `t-${t || 'dash'}`, group: 'ALM', label, keywords: kw, hint: t === '' ? 'g a' : undefined, run: go(t ? `/alm/${t}` : '/alm') });

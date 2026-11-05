@@ -328,7 +328,7 @@ async fn synth(
     info!(statements = n.statements, movements = n.movements, missing = n.missing, unexpected = n.unexpected, adjusted = n.adjusted, "nostro statements generated");
     if world.cfg.alm.enabled {
         let a = recon::alm_synth::run(&pool, &cal, &world.cfg.alm, world.window_end.date_naive(), world.cfg.world.seed).await?;
-        info!(snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, periods = a.periods, "banking book generated");
+        info!(snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, periods = a.periods, ftp = a.ftp, "banking book generated");
     }
     print_summary(&pool).await?;
 
@@ -425,7 +425,7 @@ async fn alm_synth(date: Option<NaiveDate>, seed: u64, config: Option<PathBuf>) 
         }
     };
     let a = recon::alm_synth::run(&pool, &cal, &cfg.alm, date, seed).await?;
-    info!(business_date = %date, snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, periods = a.periods, "banking book generated");
+    info!(business_date = %date, snapshots = a.snapshots, skipped = a.skipped, positions = a.positions, depositors = a.depositors, rates = a.rates, spots = a.spots, periods = a.periods, ftp = a.ftp, "banking book generated");
     Ok(())
 }
 

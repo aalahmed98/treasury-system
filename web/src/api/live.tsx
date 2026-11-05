@@ -54,6 +54,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             if (ev.deal_id) void qc.invalidateQueries({ queryKey: ['deal', ev.deal_id] });
             break;
           case 'alm':
+            if (ev.ftp) {
+              void qc.invalidateQueries({ queryKey: ['ftp'] });
+              void qc.invalidateQueries({ queryKey: ['pmu'] });
+            }
             void qc.invalidateQueries({ queryKey: ['alm'] });
             void qc.invalidateQueries({ queryKey: ['risk'] });
             void qc.invalidateQueries({ queryKey: ['attention'] });

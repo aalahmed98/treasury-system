@@ -30,10 +30,12 @@ pub enum ServerEvent {
     },
     /// The server may have missed notifications; clients should reload everything.
     Resync,
-    /// A new parameter version or banking-book snapshot; carries no desk data.
+    /// A new parameter version, banking-book snapshot or FTP publication; carries no desk data.
     Alm {
         params_version: Option<i32>,
         snapshot: Option<NaiveDate>,
+        #[serde(default)]
+        ftp: Option<NaiveDate>,
     },
 }
 

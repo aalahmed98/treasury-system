@@ -33,9 +33,37 @@ async fn main() -> anyhow::Result<()> {
             println!("TLS_CERT={}\nTLS_KEY={}", cert.display(), key.display());
             Ok(())
         }
+        Some("ftp-import") => ftp_import().await,
         Some("serve") | None => serve().await,
-        Some(other) => bail!("unknown command `{other}`; expected migrate | seed | serve | gen-dev-cert"),
+        Some(other) => bail!("unknown command `{other}`; expected migrate | seed | serve | gen-dev-cert | ftp-import"),
     }
+}
+
+/// `ftp-import <workbook.xlsx> [--as-of YYYY-MM-DD] [--user alm1] --note "..."`: publishes ALM's
+/// FTP workbook from a file, with the same checks and audit as a drop in the browser.
+async fn ftp_import() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let mut file = None;
+    let mut as_of = None;
+    let mut user = "alm1".to_string();
+    let mut note = String::new();
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--as-of" => as_of = Some(it.next().context("--as-of needs a date")?.parse::<chrono::NaiveDate>().context("--as-of must be YYYY-MM-DD")?),
+            "--user" => user = it.next().context("--user needs a username")?,
+            "--note" => note = it.next().context("--note needs text")?,
+            f if !f.starts_with("--") && file.is_none() => file = Some(std::path::PathBuf::from(f)),
+            other => bail!("unexpected argument `{other}`"),
+        }
+    }
+    let file = file.context("usage: ftp-import <workbook.xlsx> [--as-of YYYY-MM-DD] [--user alm1] --note \"...\"")?;
+    let cfg = Config::from_env()?;
+    let owner = PgPool::connect(&owner_url()?).await.context("connecting as owner")?;
+    let app = db::connect(&cfg.app_database_url).await.context("connecting as app role")?;
+    let (id, date, ccys) = server::routes::ftp::import_file(&owner, &app, &user, &file, as_of, &note).await?;
+    info!(publication = id, as_of = %date, currencies = %ccys.join(","), "FTP curves published");
+    Ok(())
 }
 
 fn owner_url() -> anyhow::Result<String> {

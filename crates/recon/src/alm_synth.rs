@@ -150,11 +150,11 @@ pub fn money_rate(ccy: &str) -> f64 {
     base_level(ccy)
 }
 
-fn hash(s: &str) -> u64 {
+pub(crate) fn hash(s: &str) -> u64 {
     s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
 }
 
-fn normal(rng: &mut StdRng) -> f64 {
+pub(crate) fn normal(rng: &mut StdRng) -> f64 {
     let u1: f64 = rng.random_range(1e-12..1.0);
     let u2: f64 = rng.random_range(0.0..1.0);
     (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
@@ -249,6 +249,11 @@ impl Market {
             }
         }
         curve.last().map(|c| c.1).unwrap_or(base_level(ccy))
+    }
+
+    /// The first and last day of the history.
+    pub fn span(&self) -> Option<(NaiveDate, NaiveDate)> {
+        self.first_day.zip(self.last_day)
     }
 
     pub fn spot(&self, ccy: &str, on: NaiveDate) -> f64 {
@@ -665,6 +670,8 @@ pub struct AlmSummary {
     pub rates: usize,
     pub spots: usize,
     pub periods: usize,
+    /// Synthetic FTP publications added.
+    pub ftp: usize,
 }
 
 /// Generate and persist. Snapshots already complete are left alone, so re-runs are cheap and a
@@ -673,7 +680,9 @@ pub async fn run(pool: &PgPool, _cal: &Calendar, cfg: &AlmCfg, business_date: Na
     let market = Market::generate(seed, business_date, cfg.rate_history_days);
     let book = generate(cfg, &market, business_date, seed);
     tracing::info!(snapshots = book.dates.len(), positions = book.positions.len(), digest = format!("{:016x}", digest(&book)), "banking book generated");
-    write(pool, &market, &book, business_date, seed).await
+    let mut summary = write(pool, &market, &book, business_date, seed).await?;
+    summary.ftp = crate::pmu_synth::write_ftp(pool, _cal, &market).await?;
+    Ok(summary)
 }
 
 pub async fn write(pool: &PgPool, market: &Market, book: &Book, business_date: NaiveDate, seed: u64) -> anyhow::Result<AlmSummary> {

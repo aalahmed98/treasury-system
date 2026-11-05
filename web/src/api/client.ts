@@ -1,7 +1,7 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -72,21 +72,15 @@ export interface CallInit {
   /** A background poll: the server does not count it as user presence. */
   passive?: boolean;
   signal?: AbortSignal;
+  /** A file sent as it is (an uploaded workbook) instead of a JSON body. */
+  raw?: Blob;
 }
 
 export async function api<T>(path: string, init: CallInit = {}): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
   if (init.body !== undefined) headers['content-type'] = 'application/json';
-  const tok = current?.token;
-  if (tok) headers.authorization = `Bearer ${tok}`;
-  if (init.passive) headers['x-treasury-passive'] = '1';
-  const res = await fetch(path, {
-    method: init.method ?? 'GET',
-    headers,
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: init.signal,
-    cache: 'no-store',
-  });
+  if (init.raw) headers['content-type'] = 'application/octet-stream';
+  const res = await send(path, init, headers);
   if (res.status === 401 && current) {
     endSession('Your session ended. Sign in again.');
     throw new ApiError(401, 'session ended');
@@ -104,6 +98,34 @@ export async function api<T>(path: string, init: CallInit = {}): Promise<T> {
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+async function send(path: string, init: CallInit, headers: Record<string, string>): Promise<Response> {
+  const tok = current?.token;
+  if (tok) headers.authorization = `Bearer ${tok}`;
+  if (init.passive) headers['x-treasury-passive'] = '1';
+  return fetch(path, {
+    method: init.method ?? 'GET',
+    headers,
+    body: init.raw ?? (init.body === undefined ? undefined : JSON.stringify(init.body)),
+    signal: init.signal,
+    cache: 'no-store',
+  });
+}
+
+/** Fetches a file with the session (the browser cannot add the bearer to a plain link) and saves it. */
+export async function download(path: string, fallbackName: string) {
+  const res = await send(path, {}, {});
+  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 const q = (params: Record<string, string | number | undefined>) => {
@@ -153,4 +175,10 @@ export const endpoints = {
   pack: (period?: string) => api<AlcoPack>(`/alm/pack${q({ period })}`, { passive: true }),
   packNote: (period: string, section: string, body: string) => api<void>('/alm/pack/note', { method: 'POST', body: { period, section, body } }),
   packSign: (period: string, note: string) => api<void>('/alm/pack/sign', { method: 'POST', body: { period, note } }),
+  ftp: (asOf?: string) => api<FtpCurrent>(`/ftp${q({ as_of: asOf })}`, { passive: true }),
+  ftpHistory: (ccy: string, tenor: string, days: number) => api<FtpHistory>(`/ftp/history${q({ ccy, tenor, days })}`, { passive: true }),
+  ftpPreview: (file: Blob) => api<FtpPreview>('/ftp/preview', { method: 'POST', raw: file }),
+  ftpPublish: (req: { as_of: string; curves: FtpCurve[]; file_name: string | null; file_sha256: string | null; note: string }) =>
+    api<FtpPublication>('/ftp/publish', { method: 'POST', body: req }),
+  ftpTemplate: () => download('/ftp/template.xlsx', 'ftp-curves.xlsx'),
 };

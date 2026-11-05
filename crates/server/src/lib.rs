@@ -6,6 +6,7 @@ pub mod config;
 pub mod db;
 pub mod devcert;
 pub mod error;
+pub mod ftp_sheet;
 pub mod housekeeping;
 pub mod listener;
 pub mod routes;

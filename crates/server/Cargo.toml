@@ -35,6 +35,8 @@ dotenvy.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 futures.workspace = true
+calamine.workspace = true
+rust_xlsxwriter.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

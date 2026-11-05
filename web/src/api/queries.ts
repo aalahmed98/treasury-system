@@ -31,3 +31,6 @@ export const useFxRisk = (enabled = true) => useQuery({ queryKey: ['risk', 'fx']
 export const useFxHistory = (days = 30) => useQuery({ queryKey: ['risk', 'history', days], queryFn: () => endpoints.fxHistory(days), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
 export const useRiskLimits = () => useQuery({ queryKey: ['risk', 'limits'], queryFn: endpoints.riskLimits, staleTime: MINUTE });
 export const useBreaches = (days = 30) => useQuery({ queryKey: ['risk', 'breaches', days], queryFn: () => endpoints.breaches(days), staleTime: MINUTE });
+export const useFtp = (asOf?: string) => useQuery({ queryKey: ['ftp', 'current', asOf ?? 'today'], queryFn: () => endpoints.ftp(asOf), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
+export const useFtpHistory = (ccy: string, tenor: string, days = 90) =>
+  useQuery({ queryKey: ['ftp', 'history', ccy, tenor, days], queryFn: () => endpoints.ftpHistory(ccy, tenor, days), staleTime: 5 * MINUTE, enabled: !!ccy && !!tenor });

@@ -1645,3 +1645,55 @@ dialog.ticket::backdrop {
 .alm-strip .chip {
   padding: 0 9px;
 }
+
+/* FTP: the curves table, the status-bar chip, and the workbook drop on the ALM tool */
+.ftp-table td.delta {
+  width: 34px;
+  padding-left: 0;
+  font-size: 11px;
+}
+.ftp-table th[colspan] {
+  text-align: right;
+}
+.statusbar .ftp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.dropzone {
+  margin-top: 10px;
+  padding: 22px 18px;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  max-width: 760px;
+  transition: background-color 120ms cubic-bezier(0.25, 1, 0.5, 1), border-color 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.dropzone:hover,
+.dropzone:focus-visible {
+  background: var(--hover);
+}
+.dropzone.over {
+  border-color: var(--info);
+  background: var(--info-soft);
+}
+.issues {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: grid;
+  gap: 3px;
+}
+.issues.bad {
+  color: var(--bad);
+}
+.issues.warn {
+  color: var(--warn);
+}
+.ftp-preview .notice {
+  margin: 6px 0;
+}

@@ -42,6 +42,8 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem
 dotenvy = "0.15.7"
 toml = "0.9"
 clap = { version = "4.5", features = ["derive"] }
+calamine = { version = "0.38", features = ["dates"] }
+rust_xlsxwriter = "0.102"
 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 

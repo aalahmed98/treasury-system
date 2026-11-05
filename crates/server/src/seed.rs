@@ -26,14 +26,15 @@ const USERS: &[SeedUser] = &[
         username: "alm1",
         display_name: "ALM Analyst",
         home: "ALM",
-        access: &[("FX", false, false), ("MM", false, false), ("ALM", false, false)],
+        access: &[("FX", false, false), ("MM", false, false), ("ALM", false, false), ("PMU", false, false)],
     },
     SeedUser {
         username: "head1",
         display_name: "Head of Treasury",
         home: "HEAD",
-        access: &[("FX", false, true), ("MM", false, true), ("ALM", false, true), ("HEAD", false, true), ("UNASSIGNED", false, true)],
+        access: &[("FX", false, true), ("MM", false, true), ("ALM", false, true), ("PMU", false, true), ("HEAD", false, true), ("UNASSIGNED", false, true)],
     },
+    SeedUser { username: "pmu1", display_name: "Portfolio Manager", home: "PMU", access: &[("PMU", true, true)] },
 ];
 
 pub fn user_id(username: &str) -> Uuid {

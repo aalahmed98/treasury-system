@@ -289,7 +289,7 @@ export type ServerEvent =
   | { type: 'deal'; op: string; id: string; desk_id: number; version: number }
   | { type: 'break'; id: number; desk_id: number; deal_id: string | null; status: BreakStatus }
   | { type: 'resync' }
-  | { type: 'alm'; params_version: number | null; snapshot: string | null };
+  | { type: 'alm'; params_version: number | null; snapshot: string | null; ftp?: string | null };
 
 // ALM overview block (the balance-sheet section of the Overview and the ALM dashboard).
 export interface LimitRow {
@@ -922,4 +922,67 @@ export interface AlcoPack {
   notes: Record<string, AlcoNote>;
   signoff: { signed_by: string | null; signed_at: string; note: string | null } | null;
   can_sign: boolean;
+}
+
+// FTP: the curves ALM publishes each day from its workbook, read by every desk.
+export interface FtpCurve {
+  ccy: string;
+  points: CurvePoint[];
+}
+export interface FtpPublication {
+  id: number;
+  as_of: string;
+  published_at: string;
+  published_by: string | null;
+  file_name: string | null;
+  note: string | null;
+  superseded: number;
+  curves: FtpCurve[];
+}
+export interface FtpPublicationSummary {
+  id: number;
+  as_of: string;
+  published_at: string;
+  published_by: string | null;
+  file_name: string | null;
+  note: string | null;
+  currencies: string[];
+  is_current: boolean;
+}
+export interface FtpCurrent {
+  date: string;
+  current: FtpPublication | null;
+  previous: FtpPublication | null;
+  age_days: number | null;
+  stale: boolean;
+  can_publish: boolean;
+  recent: FtpPublicationSummary[];
+}
+export interface FtpHistory {
+  ccy: string;
+  tenor: string;
+  points: { as_of: string; rate: number }[];
+}
+export interface SheetIssue {
+  sheet: string;
+  cell: string;
+  message: string;
+}
+export type FtpChange =
+  | { kind: 'added'; ccy: string }
+  | { kind: 'missing'; ccy: string }
+  | { kind: 'moved'; ccy: string; tenor: string; from: number; to: number }
+  | { kind: 'tenors'; ccy: string; added: string[]; removed: string[] };
+export interface FtpPreview {
+  sheet_date: string | null;
+  as_of: string;
+  layout: string;
+  curves: FtpCurve[];
+  fractions: boolean;
+  errors: SheetIssue[];
+  warnings: SheetIssue[];
+  changes: FtpChange[];
+  compared_with: string | null;
+  previous: FtpCurve[];
+  file_sha256: string;
 }

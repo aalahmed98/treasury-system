@@ -5,13 +5,14 @@ pub mod audit;
 pub mod auth;
 pub mod deals;
 pub mod events;
+pub mod ftp;
 pub mod liquidity;
 pub mod market;
 pub mod positions;
 pub mod recon;
 pub mod risk;
 
-use axum::extract::Request;
+use axum::extract::{DefaultBodyLimit, Request};
 use axum::http::header::{self, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{Redirect, Response};
@@ -91,6 +92,11 @@ pub fn router(state: AppState) -> Router {
         .route("/risk/breaches", get(risk::breaches))
         .route("/risk/breaches/sign", post(risk::sign_breach))
         .route("/market/rates", get(market::rates))
+        .route("/ftp", get(ftp::current))
+        .route("/ftp/history", get(ftp::history))
+        .route("/ftp/template.xlsx", get(ftp::template))
+        .route("/ftp/preview", post(ftp::preview).layer(DefaultBodyLimit::max(ftp::MAX_WORKBOOK + 1024)))
+        .route("/ftp/publish", post(ftp::publish))
         .route("/activity", get(activity::activity))
         .route("/attention", get(activity::attention))
         .route("/events", get(events::stream))

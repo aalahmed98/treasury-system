@@ -12,6 +12,8 @@ export interface SessionApi {
   canSeeAlm: boolean;
   /** FX dealers and the treasury head see the FX risk page. */
   canSeeRisk: boolean;
+  /** The PMU desk, ALM and the head see the bond portfolio. */
+  canSeePmu: boolean;
   isHead: boolean;
   canBook: (deskId: number) => boolean;
   canResolve: (deskId: number) => boolean;
@@ -49,6 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       homeDesk: desks.find((d) => d.desk_id === current?.user.home_desk_id) ?? null,
       canSeeAlm: codes.has('ALM') || codes.has('HEAD'),
       canSeeRisk: codes.has('FX') || codes.has('HEAD'),
+      canSeePmu: codes.has('PMU') || codes.has('ALM') || codes.has('HEAD'),
       isHead: codes.has('HEAD'),
       canBook: (id) => desks.some((d) => d.desk_id === id && d.can_book),
       canResolve: (id) => desks.some((d) => d.desk_id === id && d.can_resolve),

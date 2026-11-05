@@ -17,8 +17,9 @@ import { Setup } from './Setup';
 import { LiquidityGap } from './LiquidityGap';
 import { Ewi } from './Ewi';
 import { Pack } from './Pack';
+import { FtpPublish } from './FtpPublish';
 
-type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'ladder' | 'ewi' | 'funding' | 'gap' | 'nii' | 'stress' | 'ird' | 'attribution' | 'pack' | 'setup';
+type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'ladder' | 'ewi' | 'funding' | 'gap' | 'nii' | 'stress' | 'ird' | 'attribution' | 'pack' | 'ftp' | 'setup';
 const LABEL: Record<Tool, string> = {
   dashboard: 'Dashboard',
   lcr: 'LCR',
@@ -32,6 +33,7 @@ const LABEL: Record<Tool, string> = {
   ird: 'IRD',
   attribution: 'Attribution',
   pack: 'ALCO pack',
+  ftp: 'FTP',
   setup: 'Setup',
 };
 const GROUPS: [string, Tool[]][] = [
@@ -64,9 +66,8 @@ export function Alm() {
         <span style={{ flex: 1 }} />
         {(params.isFetching || snapshots.isFetching) && <span className="t-small">…</span>}
         {(params.error || snapshots.error) && <span className="t-bad t-small">{(params.error ?? snapshots.error)?.message}</span>}
-        <span className="t-small">snapshot</span>
-        <select className="input input-sm" value={asOf ?? ''} onChange={(e) => setAsOf(e.target.value || null)} aria-label="Snapshot">
-          <option value="">latest</option>
+        <select className="input input-sm" value={asOf ?? ''} onChange={(e) => setAsOf(e.target.value || null)} aria-label="Snapshot" title="the balance-sheet snapshot every tool reads">
+          <option value="">latest snapshot</option>
           {(snapshots.data ?? []).map((s) => (
             <option key={s.as_of} value={s.as_of}>
               {fmtDateLong(s.as_of)} ({s.positions} cohorts)
@@ -76,6 +77,9 @@ export function Alm() {
         <span className="vsep" />
         <Chip selected={tool === 'pack'} onClick={() => go('pack')}>
           ALCO pack
+        </Chip>
+        <Chip selected={tool === 'ftp'} onClick={() => go('ftp')}>
+          FTP
         </Chip>
         <Chip selected={tool === 'setup'} onClick={() => go('setup')}>
           Setup
@@ -118,6 +122,8 @@ function ToolBody({ tool }: { tool: Tool }) {
       return <Ewi />;
     case 'pack':
       return <Pack />;
+    case 'ftp':
+      return <FtpPublish />;
     default:
       return (
         <div className="alm-layout single">

@@ -6,9 +6,9 @@ import { NavLink, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../api/session';
 import { useLive } from '../api/live';
-import { useAttention, useBreaks, useDeals, useFeeds, useFxRisk } from '../api/queries';
+import { useAttention, useBreaks, useDeals, useFeeds, useFtp, useFxRisk } from '../api/queries';
 import type { AttentionItem, AttentionTarget, FeedsResponse } from '../api/types';
-import { fmtAge, fmtLocal, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
+import { fmtAge, fmtDateShort, fmtLocal, fmtTime, secondsBetween, titleCase } from '../lib/fmt';
 import { readPref, writePref } from '../lib/prefs';
 import { splitAttention } from '../lib/attention';
 import { Badge, Dot, type Tone, useOutsideClose } from './ui';
@@ -408,6 +408,26 @@ function ConnectionBanner() {
   );
 }
 
+/** The FTP curves in force, for every desk: when they were published and how many; amber once a
+ * business day has passed without a new publication. */
+function FtpChip() {
+  const ftp = useFtp();
+  const navigate = useNavigate();
+  const c = ftp.data;
+  if (!c) return null;
+  const cur = c.current;
+  const text = cur ? `FTP ${fmtDateShort(cur.as_of)} · ${cur.curves.length} ${cur.curves.length === 1 ? 'curve' : 'curves'}` : 'FTP not published';
+  const title = cur
+    ? `${c.stale ? `Not published for ${fmtDateShort(c.date)}; ` : ''}published ${fmtLocal(cur.published_at)} by ${cur.published_by ?? 'the application'}`
+    : 'ALM has not published FTP curves yet';
+  return (
+    <button type="button" className="btn btn-ghost btn-sm ftp-chip" data-testid="ftp-chip" onClick={() => navigate('/ftp')} title={title} onMouseEnter={() => warmFor('/ftp')}>
+      <Dot tone={!cur ? 'bad' : c.stale ? 'warn' : 'good'} />
+      {text}
+    </button>
+  );
+}
+
 function StatusBar() {
   const live = useLive();
   const qc = useQueryClient();
@@ -424,6 +444,7 @@ function StatusBar() {
       {age !== null && <span>updated {age < 5 ? 'just now' : `${fmtAge(age)} ago`}</span>}
       {deals.data && <span title="server time of the last full load">snapshot {fmtLocal(deals.data.as_of)}</span>}
       <span className="right">
+        <FtpChip />
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => void qc.invalidateQueries()} title="fetch everything again">
           Refresh
         </button>
