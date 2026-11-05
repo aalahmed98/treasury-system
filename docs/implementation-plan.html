@@ -104,8 +104,8 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <div class="meta">
     <span>Status as of <b>5 November 2026</b></span>
     <span>Repository branch <b>main</b></span>
-    <span>Tests passing <b>149</b> (111 Rust, 6 Vitest, 32 Playwright)</span>
-    <span>Phases complete <b>9 of 14</b></span>
+    <span>Tests passing <b>164</b> (121 Rust, 6 Vitest, 37 Playwright)</span>
+    <span>Phases complete <b>10 of 14</b></span>
   </div>
 </header>
 
@@ -119,15 +119,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2d" class="is-done"><span class="num">Phase 2D</span><span class="name">Web client and desktop shell</span><span class="badge done">Done</span></a>
   <a href="#p2e" class="is-done"><span class="num">Phase 2E</span><span class="name">Redesign, hardening, one interface</span><span class="badge done">Done</span></a>
   <a href="#p2f" class="is-done"><span class="num">Phase 2F</span><span class="name">FX risk and the ALCO toolkit</span><span class="badge done">Done</span></a>
-  <a href="#p2g" class="is-partial"><span class="num">Phase 2G</span><span class="name">FTP and the PMU desk</span><span class="badge partial">In progress</span></a>
+  <a href="#p2g" class="is-done"><span class="num">Phase 2G</span><span class="name">FTP and the PMU desk</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>9</b> phases done</span>
-  <span><b>1</b> in progress</span>
+  <span><b>10</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -354,20 +353,21 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
     <li>5 Nov, early hours: phase complete. The synthetic market and synthetic deals now share one spot path, so revaluation and the off-market check see realistic numbers. 15 new Rust tests (the FX maths hand-worked, the ladder, the early warnings, and three over HTTP for a hand-worked book, limits rights and the ALCO pack) bring the suite to 103; 26 Playwright scenarios pass; the verification script checks the risk view, limits rights and the new ALM endpoints from a clean database. Placeholder limits are set to the synthetic book's scale and wait for the board-approved ones; intraday liquidity and funds transfer pricing stay on the list, waiting on timestamped payment data and product-level data from the bank.</li>
   </ul></div></div>
 </section>
-<section class="phase is-partial" id="p2g">
-  <div class="phase-head"><span class="num">Phase 2G</span><h3>FTP curves and the PMU desk</h3><span class="badge partial">In progress</span><span class="when">From 5 November 2026</span></div>
+<section class="phase is-done" id="p2g">
+  <div class="phase-head"><span class="num">Phase 2G</span><h3>FTP curves and the PMU desk</h3><span class="badge done">Done</span><span class="when">5 November 2026</span></div>
   <p class="goal">Bring the Portfolio Management Unit (the bank's bonds, the swaps that hedge them and the repos that fund them) into the system, replacing the eight-tab Power BI report the desk works from today with five pages built on an accrual engine. The desk's tabs are recorded in <code>docs/pmu-desk-spec.md</code>. Funding is charged with the FTP curves ALM publishes each day from its workbook; every desk sees them. Data is synthetic for now and shaped for a Kondor feed.</p>
   <div class="tablewrap"><table>
     <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td class="item">M1 FTP curves</td><td>ALM drops its Excel workbook (a column per currency, or a sheet per currency); the server reads it, names every bad cell, compares it with the curves in force and publishes it with a note. The currencies are whatever the workbook holds (BHD, USD, AED and SAR today). Every desk sees the curves on an FTP page and in the status bar; a command-line import takes a file from a folder.</td><td>None</td><td><span class="badge done">Done</span></td></tr>
-      <tr><td class="item">M2 Data and accrual engine</td><td>Books, bonds by ISIN, purchase lots (the base record, with the Kondor ID), swaps linked to the bonds they hedge, repos and their collateral, repo quotes and prices. The engine: effective-interest accrual and amortisation, FTP locked at purchase, swap carry and valuation, DV01 and rate shocks, cash flows and the income forecast.</td><td>M1</td><td><span class="badge ready">Next</span></td></tr>
-      <tr><td class="item">M3 API</td><td>The PMU endpoints, cached per day, and the attention items (FTP not yet published, repos due within seven days, large unhedged positions, lots without a Kondor ID, old repo quotes).</td><td>M2</td><td><span class="badge ready">Planned</span></td></tr>
-      <tr><td class="item">M4 The five PMU pages</td><td>Overview, Positions (one tree from book to bond to lot with holding, income and risk columns), Income (period picker and the forecast), Risk and hedges, Funding and repo; every element of the eight Power BI tabs traced to one of them.</td><td>M3</td><td><span class="badge ready">Planned</span></td></tr>
-      <tr><td class="item">M5 Close-out</td><td>Verification script, documentation and the coverage checklist in the spec.</td><td>M4</td><td><span class="badge ready">Planned</span></td></tr>
+      <tr><td class="item">M2 Data and accrual engine</td><td>Books, bonds by ISIN, purchase lots (the base record, with the Kondor ID), swaps linked to the bonds they hedge, repos and their collateral, repo quotes and prices. The engine: effective-interest accrual and amortisation, FTP locked at purchase, swap carry and valuation, DV01 and rate shocks, cash flows and the income forecast.</td><td>M1</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">M3 API</td><td>The PMU endpoints, cached per day, and the attention items (FTP not yet published, repos due within seven days, large unhedged positions, lots without a Kondor ID, old repo quotes).</td><td>M2</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">M4 The five PMU pages</td><td>Overview, Positions (one tree from book to bond to lot with holding, income and risk columns), Income (period picker and the forecast), Risk and hedges, Funding and repo; every element of the eight Power BI tabs traced to one of them.</td><td>M3</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">M5 Close-out</td><td>Verification script, documentation and the coverage checklist in the spec.</td><td>M4</td><td><span class="badge done">Done</span></td></tr>
     </tbody>
   </table></div>
   <div class="cols"><div><h4>Progress log</h4><ul id="log2g">
+    <li>5 Nov, midday: phase complete. M2: migration 0007 and a new <code>pmu</code> crate that accrues each purchase lot daily at its effective interest rate (the amortised cost reaches zero exactly at maturity), charges FTP on book value at the rate locked from the trade-date curve, carries and values the linked swaps, charges repo interest, revalues for DV01 and ±50/100/200 bp, projects cash flows and forecasts income, running off or reinvesting; 8 hand-worked tests. A synthetic portfolio of 41 bonds, 127 lots, 23 swaps and 22 repos with daily prices and quotes. M3: seven PMU endpoints for the PMU desk, ALM and the head, loaded once per data stamp and cached per page (every page under 0.1 s after a 0.2 s load, with the engine optimised in development builds); attention items for FTP not published, currencies with no curve, lots without a Kondor ID, repos due within a week, large unhedged positions and old quotes; 2 HTTP tests on a hand-built portfolio. M4: the five pages (Overview, Positions as one tree from book to bond to lot, Income with the forecast, Risk and hedges, Funding and repo); every one of the 39 elements of the desk's eight Power BI tabs is traced to a page in the spec. M5: the verification script checks the FTP round trip and the PMU pages from a clean database; the start script now generates market data, FTP and the portfolio up to today. Still to confirm with the desk: the definitions of carry and NII, the Kondor ID measure, closed notional, the shock set, and a real copy of ALM's workbook.</li>
     <li>5 Nov, morning: M1 done. Decisions taken with the user: FTP from ALM's workbook; each bond charged the FTP rate for its term locked on its trade date; the income forecast runs the portfolio off, with a switch to reinvest maturing face; synthetic data now, Kondor later. Synthetic daily publications (the market curve plus a term premium) stand in until ALM's arrive and are never written over a day ALM published. 8 new Rust tests (the workbook reader in both layouts, fractions, bad cells, the template round trip, and publishing over HTTP with its rights) and 3 Playwright scenarios (a dealer reads the curves; ALM downloads the template, drops it, publishes; a bad file is refused). Open with the bank: a real copy of ALM's workbook, and whether the proposed definitions of carry and NII match PMU's.</li>
   </ul></div></div>
 </section>

@@ -10,22 +10,26 @@ by Postgres row-level security, not by application code.
 Phase 1 built the foundation (database, hardened login, a first native client, live updates). Phase 2A built
 the reconciliation core with synthetic feeds that reproduce real failure modes. Phase 2B added the
 intraday liquidity ladder with synthetic nostro statements, a booking ticket with amendments, and the
-deal history view. Phase 2C, the current state, turned the client into a dashboard (overview, tabs,
+deal history view. Phase 2C turned the client into a dashboard (overview, tabs,
 attention panel, light and dark mode) and added the ALM workbench: LCR, NSFR, NII and NIM, stress
 testing, variance attribution, an interest rate differential calculator, the repricing gap and funding
 concentration, on a synthetic banking book with the bank's limits as a versioned parameter set.
 Phase 2D rebuilt the interface as a web client in TypeScript served by the same server at `/app`
 (the same screens, richer tables and charts, printing and CSV export) and wrapped it in a small
-Windows desktop application with its own icon. Phase 2E, the current state, redesigned those pages
+Windows desktop application with its own icon. Phase 2E redesigned those pages
 around the user's work (a command palette, keyboard selection, an attention-first overview, side
 sheets instead of modals, a break queue, toasts and skeletons), split them into chunks that load on
 demand, hardened the server's responses and the desktop shell, and retired the native egui client:
-the React pages are now the whole interface. Phase 2F, the current state, added the FX desk's risk
+the React pages are now the whole interface. Phase 2F added the FX desk's risk
 and P&L view (positions, P&L, the forward ladder, counterparty exposure, VaR, versioned limits set
 by the treasury head, breach sign-off, an off-market check on the ticket) and the rest of the ALCO
 toolkit (the liquidity maturity ladder, early-warning indicators with the contingency plan's stage,
-balance-sheet ratios, the annual report's ±200 bp test, and a signed-off ALCO pack). The implementation plan with what is blocked and what
-is not lives in `docs/implementation-plan.html`.
+balance-sheet ratios, the annual report's ±200 bp test, and a signed-off ALCO pack). Phase 2G, the
+current state, publishes ALM's daily FTP curves to every desk from its Excel workbook and brings in
+the PMU desk: the bank's bond portfolio with its hedging swaps and repo funding, accrued daily at
+each purchase's effective interest rate and charged FTP at the rate locked on its trade date, in five
+pages that replace the desk's eight-tab Power BI report (`docs/pmu-desk-spec.md`). The
+implementation plan with what is blocked and what is not lives in `docs/implementation-plan.html`.
 
 ## Layout
 
@@ -33,13 +37,15 @@ is not lives in `docs/implementation-plan.html`.
 |---|---|
 | `crates/domain` | Types shared by everything: deals, sources, breaks, provenance, API bodies, events, the business-day calendar, the banking book and the ALM parameters and results |
 | `crates/alm` | Pure ALM maths: contractual schedules, LCR, NSFR, curves and Basel shocks, repricing gap, NII projection, EVE, stress, attribution, IRD, funding concentration |
-| `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert` |
+| `crates/pmu` | Pure bond-portfolio maths: coupon schedules and day counts, price and yield, the effective interest rate, the daily accrual and amortisation of each purchase lot, FTP locked at purchase, swap carry and valuation, repo interest, DV01 and rate shocks, cash flows and the income forecast |
+| `crates/server` | axum HTTP + SSE API over Postgres. Binary `treasury-server`: `migrate`, `seed`, `serve`, `gen-dev-cert`, `ftp-import` |
 | `crates/recon` | Reconciliation core (normaliser, matcher, SLA, pipeline, synthetic world, synthetic banking book). Binary `treasury-recon`: `serve`, `synth`, `rebuild`, `nostro`, `alm-synth`, `status` |
 | `web/` | the web client: Vite, React and TypeScript pages served by the server at `/app`; `e2e/` holds the Playwright checks and the screenshot runner |
 | `web/src-tauri` | the Windows desktop shell (Tauri 2): the web client in a window of its own, with a tray entry and a remembered server; built on Windows only |
 | `assets/` | the bundled typeface, Inter (OFL 1.1) as a static build with tabular figures, the favicon and the theme bootstrap script; served by the server under `/app` |
 | `DESIGN.md`, `PRODUCT.md` | the visual system and the product brief it serves |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off) |
+| `docs/pmu-desk-spec.md` | the PMU desk's eight Power BI tabs as described by the desk, the decisions taken, the proposed definitions, where each tab went, and the open questions |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off), `0006_ftp` (the PMU desk, FTP publications), `0007_pmu` (books, bonds, purchase lots, swaps with their hedges and unwinds, repos and collateral, repo quotes, bond prices) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
 
@@ -159,6 +165,55 @@ about ninety cohorts across six currencies, snapshotted daily for the last 35 da
 previous 13 month-ends, with 400 days of daily curves, spots, twenty depositor groups and monthly
 actual and budget income. It is deterministic by seed, written in bulk, and a snapshot becomes
 visible only once complete.
+
+## FTP curves and the PMU desk
+
+**FTP.** ALM publishes the day's funds transfer pricing curves from its Excel workbook. On the ALM
+tab's FTP tool the workbook is dropped in; the server reads it (`calamine`), in either of two
+layouts (one sheet with a `Tenor` column and a column per currency code, or one sheet per currency
+named by its code; an `As of` cell sets the date), names every bad cell by sheet and reference,
+reads rates written as fractions as percent, and compares it with the curves in force (currencies
+added or missing, tenors added or dropped, points moved by more than 25 bp). Nothing is stored until
+Publish, which needs a note; a corrected workbook replaces the day's earlier publication and both
+are kept. The currencies are whatever the workbook holds (BHD, USD, AED and SAR today), so a curve
+is added or retired by the workbook, not by code. Every desk reads the curves in force on the FTP
+page and in the status bar; ALM is reminded when a business day passes without a publication. The
+template download is the curves in force in the wide layout, ready to edit. For a file that arrives
+in a folder: `treasury-server ftp-import <workbook.xlsx> --note "..." [--as-of D] [--user alm1]`.
+
+**PMU desk.** The Portfolio Management Unit's bond portfolio, for the PMU desk, ALM and the head.
+The purchase lot is the base record (book, bond, trade and settlement dates, face, price, Kondor
+ID); a position is every open lot of a bond in a book. The `pmu` crate accrues each lot day by day:
+its amortised cost starts at what was paid and grows at the effective interest rate fixed at
+purchase, falling by each coupon and the redemption, so it reaches zero exactly at maturity; the
+day's income splits into the coupon accrual and the amortisation. The FTP charge is the book value
+at the rate for the lot's term from the curve published on its trade date, locked for life
+(floating bonds re-lock at each reset). Swaps linked to the lots they hedge carry their legs daily
+and are valued on one curve; repos carry their interest. DV01 and the ±50, ±100 and ±200 bp shocks
+revalue every bond at its yield moved and every swap on its curve moved. The forecast runs the
+portfolio off to year end and three calendar years ahead, or reinvests maturing face at today's
+yield for the same tenor. The proposed definitions (carry, net NII, accounting NII) are on the
+pages and in the spec, to be confirmed with the desk.
+
+The five pages: **Overview** (the six headline figures with their move since yesterday, by book,
+NII by month booked and forecast, the maturity profile now and at year end, the repo book, the
+largest holdings), **Positions** (one tree from book to bond to lot with holding, income and risk
+column sets, filters, a period for income, CSV, and a bond's lots, swaps, repos and cash flows),
+**Income** (a period picker, the parts of income as a waterfall, each day, by bond and by book, and
+the forecast), **Risk and hedges** (DV01 by bucket, shocks by book, hedge pairs, duration and daily
+accrual by portfolio, hedged and unhedged by currency and by maturity, yield by maturity year, the
+unhedged holdings) and **Funding and repo** (repos by time left, funding raised and repaid,
+collateral, quotes over SOFR with their age, receipts, swap settlement cash, full-year income by
+portfolio). The portfolio loads once per business date and data stamp; each page computes in under
+0.1 s. Attention items: a held currency with no FTP curve, lots without a Kondor ID, repos maturing
+within seven days, large unhedged positions, repo quotes more than two business days old.
+
+**Synthetic portfolio.** Until the Kondor feed and Bloomberg prices are connected, `alm-synth`
+also writes daily FTP publications (the interbank curve plus a term premium; never over a day ALM
+published) and, once, a portfolio of about forty bonds (Bahrain, GCC and supranational sovereigns,
+sukuk, banks and corporates, with `SYN` ISINs), about 120 purchase lots, payer swaps on most fixed
+dollar holdings with some unwinds, repos with their collateral, and daily prices and repo quotes,
+extended to the business date on every run.
 
 ## Web client and desktop app
 
@@ -317,7 +372,13 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-103 Rust tests. FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
+121 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
+interest under each day count, price and yield inverting and DV01 against duration, a premium bond
+amortised to par exactly at maturity, FTP locked to the trade-date curve, a par swap worth nothing
+and its carry with an unwind, the parts of income adding up with hedged face and the tree, the
+forecast running off or reinvesting), 5 on the workbook reader (both layouts, fractions, bad cells by
+reference, the template read back), 2 over HTTP for publishing (preview, publish, supersede, rights)
+and 2 for the portfolio (a hand-built bond, swap and repo; who may see it). FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
 interest parity and discounting, the shorthand position, the P&L split, VaR and expected shortfall,
 no VaR on pegged currencies, counterparty add-on and settlement peak, the off-market measure, the
 forward ladder); the liquidity ladder's two views; the early-warning thresholds and stage; and 3
@@ -336,7 +397,9 @@ reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege b
 ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 26 Playwright checks on the installed Edge, among them the FX risk page, the limits
+cases) and 37 Playwright checks on the installed Edge, among them the FTP page and ALM's
+template-drop-publish round trip, the five PMU pages (the tree's expand and filters, the period in
+the address, a bond's detail, the forecast switch, old quotes flagged), the FX risk page, the limits
 page as a dealer and as the head, the ticket's off-market check, and the ladder, early-warning and
 ALCO pack tools: sign-in and its errors, the ALM entitlement
 of the tab and the address, the overview strips per desk and the attention list, booking a deal from
@@ -368,5 +431,7 @@ the installer is the bank's step.
 Real Kondor, Bloomberg and Quantum adapters (waiting on NBB's answers about replica access and
 database engines), real nostro statement feeds, the real banking-book extract and market-data feed
 behind the ALM workbench, the CBB calibration of the ALM parameters, OIDC against the bank's
-directory, settlement-date SLAs, allocations, code-signing. See `docs/implementation-plan.html` for
+directory, settlement-date SLAs, allocations, code-signing; for the PMU desk, booking tickets for
+purchases, swaps and repos, bond sales, the Kondor and Bloomberg feeds behind the portfolio, and a
+real copy of ALM's FTP workbook to confirm the reader against. See `docs/implementation-plan.html` for
 the full picture.

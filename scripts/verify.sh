@@ -31,7 +31,7 @@ for i in $(seq 1 60); do curl -sf "$BASE/healthz" >/dev/null && break; sleep 1; 
 
 tok() { curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
           -d "{\"username\":\"$1\",\"password\":\"password\"}" | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])'; }
-FX=$(tok fx1); MM=$(tok mm1); HEAD=$(tok head1); ALM=$(tok alm1)
+FX=$(tok fx1); MM=$(tok mm1); HEAD=$(tok head1); ALM=$(tok alm1); PMU=$(tok pmu1)
 
 echo "--- every break kind is present (head1) ---"
 curl -s "$BASE/breaks?status=all" -H "authorization: Bearer $HEAD" | python3 -c '
@@ -177,6 +177,65 @@ f2, _ = call("/alm/pack", fx)
 print(f"  alm1 ladder: HTTP {s1} | buckets {len(g['behavioural']['buckets'])} | early warnings: HTTP {s2} stage {e['stage']} | pack: HTTP {s3} {p['period']}")
 print(f"  fx1 ladder: HTTP {f1} | pack: HTTP {f2} (expect 404)")
 print("  checks:", "ok" if s1 == s2 == s3 == 200 and f1 == f2 == 404 else "FAILED")
+PY
+
+echo "--- FTP curves: ALM publishes from its workbook, every desk reads them ---"
+python3 - "$BASE" "$ALM" "$FX" <<'PY'
+import json, sys, urllib.request, urllib.error
+base, alm, fx = sys.argv[1:4]
+def call(path, tok, body=None, raw=None):
+    data = raw if raw is not None else (None if body is None else json.dumps(body).encode())
+    ct = "application/octet-stream" if raw is not None else "application/json"
+    r = urllib.request.Request(base + path, data=data, headers={"authorization": "Bearer " + tok, "content-type": ct}, method="POST" if data is not None else "GET")
+    try:
+        with urllib.request.urlopen(r) as res:
+            b = res.read()
+            return res.status, (json.loads(b) if res.headers.get_content_type() == "application/json" and b else b)
+    except urllib.error.HTTPError as e: return e.code, None
+s1, c = call("/ftp", fx)
+cur = c["current"]
+print(f"  fx1 reads: HTTP {s1} | in force {cur['as_of']} | {', '.join(x['ccy'] for x in cur['curves'])} | stale {c['stale']}")
+s2, book = call("/ftp/template.xlsx", alm)
+s3, prev = call("/ftp/preview", alm, raw=book)
+print(f"  alm1 template: HTTP {s2} ({len(book)} bytes) | preview: HTTP {s3} | {len(prev['curves'])} curves, {len(prev['errors'])} errors, layout {prev['layout']!r}")
+s4, pub = call("/ftp/publish", alm, {"as_of": prev["as_of"], "curves": prev["curves"], "file_name": "verify.xlsx", "file_sha256": prev["file_sha256"], "note": "verify: the curves in force, republished"})
+s5, _ = call("/ftp/preview", fx, raw=book)
+print(f"  alm1 publish: HTTP {s4} (expect 201) | fx1 preview: HTTP {s5} (expect 403)")
+ok = s1 == 200 and len(cur["curves"]) >= 4 and s2 == 200 and book[:2] == b"PK" and s3 == 200 and not prev["errors"] and s4 == 201 and s5 == 403
+print("  checks:", "ok" if ok else "FAILED")
+PY
+
+echo "--- PMU desk: the bond portfolio, its income, risk and funding ---"
+python3 - "$BASE" "$PMU" "$FX" <<'PY'
+import json, sys, time, urllib.request, urllib.error
+base, pmu, fx = sys.argv[1:4]
+def call(path, tok):
+    r = urllib.request.Request(base + path, headers={"authorization": "Bearer " + tok})
+    t = time.time()
+    try:
+        with urllib.request.urlopen(r) as res: return res.status, json.loads(res.read()), time.time() - t
+    except urllib.error.HTTPError as e: return e.code, None, time.time() - t
+ok = True
+slow = []
+res = {}
+for p in ["overview", "positions", "income", "forecast?reinvest=true", "risk", "funding"]:
+    s, body, dt = call("/pmu/" + p, pmu)
+    res[p.split("?")[0]] = body
+    ok &= s == 200
+    if dt > 1.0: slow.append(f"{p} {dt:.2f}s")
+o = res["overview"]["headline"]
+print(f"  pmu1 overview: face {o['portfolio_face_bhd']/1e6:.0f}m | lots {o['lots']} | MTD carry {o['mtd_carry_bhd']/1e3:.1f}k | net DV01 {o['net_dv01_bhd']/1e3:.1f}k | yield {o['portfolio_yield']:.2f}%")
+levels = {r["level"] for r in res["positions"]["rows"]}
+t = res["income"]["total"]
+adds = abs(t["carry"] - (t["coupon"] + t["amortisation"] - t["ftp"])) < 1e-3 and abs(t["net_nii"] - (t["carry"] + t["irs"])) < 1e-3
+r = res["risk"]
+print(f"  positions: {len(res['positions']['rows'])} rows, levels {sorted(levels)} | income parts add up: {adds} | hedge pairs {len(r['hedge_pairs'])} | shocks {len(r['shocks'])}")
+f = res["funding"]
+print(f"  funding: {f['summary']['active']} repos, {f['summary']['amount_bhd']/1e6:.0f}m | quotes {len(f['quotes'])} | forecast full year {res['forecast']['full_year']['net_nii']/1e6:.2f}m")
+s, _, _ = call("/pmu/overview", fx)
+print(f"  fx1 overview: HTTP {s} (expect 404){' | slow: ' + ', '.join(slow) if slow else ''}")
+ok &= o["lots"] > 0 and levels == {"BOOK", "BOND", "LOT"} and adds and len(r["shocks"]) == 6 and f["summary"]["active"] > 0 and s == 404 and not slow
+print("  checks:", "ok" if ok else "FAILED")
 PY
 
 echo "--- web client: the pages are served at /app, deep links included ---"

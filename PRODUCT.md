@@ -6,11 +6,12 @@ product
 
 ## Users
 
-Treasury staff at the National Bank of Bahrain, on the ALM desk, the FX and money-market desks and
-the head of treasury. They sit in a daylit office in Manama with two monitors, Excel and the bank's
+Treasury staff at the National Bank of Bahrain, on the ALM desk, the FX and money-market desks, the
+Portfolio Management Unit (the bond portfolio) and the head of treasury. They sit in a daylit office in Manama with two monitors, Excel and the bank's
 core systems open beside this client, and they use it all day: the dealers glance at the blotter and
 the breaks between calls; the ALM analyst reads ratios against the bank's limits before the ALCO pack
-goes out; the head of treasury wants one page that says whether anything needs them.
+goes out; the PMU desk watches its carry over FTP, its rate risk after hedges and its repo funding;
+the head of treasury wants one page that says whether anything needs them.
 
 ## Product Purpose
 
@@ -19,7 +20,8 @@ Bloomberg and Quantum, breaks and their resolution, the intraday liquidity ladde
 risk and P&L against the bank's limits, and the ALM workbench (LCR, NSFR, the liquidity maturity
 ladder, early warnings and the contingency plan, repricing gap, NII and NIM, EVE and stress, variance
 attribution, interest rate differentials, funding concentration, the ALCO pack) against the bank's
-own parameters. Success is a screen a
+own parameters, the day's FTP curves ALM publishes for every desk, and the PMU desk's bond portfolio
+(positions, accrual and income, forecast, risk and hedges, repo funding). Success is a screen a
 treasury professional trusts at a glance: the number, the limit it is measured against, and what
 changed, with nothing decorative in the way.
 

@@ -16,10 +16,11 @@ if [ "$DEALS" = "0" ]; then
   echo "    no deals yet: replaying a 5-day synthetic world (about 40 s)"
   cargo run -q -p recon -- synth --mode replay --speed 20000 --days 5 2>&1 | grep -E "deals by|^  " | sed -E 's/\x1b\[[0-9;]*m//g' || true
 fi
-# The balance sheet and the market up to the business date; snapshots already there are kept, so
-# this only adds the days since the last run (a few seconds).
-echo "    banking book and market data up to the business date"
-cargo run -q -p recon -- alm-synth 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -o "snapshots=.*" | tail -1 || true
+# The balance sheet, the market, the FTP curves and the bond portfolio up to today: the live
+# reconciler runs on the wall clock, so today is the business date the pages show. Snapshots and
+# days already there are kept, so this only adds the days since the last run (a few seconds).
+echo "    banking book, market data, FTP curves and bond portfolio up to today"
+cargo run -q -p recon -- alm-synth --date "$(date -u +%F)" 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -o "snapshots=.*" | tail -1 || true
 echo "5/5 services"
 pkill -f "[t]reasury-recon serve" 2>/dev/null || true
 pkill -f "[t]reasury-server serve" 2>/dev/null || true
@@ -31,4 +32,4 @@ echo "API:         http://${BIND_ADDR}   (healthz: $(curl -s "http://localhost:$
 echo "Reconciler:  running (log /tmp/treasury-recon.log)"
 echo "Browser:     http://localhost:8787/app/   (after scripts\\build-web.cmd on Windows)"
 echo "Desktop:     dist\\NBB-Treasury-Setup.exe (the web client in a window of its own)"
-echo "Log in as:   fx1, fx2, mm1, alm1 or head1   password: password"
+echo "Log in as:   fx1, fx2, mm1, alm1, pmu1 or head1   password: password"

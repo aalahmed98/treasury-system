@@ -227,6 +227,33 @@ function ForecastBody({ f, names, busy }: { f: PmuForecast; names: Record<string
           <div className="t-small">Floating coupons and swap legs use the forwards in today’s curves; swaps run to maturity and repos to their end date.</div>
         </div>
       </div>
+      <Section title={`Interest earned by month, ${year}`} meta="income at the effective rate, its FTP funding, and what is left with the swaps; forecast months in grey" />
+      <table className="table" data-testid="pmu-months">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th className="num">EIR income</th>
+            <th className="num">FTP funding</th>
+            <th className="num">Bond carry</th>
+            <th className="num">IRS carry</th>
+            <th className="num">Net NII</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {f.monthly.map((m) => (
+            <tr key={m.month} className={m.actual ? '' : 't-muted'}>
+              <td>{fmtMonth(m.month, true)}</td>
+              <td className="num">{bhd(m.income.eir_income)}</td>
+              <td className="num">{bhd(-m.income.ftp)}</td>
+              <td className="num">{bhd(m.income.carry)}</td>
+              <td className="num">{bhd(m.income.irs)}</td>
+              <td className="num t-medium">{bhd(m.income.net_nii)}</td>
+              <td className="t-small">{m.actual ? '' : 'forecast'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <Section title={`Full-year income by portfolio, ${year}`} meta="booked to date, then forecast" />
       <BookYearTable rows={f.by_book} names={names} testId="pmu-book-year" />
     </div>

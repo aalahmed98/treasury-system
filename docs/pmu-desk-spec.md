@@ -7,8 +7,8 @@ and how the tabs map onto the pages we will build. Keep it up to date as answers
 
 All amounts are in BHD unless a column says local currency. DV01 is in BHD per basis point.
 
-Status: specification complete (8 of 8 tabs). Being built as Phase 2G (plan: FTP curves, the PMU
-accrual engine, then the five PMU pages).
+Status: built as Phase 2G (FTP curves, the PMU accrual engine and the five PMU pages), every
+element of the eight tabs traced below. Waiting on the desk for the open questions.
 
 ---
 
@@ -191,7 +191,7 @@ curves: PMU charges its bonds' funding with them, and the other desks can read t
 
 ---
 
-## Proposed pages (to be confirmed in the plan)
+## The pages as built
 
 | Page | Question it answers | Built from |
 |---|---|---|
@@ -206,45 +206,45 @@ ticked as each one is built.
 
 ### Coverage checklist
 
-- [ ] T1 cards: portfolio size, net MTM, MTD carry, net DV01, MTD NII, yield
-- [ ] T1 portfolio by book
-- [ ] T1 interest earned by month (EIR, funding, net NII)
-- [ ] T1 net DV01 by book
-- [ ] T1 maturity profile, hedged and unhedged
-- [ ] T1 position concentration
-- [ ] T1 repo book summary
-- [ ] T2 cards: carry, coupon, amortisation, FTP, IRS carry, accounting NII
-- [ ] T2 income by position, expandable by bond and ISIN
-- [ ] T2 what makes up bond carry
-- [ ] T2 income each day, selected period
-- [ ] T2 bond carry after FTP by bond
-- [ ] T3 cards: year-end face, weighted yield, weighted modified duration, year-end hedged face
-- [ ] T3 yield by maturity year
-- [ ] T3 table by maturity year (all-bond and unhedged yield)
-- [ ] T3 hedged and unhedged face by currency
-- [ ] T3 modified duration by portfolio
-- [ ] T3 year-end maturity buckets, hedged and unhedged
-- [ ] T4 cards: held face, market value, net MTM, lots, Kondor ID %, daily accrual after FTP
-- [ ] T4 position register
-- [ ] T5 hedge pairs
-- [ ] T5 DV01 by maturity bucket
-- [ ] T5 parallel rate shock by book
-- [ ] T5 daily accrual after FTP by book
-- [ ] T5 fully unhedged holdings
-- [ ] T6 cards: repo amount, available face, 7-day due, active repos, average rate, 12-month receipts
-- [ ] T6 repo funding and repayments
-- [ ] T6 collateral by book
-- [ ] T6 coupon and principal receipts, next 12 months
-- [ ] T6 hedge settlement cash
-- [ ] T6 full-year income by portfolio
-- [ ] T7 repo by remaining maturity
-- [ ] T7 repo quotes, spread over SOFR
-- [ ] T7 year-end hedged and unhedged maturity buckets
-- [ ] T8 cards: full-year NII, remaining-year NII, full-year carry after FTP, year-end face
-- [ ] T8 monthly NII, actual plus forecast
-- [ ] T8 forecast net income with partial-year dates
-- [ ] T8 forecast net income by calendar year
-- [ ] T8 full-year income by portfolio
+- [x] T1 cards: portfolio size, net MTM, MTD carry, net DV01, MTD NII, yield: Overview, headline figures
+- [x] T1 portfolio by book: Overview, portfolio by book (opens Positions for the book)
+- [x] T1 interest earned by month (EIR, funding, net NII): Income, interest earned by month; Overview, NII by month
+- [x] T1 net DV01 by book: Overview, net DV01 by book
+- [x] T1 maturity profile, hedged and unhedged: Overview, maturity profile (now / year end)
+- [x] T1 position concentration: Overview, largest holdings; Positions, share column
+- [x] T1 repo book summary: Overview, repo book
+- [x] T2 cards: carry, coupon, amortisation, FTP, IRS carry, accounting NII: Income, headline figures
+- [x] T2 income by position, expandable by bond and ISIN: Positions, Income column set (book, bond, lot)
+- [x] T2 what makes up bond carry: Income, waterfall
+- [x] T2 income each day, selected period: Income, carry earned each day (period picker)
+- [x] T2 bond carry after FTP by bond: Income, carry after FTP by bond
+- [x] T3 cards: year-end face, weighted yield, weighted modified duration, year-end hedged face: Risk and hedges, headline figures; Income, forecast figures
+- [x] T3 yield by maturity year: Risk and hedges, yield by maturity year (chart)
+- [x] T3 table by maturity year (all-bond and unhedged yield): Risk and hedges, yield by maturity year (table)
+- [x] T3 hedged and unhedged face by currency: Risk and hedges, stacked bar by currency (not a pie)
+- [x] T3 modified duration by portfolio: Risk and hedges, by portfolio
+- [x] T3 year-end maturity buckets, hedged and unhedged: Risk and hedges and Overview, maturity buckets, year end
+- [x] T4 cards: held face, market value, net MTM, lots, Kondor ID %, daily accrual after FTP: Positions, headline figures
+- [x] T4 position register: Positions, Holding column set
+- [x] T5 hedge pairs: Risk and hedges, hedge pairs
+- [x] T5 DV01 by maturity bucket: Risk and hedges, DV01 by maturity bucket
+- [x] T5 parallel rate shock by book: Risk and hedges, parallel rate shock
+- [x] T5 daily accrual after FTP by book: Risk and hedges, by portfolio; Overview by book data
+- [x] T5 fully unhedged holdings: Risk and hedges, fully unhedged holdings; Positions, Unhedged only
+- [x] T6 cards: repo amount, available face, 7-day due, active repos, average rate, 12-month receipts: Funding and repo, headline figures
+- [x] T6 repo funding and repayments: Funding and repo, funding raised and repaid
+- [x] T6 collateral by book: Funding and repo, collateral by book
+- [x] T6 coupon and principal receipts, next 12 months: Funding and repo, receipts
+- [x] T6 hedge settlement cash: Funding and repo, hedge settlement cash
+- [x] T6 full-year income by portfolio: Funding and repo and Income, full-year income by portfolio
+- [x] T7 repo by remaining maturity: Funding and repo, active repos by time left
+- [x] T7 repo quotes, spread over SOFR: Funding and repo, latest repo quotes (with their age)
+- [x] T7 year-end hedged and unhedged maturity buckets: Risk and hedges and Overview, maturity buckets, year end
+- [x] T8 cards: full-year NII, remaining-year NII, full-year carry after FTP, year-end face: Income, forecast figures
+- [x] T8 monthly NII, actual plus forecast: Income, monthly NII booked and forecast; Overview, NII by month
+- [x] T8 forecast net income with partial-year dates: Income, forecast by period (dates shown)
+- [x] T8 forecast net income by calendar year: Income, forecast by period
+- [x] T8 full-year income by portfolio: Income, full-year income by portfolio
 
 ---
 
@@ -254,9 +254,9 @@ ticked as each one is built.
 |---|---|---|
 | 1 | Kondor ID (%): the share of positions (or face) matched to a Kondor deal? | |
 | 2 | Closed notional: swap notional unwound early, or swaps that matured? | |
-| 3 | Parallel shock scenarios the desk uses (±50, ±100, ±200 bp?) | |
+| 3 | Parallel shock scenarios the desk uses (±50, ±100, ±200 bp?) | Built with ±50, ±100, ±200 bp; to confirm |
 | 4 | Forecast: maturing bonds reinvested at today's yield, or the portfolio runs off? | Runs off, with a reinvest switch |
-| 5 | Restructure the FX view into the same five-page shape alongside PMU, or after? | |
-| 6 | "FTB" on tab 2 read as FTP | |
+| 5 | Restructure the FX view into the same five-page shape alongside PMU, or after? | After PMU (not in Phase 2G) |
+| 6 | "FTB" on tab 2 read as FTP | Built as FTP |
 | 7 | Do the definitions above match how PMU calculates each figure? | |
 | 8 | A real copy of ALM's FTP workbook, so the reader matches its layout | |

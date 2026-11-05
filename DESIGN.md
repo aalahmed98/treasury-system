@@ -108,6 +108,24 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
   date and the distance in basis points; beyond tolerance it turns `bad` and a confirmation appears.
 - **Save box**: the one surface for a bank-wide write: the list of changes, the note, a full-size
   primary button named for the version it creates, and one sentence of consequence.
+- **Stacked bars**: two series in one bar per category (hedged and unhedged, pledged and free,
+  coupons and principal), a 2 px surface gap between the segments, a legend, the total on top
+  where there is room.
+- **Forecast bars**: the same bar chart with forecast categories at 40% opacity and a legend that
+  names both styles; the tooltip says "forecast". Booked and projected never share one style.
+- **Axis labels**: a chart thins its category labels to every second or third when they would
+  collide, rather than overlapping them.
+- **Tree table**: the positions register as one table: book rows on `surface_alt` in 600, bond rows
+  indented with a twisty, lot rows indented further in `text_2` at 12 px. Books start open, bonds
+  closed; "Show every lot" and "Bonds only" set the depth at once.
+- **Detail overlay**: a `raised` panel with the popup shadow fixed to the right of the page, so the
+  table under it keeps its width; closes with its own button. Used for a bond's lots, swaps, repos
+  and cash flows.
+- **Drop zone**: a dashed `border` box that washes on hover and turns `info_soft` while a file is
+  over it; the preview below it lists errors (bad, with sheet and cell), warnings and changes before
+  anything is stored.
+- **Period picker**: preset chips (month, quarter, year to date, last 30 days) and two date inputs;
+  the period lives in the address so a view can be shared.
 
 ## Motion
 
