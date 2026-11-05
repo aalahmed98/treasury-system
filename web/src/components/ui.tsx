@@ -83,7 +83,7 @@ export function StatStrip({ cells, testId, hero }: { cells: StatCell[]; testId?:
 
 /** A bar from zero to `max` filled to `value`, with the hard limit and an optional trigger mark. For a
  * floor the value must stay above the limit; for a ceiling below. */
-export function Gauge({ value, limit, trigger, max, floor, width = 100 }: { value: number; limit: number; trigger: number | null; max: number; floor: boolean; width?: number }) {
+export function Gauge({ value, limit, trigger, max, floor, width = 100 }: { value: number; limit: number; trigger: number | null; max: number; floor: boolean; width?: number | string }) {
   const top = Math.max(max, value, limit, 1e-9);
   const x = (v: number) => `${Math.min(100, Math.max(0, (v / top) * 100))}%`;
   const breach = floor ? value < limit : value > limit;

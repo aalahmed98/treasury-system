@@ -383,6 +383,9 @@ export function AlmBlock() {
     : [];
   const limits = limitRows(v);
   const trend = v.lcr_trend.map((p, i) => [i, p.value] as const).filter((p): p is readonly [number, number] => p[1] !== null).map(([x, y]) => [x, y] as [number, number]);
+  // A flat trend spans a point or two; whole percents would print the same tick twice.
+  const trendYs = trend.map((p) => p[1]);
+  const trendDp = trendYs.length && Math.max(...trendYs) - Math.min(...trendYs) < 5 ? 1 : 0;
   const labels = v.lcr_trend.map((p) => fmtDate(p.as_of).slice(4));
   const nii: [string, number, number][] = v.nii_months.map((m) => [fmtDate(m.period).slice(7), m.actual, m.budget]);
   const gap: [string, number][] = v.gap_buckets.map((b) => [b.label, b.gap]);
@@ -395,18 +398,25 @@ export function AlmBlock() {
       <div className="panel-row ov-bs">
         <div className="panel">
           <div className="t-heading">Limits</div>
-          <table className="table limits">
+          <table className="table limits fit" data-testid="overview-limits">
+            <colgroup>
+              <col style={{ width: 22 }} />
+              <col />
+              <col style={{ width: 66 }} />
+              <col style={{ width: 62 }} />
+              <col className="gauge-col" />
+            </colgroup>
             <tbody>
               {limits.map((l) => (
                 <tr key={l.metric}>
-                  <td style={{ width: 18 }}>
+                  <td>
                     <Dot tone={standingTone(l.standing)} />
                   </td>
-                  <td className="t-secondary">{l.metric}</td>
+                  <td className="t-secondary metric">{l.metric}</td>
                   <td className="num t-medium">{l.value}</td>
                   <td className="t-small">{l.limit}</td>
                   <td>
-                    <Gauge value={l.gaugeValue} limit={l.gaugeLimit} trigger={l.gaugeTrigger} max={l.gaugeMax} floor={l.floor} />
+                    <Gauge value={l.gaugeValue} limit={l.gaugeLimit} trigger={l.gaugeTrigger} max={l.gaugeMax} floor={l.floor} width="100%" />
                   </td>
                 </tr>
               ))}
@@ -415,7 +425,7 @@ export function AlmBlock() {
         </div>
         <div className="panel">
           <div className="t-heading">LCR, last 30 snapshots</div>
-          <LineChart series={[{ name: 'LCR', points: trend }]} yFmt={(y) => fmtPct(y, 0)} xFmt={(x) => labels[Math.round(x)] ?? ''} />
+          <LineChart series={[{ name: 'LCR', points: trend }]} yFmt={(y) => fmtPct(y, trendDp)} xFmt={(x) => labels[Math.round(x)] ?? ''} />
         </div>
         <div className="panel">
           <div className="t-heading">NII by month, actual against budget</div>

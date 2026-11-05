@@ -24,3 +24,19 @@ test('a balance-sheet cell opens its ALM tool', async ({ page }) => {
   await page.getByTestId('alm-strip').locator('.cell').first().click();
   await expect(page).toHaveURL(/\/app\/alm\/lcr$/);
 });
+
+test('the limits card fits its column at every desk width', async ({ page }) => {
+  await login(page, 'alm1');
+  await ready(page);
+  const table = page.getByTestId('overview-limits');
+  await expect(table).toBeVisible();
+  for (const width of [1280, 1366, 1440, 1600, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    const spill = await table.evaluate((t) => {
+      const panel = t.closest('.panel')!.getBoundingClientRect();
+      const worst = Math.max(...[...t.querySelectorAll('td, .gauge')].map((e) => e.getBoundingClientRect().right));
+      return worst - (panel.right - 1);
+    });
+    expect(spill, `limits spill past the card at ${width}px`).toBeLessThanOrEqual(0);
+  }
+});

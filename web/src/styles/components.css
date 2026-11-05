@@ -615,6 +615,22 @@
   height: 24px;
   padding: 0 6px;
 }
+/* in a narrow card: the label wraps and the gauge takes what is left, so nothing spills */
+.table.limits.fit {
+  table-layout: fixed;
+}
+.table.limits.fit col.gauge-col {
+  width: 24%;
+}
+.table.limits.fit td.metric {
+  white-space: normal;
+  line-height: 1.25;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.table.limits.fit .gauge {
+  max-width: 130px;
+}
 
 /* trading pages: page plus the positions panel */
 .layout-side {
@@ -1494,7 +1510,7 @@ dialog.ticket::backdrop {
   margin-bottom: 8px;
 }
 .panel-row.ov-bs {
-  grid-template-columns: minmax(400px, 1.5fr) repeat(3, minmax(230px, 1fr));
+  grid-template-columns: minmax(440px, 2fr) repeat(3, minmax(230px, 1fr));
 }
 .panel-row.ov-ops {
   grid-template-columns: minmax(360px, 1.2fr) minmax(300px, 1fr);
