@@ -31,6 +31,10 @@ export function targetPath(t: AttentionTarget): string {
       return `/alm/${t.tool}`;
     case 'risk':
       return '/risk';
+    case 'ftp':
+      return '/alm/ftp';
+    case 'pmu':
+      return t.page === 'overview' ? '/pmu' : `/pmu/${t.page}`;
   }
 }
 

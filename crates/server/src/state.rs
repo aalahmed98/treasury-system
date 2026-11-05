@@ -23,6 +23,17 @@ pub struct AppState {
     /// time) and parameter version. All three are immutable once written, so an entry never goes
     /// stale; a regenerated snapshot simply gets a new key.
     pub alm: Arc<AlmCache>,
+    /// The bond portfolio and its market as last loaded, keyed by the business date and a stamp
+    /// of the data behind it; reloaded when either changes.
+    pub pmu: Arc<std::sync::Mutex<Option<PmuSlot>>>,
+}
+
+/// The cache key and the data loaded under it.
+pub type PmuSlot = (String, Arc<PmuData>);
+
+pub struct PmuData {
+    pub portfolio: pmu::Portfolio,
+    pub market: pmu::Market,
 }
 
 /// Key: tool, snapshot date, snapshot generation time, parameter version, extra tag (scenario).
@@ -57,6 +68,7 @@ impl AppState {
             login_limiter: Arc::new(RateLimiter::new(config.login_ip_limit)),
             config: Arc::new(config),
             alm: Arc::new(AlmCache::default()),
+            pmu: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }

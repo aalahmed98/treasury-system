@@ -97,7 +97,7 @@ impl LotNow {
 }
 
 pub fn held_on(lot: &Lot, b: &Bond, on: NaiveDate) -> bool {
-    lot.settle_date <= on && b.maturity > on && lot.status != "SOLD"
+    lot.settle_date <= on && lot.settle_date >= b.issue_date && b.maturity > on && lot.status != "SOLD"
 }
 
 /// Local face of a lot hedged on `on`: each linked swap's assigned notional, scaled by how much
@@ -281,7 +281,7 @@ pub fn income(m: &Market, p: &Portfolio, from: NaiveDate, to: NaiveDate) -> Inco
     }
     for lot in &p.lots {
         let Some(b) = p.bonds.get(&lot.isin) else { continue };
-        if lot.status == "SOLD" || lot.settle_date >= to || b.maturity < from {
+        if lot.status == "SOLD" || lot.settle_date >= to || lot.settle_date < b.issue_date || b.maturity < from {
             continue;
         }
         walk_lot(m, lot, b, from, to, |d| {
@@ -1068,7 +1068,10 @@ pub fn forecast(m: &Market, p: &Portfolio, on: NaiveDate, reinvest: bool) -> For
         p
     };
     let actual = income(m, p, ys, on);
-    let ahead = income(m, q, on + Duration::days(1), horizon);
+    let rest_run = income(m, q, on + Duration::days(1), ye);
+    let later = income(m, q, ye + Duration::days(1), horizon);
+    let mut ahead = rest_run.clone();
+    ahead.daily.extend(later.daily);
     let mut monthly: Vec<MonthIncome> = (0..12).map(|i| MonthIncome { month: add_months(ys, i), actual: add_months(ys, i) <= on, income: Income::default() }).collect();
     for (d, i) in actual.daily.iter().chain(ahead.daily.iter().filter(|(d, _)| **d <= ye)) {
         if let Some(mi) = monthly.iter_mut().find(|x| x.month == month_start(*d)) {
@@ -1091,7 +1094,6 @@ pub fn forecast(m: &Market, p: &Portfolio, on: NaiveDate, reinvest: bool) -> For
         periods.push(PeriodIncome { label: (on.year() + y).to_string(), from: a, to: b, partial: false, income: sum(&ahead, a, b) });
     }
     let act_book = actual.by_book(p);
-    let rest_run = income(m, q, on + Duration::days(1), ye);
     let fc_book = rest_run.by_book(q);
     let keys: BTreeSet<&String> = act_book.keys().chain(fc_book.keys()).collect();
     let by_book = keys.into_iter().map(|k| BookYear { book: k.clone(), actual: act_book.get(k).copied().unwrap_or_default(), forecast: fc_book.get(k).copied().unwrap_or_default() }).collect();

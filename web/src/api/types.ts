@@ -276,7 +276,9 @@ export type AttentionTarget =
   | { kind: 'provisional' }
   | { kind: 'overview' }
   | { kind: 'alm'; tool: string }
-  | { kind: 'risk' };
+  | { kind: 'risk' }
+  | { kind: 'ftp' }
+  | { kind: 'pmu'; page: string };
 export interface AttentionItem {
   severity: AttentionSeverity;
   title: string;

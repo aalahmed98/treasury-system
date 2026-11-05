@@ -16,11 +16,11 @@ use crate::alm_synth::{Market, TENORS};
 /// The currencies the bank publishes FTP curves for today.
 pub const FTP_CCYS: [&str; 4] = ["BHD", "USD", "AED", "SAR"];
 
-/// The liquidity premium ALM adds over the market curve, in percent: 10 bp overnight rising with
-/// the square root of the term to about 1.5% at ten years.
+/// The term premium ALM adds over the interbank curve, in percent: 10 bp under it overnight,
+/// rising with the square root of the term to about 37 bp over it at ten years.
 pub fn term_premium(tenor_days: i32) -> f64 {
     let years = tenor_days.max(1) as f64 / 365.0;
-    (10.0 + 45.0 * years.sqrt()) / 100.0
+    (-10.0 + 15.0 * years.sqrt()) / 100.0
 }
 
 /// The synthetic FTP rate for a currency, day and tenor, in percent.
@@ -83,12 +83,13 @@ mod tests {
 
     #[test]
     fn the_premium_rises_with_the_term() {
-        assert!((term_premium(1) - 0.1235).abs() < 1e-3);
-        assert!((term_premium(365) - 0.55).abs() < 1e-9);
-        assert!(term_premium(3650) > 1.5 && term_premium(3650) < 1.6);
+        assert!((term_premium(1) - -0.0921).abs() < 1e-3);
+        assert!((term_premium(365) - 0.05).abs() < 1e-9);
+        assert!(term_premium(3650) > 0.37 && term_premium(3650) < 0.38);
         let m = Market::generate(42, NaiveDate::from_ymd_opt(2026, 11, 5).unwrap(), 30);
         let d = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
         assert!(ftp_rate(&m, "USD", d, 1825) > m.rate("USD", d, 1825));
+        assert!(ftp_rate(&m, "USD", d, 1) < m.rate("USD", d, 1));
     }
 }
 
@@ -209,10 +210,11 @@ fn generate(market: &Market, pm: &pmu::Market, ftp: &pmu::Ftp, first: NaiveDate,
     for (issuer, kind, ccy, count, spread, dc, freq, hqla) in UNIVERSE {
         for k in 0..*count {
             n += 1;
-            let years = 1.0 + rng.random_range(0.0..8.5);
+            let years: f64 = 1.0 + rng.random_range(0.0..8.5);
             let mut maturity = add_months(today, (years * 12.0) as i64);
             maturity = NaiveDate::from_ymd_opt(maturity.year(), maturity.month(), 15).unwrap_or(maturity);
-            let tenor = [3, 5, 5, 7, 10][rng.random_range(0..5)];
+            // Issued long enough ago that every purchase in the history window is after issue.
+            let tenor = [3, 5, 5, 7, 10][rng.random_range(0..5)].max(years.ceil() as i32 + 2);
             let issue = add_months(maturity, -12 * tenor as i64);
             let float = *kind == "BANK" && k == 0;
             let coupon = if float { 0.0 } else { round_to(market.rate(ccy, issue, tenor * 365) + spread, 0.125).max(0.5) };

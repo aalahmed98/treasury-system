@@ -69,10 +69,12 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
     let mut eir = bond::eir_of(s, ac / face, &flows_after(b, &sched, s, rate));
     let mut ftp = lot.ftp_rate;
     let basis = mm_basis(&b.ccy);
+    let daily = |e: f64| (1.0 + e / 100.0).powf(1.0 / 365.0) - 1.0;
+    let mut factor = daily(eir);
     let mut d = s;
     while d < to && d < b.maturity {
         let nd = d + Duration::days(1);
-        let income = ac * ((1.0 + eir / 100.0).powf(1.0 / 365.0) - 1.0);
+        let income = ac * factor;
         let ftp_amt = ftp.map(|r| (ac - acc) * r / 100.0 / basis).unwrap_or(0.0);
         ac += income;
         let (mut cash, mut principal) = (0.0, 0.0);
@@ -93,6 +95,7 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
                         ftp = Some(r);
                     }
                     eir = bond::eir_of(nd, ac / face, &flows_after(b, &sched, nd, rate));
+                    factor = daily(eir);
                 }
             }
         }

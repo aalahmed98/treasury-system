@@ -39,6 +39,8 @@ pub enum AttentionTarget {
     Overview,
     Alm { tool: String },
     Risk,
+    Ftp,
+    Pmu { page: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

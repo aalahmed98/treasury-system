@@ -8,6 +8,7 @@ pub mod events;
 pub mod ftp;
 pub mod liquidity;
 pub mod market;
+pub mod pmu;
 pub mod positions;
 pub mod recon;
 pub mod risk;
@@ -97,6 +98,13 @@ pub fn router(state: AppState) -> Router {
         .route("/ftp/template.xlsx", get(ftp::template))
         .route("/ftp/preview", post(ftp::preview).layer(DefaultBodyLimit::max(ftp::MAX_WORKBOOK + 1024)))
         .route("/ftp/publish", post(ftp::publish))
+        .route("/pmu/overview", get(pmu::overview))
+        .route("/pmu/positions", get(pmu::positions))
+        .route("/pmu/income", get(pmu::income))
+        .route("/pmu/forecast", get(pmu::forecast))
+        .route("/pmu/risk", get(pmu::risk))
+        .route("/pmu/funding", get(pmu::funding))
+        .route("/pmu/bond/{isin}", get(pmu::bond))
         .route("/activity", get(activity::activity))
         .route("/attention", get(activity::attention))
         .route("/events", get(events::stream))

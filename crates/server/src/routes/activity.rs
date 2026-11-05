@@ -256,6 +256,65 @@ pub async fn attention(State(state): State<AppState>, Extension(auth): Extension
             ));
         }
     }
+
+    // FTP: ALM is reminded once a business day passes without a publication.
+    if alm::can_see_alm(&mut tx).await? && cal.is_business_day(today) {
+        let latest: Option<NaiveDate> = sqlx::query_scalar("SELECT max(as_of) FROM ftp_publications WHERE is_current AND as_of <= $1").bind(today).fetch_one(&mut *tx).await?;
+        if latest != Some(today) {
+            items.push(item(
+                AttentionSeverity::Warning,
+                "FTP curves not yet published today".into(),
+                match latest {
+                    Some(d) => format!("the desks are charged with the curves of {}", d.format("%d %b")),
+                    None => "no FTP curves have been published".into(),
+                },
+                None,
+                AttentionTarget::Ftp,
+            ));
+        }
+    }
+
+    // The bond portfolio, for those who may see it.
+    if crate::routes::pmu::can_see_pmu(&mut tx).await?
+        && let Ok(o) = crate::routes::pmu::overview_for(&state, &mut tx).await
+    {
+        for w in &o.warnings {
+            let (sev, page) = if w.key.starts_with("ftp:") { (AttentionSeverity::Critical, "income") } else { (AttentionSeverity::Info, "positions") };
+            items.push(item(sev, w.message.clone(), String::new(), None, AttentionTarget::Pmu { page: page.into() }));
+        }
+        if o.repo.due_7d_bhd > 0.0 {
+            items.push(item(
+                AttentionSeverity::Info,
+                format!("Repos of {} mature within 7 days", short(o.repo.due_7d_bhd)),
+                format!("{} of {} funded by repo; {} of face free to pledge", short(o.repo.due_7d_bhd), short(o.repo.amount_bhd), short(o.repo.available_face_bhd)),
+                None,
+                AttentionTarget::Pmu { page: "funding".into() },
+            ));
+        }
+        let threshold = (o.headline.portfolio_face_bhd * 0.03).max(1.0);
+        for r in o.concentration.iter().filter(|r| r.face_bhd - r.hedged_face_bhd > threshold && r.hedged_face_bhd < 0.5 * r.face_bhd).take(3) {
+            items.push(item(
+                AttentionSeverity::Info,
+                format!("Large unhedged position: {}", r.label),
+                format!("{} of face in {}, DV01 {} a basis point", short(r.face_bhd - r.hedged_face_bhd), r.book, short(r.dv01_bhd)),
+                None,
+                AttentionTarget::Pmu { page: "risk".into() },
+            ));
+        }
+        let stale: Vec<(String, NaiveDate)> = sqlx::query_as("SELECT counterparty, max(as_of) FROM repo_quotes GROUP BY counterparty HAVING max(as_of) < $1 ORDER BY 1")
+            .bind(cal.add_business_days(today, -2))
+            .fetch_all(&mut *tx)
+            .await?;
+        if !stale.is_empty() {
+            items.push(item(
+                AttentionSeverity::Info,
+                format!("Repo quotes out of date from {}", stale.iter().map(|s| s.0.as_str()).collect::<Vec<_>>().join(", ")),
+                format!("last quoted {}", stale.iter().map(|s| s.1.format("%d %b").to_string()).collect::<Vec<_>>().join(", ")),
+                None,
+                AttentionTarget::Pmu { page: "funding".into() },
+            ));
+        }
+    }
     tx.commit().await?;
 
     items.sort_by(|a, b| a.severity.cmp(&b.severity).then_with(|| b.since.cmp(&a.since)));

@@ -18,14 +18,14 @@ use eval::{daily_series, forecast, income, income_by_book, income_by_bond, month
 
 pub fn overview(m: &Market, p: &Portfolio, on: NaiveDate, previous: Option<NaiveDate>) -> PmuOverview {
     let snap = Snapshot::new(m, p, on);
-    let mtd = income(m, p, month_start(on), on).total;
+    let inc = income(m, p, month_start(on), on);
+    let mtd = inc.total;
     let fc = forecast(m, p, on, false);
     let headline_prev = previous.map(|d| {
         let s = Snapshot::new(m, p, d);
         s.headline(&income(m, p, month_start(d), d).total)
     });
     let receipts: f64 = snap.receipts().iter().map(|x| x.a + x.b).sum();
-    let inc = income(m, p, month_start(on), on);
     let mut concentration: Vec<_> = snap.rows(&inc).into_iter().filter(|r| r.level == RowLevel::Bond).collect();
     concentration.sort_by(|a, b| b.face_bhd.total_cmp(&a.face_bhd));
     concentration.truncate(12);
