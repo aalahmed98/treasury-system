@@ -4,6 +4,7 @@
 //! market, like the `alm` crate; the server loads the rows and serves what these return.
 
 pub mod bond;
+pub mod booking;
 pub mod eval;
 pub mod ledger;
 pub mod market;
@@ -127,5 +128,6 @@ pub fn bond_detail(m: &Market, p: &Portfolio, on: NaiveDate, isin: &str) -> Opti
         .into_iter()
         .map(|(date, kind, amount_local, amount_bhd)| CashFlowRow { date, kind, amount_local, amount_bhd })
         .collect();
-    Some(PmuBondDetail { bond, lots, swaps, repos, cash_flows })
+    let sales = booking::sale_views(m, p, isin);
+    Some(PmuBondDetail { bond, lots, sales, swaps, repos, cash_flows })
 }

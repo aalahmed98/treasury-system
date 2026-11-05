@@ -82,6 +82,38 @@ pub struct Lot {
     pub ftp_rate: Option<f64>,
     pub ftp_publication_id: Option<i32>,
     pub status: String,
+    /// `FEED` (from Kondor, or the generator) or `INTERNAL` (booked in the app).
+    #[serde(default = "feed")]
+    pub origin: String,
+    /// Sales drawn on this lot; the face held on a date is `face` less those settled by then.
+    #[serde(default)]
+    pub sales: Vec<LotSale>,
+}
+
+fn feed() -> String {
+    "FEED".into()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LotSale {
+    pub id: Uuid,
+    pub sale_ref: String,
+    pub trade_date: NaiveDate,
+    pub settle_date: NaiveDate,
+    pub face: f64,
+    pub clean_price: f64,
+    pub kondor_id: Option<String>,
+}
+
+impl Lot {
+    /// Face held on `d`: the purchase face less the sales settled by then.
+    pub fn face_on(&self, d: NaiveDate) -> f64 {
+        self.face - self.sales.iter().filter(|s| s.settle_date <= d).map(|s| s.face).sum::<f64>()
+    }
+    /// Booked in the app and not yet carrying a Kondor deal id.
+    pub fn provisional(&self) -> bool {
+        self.origin == "INTERNAL" && self.kondor_id.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,8 +158,41 @@ pub struct Repo {
     pub cash: f64,
     pub rate: f64,
     pub haircut_pct: f64,
-    /// (lot, face pledged).
+    /// (lot, face pledged); empty for a reverse repo.
     pub collateral: Vec<(Uuid, f64)>,
+    /// `REPO` (the bank borrows against its bonds) or `REVERSE` (it lends cash).
+    #[serde(default = "repo_dir")]
+    pub direction: String,
+    /// Closed before its end date.
+    #[serde(default)]
+    pub closed_on: Option<NaiveDate>,
+    #[serde(default = "feed")]
+    pub origin: String,
+    /// A reverse repo's collateral: the counterparty's bond.
+    #[serde(default)]
+    pub collateral_isin: Option<String>,
+    #[serde(default)]
+    pub collateral_face: Option<f64>,
+    #[serde(default)]
+    pub collateral_note: Option<String>,
+}
+
+fn repo_dir() -> String {
+    "REPO".into()
+}
+
+impl Repo {
+    /// The day the repo actually ends: its end date, or the day it was closed.
+    pub fn end_on(&self) -> NaiveDate {
+        self.closed_on.unwrap_or(self.end)
+    }
+    pub fn reverse(&self) -> bool {
+        self.direction == "REVERSE"
+    }
+    /// Open on `d`: started on or before it and not yet ended.
+    pub fn open_on(&self, d: NaiveDate) -> bool {
+        self.start <= d && self.end_on() > d
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -159,10 +224,13 @@ pub struct Income {
     pub irs: f64,
     /// Bond carry + IRS carry: the management net interest income.
     pub net_nii: f64,
-    /// Interest paid on repos funding the bond, as a positive cost.
+    /// Net repo interest: paid on repos less received on reverse repos, as a cost.
     pub repo: f64,
     /// Coupon + amortisation + IRS − repo interest.
     pub accounting_nii: f64,
+    /// Gains (losses) realised on sales against amortised cost; not interest income.
+    #[serde(default)]
+    pub realised: f64,
 }
 
 impl Income {
@@ -179,6 +247,7 @@ impl Income {
         self.ftp += o.ftp;
         self.irs += o.irs;
         self.repo += o.repo;
+        self.realised += o.realised;
         *self = self.finish();
     }
 }
@@ -231,6 +300,15 @@ pub struct PositionRow {
     pub income: Income,
     /// Today's accrual after FTP.
     pub daily_carry_bhd: f64,
+    /// A lot booked in the app without a Kondor id yet (on a bond or book row: any such lot).
+    #[serde(default)]
+    pub provisional: bool,
+    /// The lot's id, for lot rows: to sell from it, pledge it or attach its Kondor id.
+    #[serde(default)]
+    pub lot_id: Option<Uuid>,
+    /// Face free to sell or pledge today (held less pledged), local currency.
+    #[serde(default)]
+    pub free_face_local: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -306,6 +384,11 @@ pub struct RepoSummary {
     pub avg_haircut: f64,
     pub wtd_maturity_days: f64,
     pub receipts_12m_bhd: f64,
+    /// Cash lent on reverse repos, and how many are open.
+    #[serde(default)]
+    pub reverse_bhd: f64,
+    #[serde(default)]
+    pub reverse_active: u32,
 }
 
 /// The six headline figures, today and on the previous business day.
@@ -488,6 +571,14 @@ pub struct RepoView {
     pub days_left: i64,
     pub collateral_face_bhd: f64,
     pub isins: Vec<String>,
+    #[serde(default)]
+    pub direction: String,
+    #[serde(default)]
+    pub provisional: bool,
+    #[serde(default)]
+    pub collateral_note: Option<String>,
+    #[serde(default)]
+    pub rolled_from: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -551,6 +642,8 @@ pub struct CashFlowRow {
 pub struct PmuBondDetail {
     pub bond: Bond,
     pub lots: Vec<PositionRow>,
+    #[serde(default)]
+    pub sales: Vec<SaleView>,
     pub swaps: Vec<SwapView>,
     pub repos: Vec<RepoView>,
     pub cash_flows: Vec<CashFlowRow>,
@@ -568,4 +661,246 @@ pub struct PeriodQueryPmu {
 pub struct ForecastQuery {
     #[serde(default)]
     pub reinvest: Option<bool>,
+}
+
+/// One lot's part of a sale, as booked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaleView {
+    pub sale_ref: String,
+    pub lot_id: Uuid,
+    pub book: String,
+    pub trade_date: NaiveDate,
+    pub settle_date: NaiveDate,
+    pub face: f64,
+    pub clean_price: f64,
+    pub realised_bhd: f64,
+    pub kondor_id: Option<String>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Booking
+// ---------------------------------------------------------------------------------------------
+
+/// What the ticket shows before a purchase or sale is booked.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BondQuote {
+    pub isin: String,
+    pub ccy: String,
+    pub trade_date: NaiveDate,
+    pub settle_date: NaiveDate,
+    pub face: f64,
+    pub clean_price: f64,
+    pub dirty_price: f64,
+    /// Yield to maturity at that price; for a floater, its current coupon.
+    pub ytm: f64,
+    /// Accrued interest for the face, local currency.
+    pub accrued: f64,
+    /// Clean consideration plus accrued, local currency and BHD.
+    pub consideration: f64,
+    pub consideration_bhd: f64,
+    pub spot: f64,
+    /// The effective interest rate a purchase at this price earns.
+    pub eir: f64,
+    /// The FTP rate a purchase today locks for the bond's remaining term, and its publication.
+    pub ftp_rate: Option<f64>,
+    pub ftp_published: Option<NaiveDate>,
+    /// EIR less FTP, basis points, and that spread on the clean consideration for a year, BHD.
+    pub carry_bp: Option<f64>,
+    pub carry_bhd_year: Option<f64>,
+    pub dv01_bhd: f64,
+    pub mod_duration: f64,
+    pub market_price: Option<f64>,
+    pub market_ytm: Option<f64>,
+    pub market_as_of: Option<NaiveDate>,
+    /// Distance from the market: yield in bp for a fixed bond, price in bp for a floater.
+    pub off_market_bp: Option<f64>,
+    pub off_market: bool,
+}
+
+/// One lot a sale would draw on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaleLeg {
+    pub lot_id: Uuid,
+    pub book: String,
+    pub trade_date: NaiveDate,
+    pub purchase_price: f64,
+    pub held: f64,
+    pub pledged: f64,
+    pub free: f64,
+    /// Face taken from this lot.
+    pub face: f64,
+    /// Book value (amortised cost less accrued) of that face on the settlement date, local.
+    pub book_value: f64,
+    pub accrued: f64,
+    pub realised: f64,
+    pub realised_bhd: f64,
+    pub kondor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TicketPreview {
+    pub quote: BondQuote,
+    /// For a sale: the lots it draws on (oldest first unless chosen) and every candidate lot.
+    pub legs: Vec<SaleLeg>,
+    pub candidates: Vec<SaleLeg>,
+    pub free_total: f64,
+    pub realised_bhd: f64,
+    pub warnings: Vec<String>,
+    /// The trade cannot be booked as it stands (beyond free face, matured, no such book).
+    pub blocking: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LotPick {
+    pub lot_id: Uuid,
+    pub face: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TicketRequest {
+    /// `BUY` or `SELL`.
+    pub side: String,
+    pub isin: String,
+    /// The book bought into; for a sale, limits the lots to that book when given.
+    #[serde(default)]
+    pub book: Option<String>,
+    pub face: f64,
+    #[serde(default)]
+    pub clean_price: Option<f64>,
+    #[serde(default)]
+    pub ytm: Option<f64>,
+    #[serde(default)]
+    pub trade_date: Option<NaiveDate>,
+    #[serde(default)]
+    pub settle_date: Option<NaiveDate>,
+    /// For a sale, the lots chosen instead of oldest first.
+    #[serde(default)]
+    pub lots: Option<Vec<LotPick>>,
+    #[serde(default)]
+    pub kondor_id: Option<String>,
+    #[serde(default)]
+    pub confirm_off_market: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BondSearchHit {
+    pub bond: Bond,
+    pub market_price: Option<f64>,
+    pub market_ytm: Option<f64>,
+    /// By book: (book, held, pledged, free), local currency.
+    pub holdings: Vec<(String, f64, f64, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BondSearchQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewBond {
+    pub isin: String,
+    pub name: String,
+    pub issuer: String,
+    pub issuer_type: String,
+    pub ccy: String,
+    #[serde(default)]
+    pub coupon: f64,
+    pub coupon_freq: u32,
+    pub day_count: BondDayCount,
+    pub issue_date: NaiveDate,
+    pub maturity: NaiveDate,
+    pub rate_type: BondRateType,
+    #[serde(default)]
+    pub float_index: Option<String>,
+    #[serde(default)]
+    pub float_spread: f64,
+    #[serde(default)]
+    pub hqla_level: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepoRequest {
+    /// `REPO` or `REVERSE`.
+    pub direction: String,
+    pub counterparty: String,
+    pub ccy: String,
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+    pub rate: f64,
+    #[serde(default)]
+    pub haircut_pct: f64,
+    /// Cash; computed from the collateral's market value less the haircut when left out.
+    #[serde(default)]
+    pub cash: Option<f64>,
+    #[serde(default)]
+    pub collateral: Vec<LotPick>,
+    #[serde(default)]
+    pub collateral_isin: Option<String>,
+    #[serde(default)]
+    pub collateral_face: Option<f64>,
+    #[serde(default)]
+    pub collateral_note: Option<String>,
+    #[serde(default)]
+    pub kondor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepoPreview {
+    /// Market value of the collateral, its value after the haircut (the cash), local currency.
+    pub collateral_value: f64,
+    pub cash: f64,
+    pub cash_bhd: f64,
+    pub interest: f64,
+    pub interest_bhd: f64,
+    pub days: i64,
+    /// The latest quote from the counterparty for the nearest tenor, over SOFR.
+    pub quote_spread_bp: Option<f64>,
+    pub quote_tenor: Option<String>,
+    pub quote_as_of: Option<NaiveDate>,
+    pub sofr: Option<f64>,
+    pub indicative_rate: Option<f64>,
+    /// Lots with face free to pledge over the term: (lot, isin, name, book, free, price).
+    pub available: Vec<PledgeCandidate>,
+    pub warnings: Vec<String>,
+    pub blocking: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PledgeCandidate {
+    pub lot_id: Uuid,
+    pub isin: String,
+    pub name: String,
+    pub book: String,
+    pub ccy: String,
+    pub free: f64,
+    pub price: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepoClose {
+    pub on: NaiveDate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepoRoll {
+    pub on: NaiveDate,
+    pub end: NaiveDate,
+    pub rate: f64,
+    #[serde(default)]
+    pub cash: Option<f64>,
+    #[serde(default)]
+    pub kondor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KondorAttach {
+    pub kondor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Booked {
+    /// The lot, repo or sale reference created.
+    pub id: String,
+    pub message: String,
 }

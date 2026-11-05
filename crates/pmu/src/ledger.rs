@@ -30,6 +30,10 @@ pub struct LotDay {
     pub accrued: f64,
     pub coupon_cash: f64,
     pub principal: f64,
+    /// Gain (loss) realised on a sale settling that day: clean proceeds less the book value sold.
+    pub realised: f64,
+    /// Face held at the end of the day, local.
+    pub face: f64,
 }
 
 /// Where a lot stands at the end of a walk.
@@ -45,6 +49,8 @@ pub struct LotState {
     pub matured: bool,
     /// The coupon period the date falls in.
     pub period: Option<(NaiveDate, NaiveDate)>,
+    /// Face still held, local.
+    pub face: f64,
 }
 
 fn period_rate(m: &Market, b: &Bond, prev: NaiveDate, next: NaiveDate) -> f64 {
@@ -59,7 +65,11 @@ fn period_rate(m: &Market, b: &Bond, prev: NaiveDate, next: NaiveDate) -> f64 {
 pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate, mut f: impl FnMut(&LotDay)) -> LotState {
     let sched = schedule(b);
     let s = lot.settle_date;
-    let face = lot.face / 100.0;
+    let mut held = lot.face;
+    let mut face = held / 100.0;
+    let mut sales: Vec<&domain::LotSale> = lot.sales.iter().filter(|x| x.settle_date > s).collect();
+    sales.sort_by_key(|x| x.settle_date);
+    let mut next_sale = 0;
     let Some((mut prev, mut next)) = period_of(b.issue_date, &sched, s) else {
         return LotState { date: s, matured: true, ..Default::default() };
     };
@@ -81,7 +91,7 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
         if nd == next {
             cash = coupon_cash(b.day_count, rate, b.coupon_freq, prev, next) * face;
             if nd == b.maturity {
-                principal = lot.face;
+                principal = held;
             }
             ac -= cash + principal;
             if nd < b.maturity
@@ -99,7 +109,7 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
                 }
             }
         }
-        let acc_new = if nd >= b.maturity { 0.0 } else { accrued(b, &sched, nd, rate) * face };
+        let mut acc_new = if nd >= b.maturity { 0.0 } else { accrued(b, &sched, nd, rate) * face };
         let coupon = acc_new - acc + cash;
         let mut amortisation = income - coupon;
         if nd >= b.maturity {
@@ -107,11 +117,31 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
             amortisation -= ac;
             ac = 0.0;
         }
+        // Sales settling today: the amortised cost and accrued interest go with the face sold, the
+        // accrued as cash; the clean proceeds against the book value sold are the realised gain.
+        let mut realised = 0.0;
+        while next_sale < sales.len() && sales[next_sale].settle_date == nd {
+            let sale = sales[next_sale];
+            next_sale += 1;
+            if held <= 0.0 || nd >= b.maturity {
+                continue;
+            }
+            let sold = sale.face.min(held);
+            let ratio = sold / held;
+            realised += sold * sale.clean_price / 100.0 - (ac - acc_new) * ratio;
+            ac *= 1.0 - ratio;
+            acc_new *= 1.0 - ratio;
+            held -= sold;
+            face = held / 100.0;
+        }
         acc = acc_new;
         if nd >= from {
-            f(&LotDay { date: nd, coupon, amortisation, ftp: ftp_amt, book_value: ac - acc, accrued: acc, coupon_cash: cash, principal });
+            f(&LotDay { date: nd, coupon, amortisation, ftp: ftp_amt, book_value: ac - acc, accrued: acc, coupon_cash: cash, principal, realised, face: held });
         }
         d = nd;
+        if held <= 0.005 {
+            break;
+        }
     }
     LotState {
         date: d,
@@ -123,6 +153,7 @@ pub fn walk_lot(m: &Market, lot: &Lot, b: &Bond, from: NaiveDate, to: NaiveDate,
         ftp_rate: ftp,
         matured: d >= b.maturity,
         period: period_of(b.issue_date, &sched, d),
+        face: held,
     }
 }
 
@@ -239,12 +270,14 @@ pub fn swap_pv(m: &Market, s: &Swap, on: NaiveDate, bp: f64) -> f64 {
     if s.pay_fixed { float - fixed } else { fixed - float }
 }
 
-/// A repo's daily interest from `from` to `to`, as a positive cost.
+/// A repo's daily interest from `from` to `to`: a cost for a repo, negative (income) for a
+/// reverse repo. A repo closed early stops on the day it was closed.
 pub fn walk_repo(r: &Repo, from: NaiveDate, to: NaiveDate, mut f: impl FnMut(NaiveDate, f64)) {
     let mut d = from.max(r.start + Duration::days(1));
-    let end = to.min(r.end);
+    let end = to.min(r.end_on());
+    let sign = if r.reverse() { -1.0 } else { 1.0 };
     while d <= end {
-        f(d, r.cash * r.rate / 100.0 / mm_basis(&r.ccy));
+        f(d, sign * r.cash * r.rate / 100.0 / mm_basis(&r.ccy));
         d += Duration::days(1);
     }
 }

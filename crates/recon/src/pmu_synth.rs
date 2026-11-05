@@ -313,6 +313,8 @@ fn generate(market: &Market, pm: &pmu::Market, ftp: &pmu::Ftp, first: NaiveDate,
                 ftp_rate: ftp_lock.map(|x| x.0),
                 ftp_publication_id: ftp_lock.map(|x| x.1),
                 status: if b.maturity <= today { "MATURED".into() } else { "OPEN".into() },
+                origin: "FEED".into(),
+                sales: Vec::new(),
             });
         }
     }
@@ -402,6 +404,12 @@ fn generate(market: &Market, pm: &pmu::Market, ftp: &pmu::Ftp, first: NaiveDate,
             rate,
             haircut_pct: haircut,
             collateral: coll,
+            direction: "REPO".into(),
+            closed_on: None,
+            origin: "FEED".into(),
+            collateral_isin: None,
+            collateral_face: None,
+            collateral_note: None,
         });
     }
     Gen { bonds, lots, swaps, repos }

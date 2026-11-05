@@ -70,6 +70,8 @@ pub struct LotNow {
     pub state: LotState,
     pub today: LotDay,
     pub spot: f64,
+    /// Face held, local.
+    pub face: f64,
     pub face_bhd: f64,
     pub market_price: f64,
     pub ytm: f64,
@@ -97,7 +99,7 @@ impl LotNow {
 }
 
 pub fn held_on(lot: &Lot, b: &Bond, on: NaiveDate) -> bool {
-    lot.settle_date <= on && lot.settle_date >= b.issue_date && b.maturity > on && lot.status != "SOLD"
+    lot.settle_date <= on && lot.settle_date >= b.issue_date && b.maturity > on && lot.face_on(on) > 0.005
 }
 
 /// Local face of a lot hedged on `on`: each linked swap's assigned notional, scaled by how much
@@ -112,12 +114,12 @@ pub fn hedged_face(p: &Portfolio, lot: &Lot, on: NaiveDate) -> f64 {
             s.hedges.iter().filter(|(l, _)| *l == lot.id).map(move |(_, n)| n * live)
         })
         .sum();
-    h.min(lot.face)
+    h.min(lot.face_on(on))
 }
 
 pub fn pledged_face(p: &Portfolio, lot: &Lot, on: NaiveDate) -> f64 {
-    let x: f64 = p.repos.iter().filter(|r| r.start <= on && r.end > on).flat_map(|r| r.collateral.iter().filter(|(l, _)| *l == lot.id).map(|(_, f)| *f)).sum();
-    x.min(lot.face)
+    let x: f64 = p.repos.iter().filter(|r| !r.reverse() && r.open_on(on)).flat_map(|r| r.collateral.iter().filter(|(l, _)| *l == lot.id).map(|(_, f)| *f)).sum();
+    x.min(lot.face_on(on))
 }
 
 pub fn lot_now(m: &Market, p: &Portfolio, idx: usize, on: NaiveDate) -> Option<LotNow> {
@@ -128,6 +130,7 @@ pub fn lot_now(m: &Market, p: &Portfolio, idx: usize, on: NaiveDate) -> Option<L
     }
     let mut today = LotDay::default();
     let state = walk_lot(m, lot, b, on, on, |d| today = *d);
+    let face = lot.face_on(on);
     let sched = schedule(b);
     let spot = m.spot(&b.ccy, on);
     let years = (b.maturity - on).num_days() as f64 / 365.0;
@@ -140,26 +143,27 @@ pub fn lot_now(m: &Market, p: &Portfolio, idx: usize, on: NaiveDate) -> Option<L
                     (clean_from_yield(b, &sched, on, y), y)
                 }
             };
-            let dv01 = (dirty_from_yield(b, &sched, on, ytm + 0.01) - dirty_from_yield(b, &sched, on, ytm)) * lot.face / 100.0 * spot;
+            let dv01 = (dirty_from_yield(b, &sched, on, ytm + 0.01) - dirty_from_yield(b, &sched, on, ytm)) * face / 100.0 * spot;
             (clean, ytm, mod_duration(b, &sched, on, ytm), dv01, 0.0)
         }
         BondRateType::Float => {
             let next = state.period.map(|(_, n)| n).unwrap_or(b.maturity);
             let tau = (next - on).num_days().max(0) as f64 / 365.0;
             let clean = m.price(&b.isin, on).map(|x| x.0).unwrap_or(100.0);
-            (clean, state.coupon_rate, tau, -lot.face * tau / 10_000.0 * spot, tau)
+            (clean, state.coupon_rate, tau, -face * tau / 10_000.0 * spot, tau)
         }
     };
     let _ = years;
     let accrued_bhd = state.accrued * spot;
-    let mv_bhd = market_price * lot.face / 100.0 * spot + accrued_bhd;
+    let mv_bhd = market_price * face / 100.0 * spot + accrued_bhd;
     let bv_bhd = state.book_value * spot;
     Some(LotNow {
         idx,
         state,
         today,
         spot,
-        face_bhd: lot.face * spot,
+        face,
+        face_bhd: face * spot,
         market_price,
         ytm,
         accrued_bhd,
@@ -290,6 +294,7 @@ pub fn income(m: &Market, p: &Portfolio, from: NaiveDate, to: NaiveDate) -> Inco
                 i.coupon += d.coupon * fx;
                 i.amortisation += d.amortisation * fx;
                 i.ftp += d.ftp * fx;
+                i.realised += d.realised * fx;
             });
         });
     }
@@ -310,7 +315,7 @@ pub fn income(m: &Market, p: &Portfolio, from: NaiveDate, to: NaiveDate) -> Inco
         });
     }
     for r in &p.repos {
-        if r.end < from || r.start > to {
+        if r.end_on() < from || r.start > to {
             continue;
         }
         let sh = repo_shares(r);
@@ -451,7 +456,7 @@ impl<'a> Snapshot<'a> {
                             trade_date: Some(l.trade_date),
                             maturity: Some(b.maturity),
                             lots: 1,
-                            face_local: Some(l.face),
+                            face_local: Some(n.face),
                             face_bhd: n.face_bhd,
                             price: l.clean_price,
                             market_price: Some(n.market_price),
@@ -469,6 +474,9 @@ impl<'a> Snapshot<'a> {
                             share: n.face_bhd / total_face,
                             income: inc.by_lot.get(&l.id).copied().unwrap_or_default(),
                             daily_carry_bhd: (n.today.coupon + n.today.amortisation - n.today.ftp) * n.spot,
+                            provisional: l.provisional(),
+                            lot_id: Some(l.id),
+                            free_face_local: Some((n.face - n.pledged_face).max(0.0)),
                         }
                     })
                     .collect();
@@ -477,7 +485,8 @@ impl<'a> Snapshot<'a> {
                 agg.issuer = Some(b.issuer.clone());
                 agg.ccy = Some(b.ccy.clone());
                 agg.maturity = Some(b.maturity);
-                agg.face_local = Some(lots.iter().map(|n| self.lot(n).face).sum());
+                agg.face_local = Some(lots.iter().map(|n| n.face).sum());
+                agg.free_face_local = Some(lots.iter().map(|n| (n.face - n.pledged_face).max(0.0)).sum());
                 agg.kondor_id = None;
                 bond_groups.push((agg, lot_rows));
             }
@@ -542,9 +551,10 @@ impl<'a> Snapshot<'a> {
                 continue;
             }
             let hedged = if year_end { hedged_face(self.p, l, refd) } else { n.hedged_face };
+            let face = if year_end { l.face_on(refd) } else { n.face };
             let i = bucket_of((b.maturity - refd).num_days() as f64 / 365.0);
             out[i].hedged_bhd += hedged * n.spot;
-            out[i].unhedged_bhd += (l.face - hedged) * n.spot;
+            out[i].unhedged_bhd += (face - hedged).max(0.0) * n.spot;
         }
         out
     }
@@ -556,7 +566,7 @@ impl<'a> Snapshot<'a> {
         for n in &self.lots {
             let (l, b) = (self.lot(n), self.bond(n));
             if b.maturity > ye {
-                face += n.face_bhd;
+                face += l.face_on(ye) * n.spot;
                 hedged += hedged_face(self.p, l, ye) * n.spot;
             }
         }
@@ -641,7 +651,7 @@ impl<'a> Snapshot<'a> {
                 for n in &self.lots {
                     let (l, b) = (self.lot(n), self.bond(n));
                     if let Some(i) = books.iter().position(|x| *x == l.book) {
-                        by[i] += n.shock_bhd(b, &schedule(b), self.on, *bp, l.face);
+                        by[i] += n.shock_bhd(b, &schedule(b), self.on, *bp, n.face);
                     }
                 }
                 for sn in &self.swaps {
@@ -662,7 +672,7 @@ impl<'a> Snapshot<'a> {
         let mut acc: BTreeMap<(Option<String>, i32), (f64, f64, f64, f64)> = BTreeMap::new();
         for n in &self.lots {
             let (l, b) = (self.lot(n), self.bond(n));
-            let un = (l.face - n.hedged_face).max(0.0) * n.spot;
+            let un = (n.face - n.hedged_face).max(0.0) * n.spot;
             for key in [None, Some(l.book.clone())] {
                 let e = acc.entry((key, b.maturity.year())).or_default();
                 e.0 += n.face_bhd;
@@ -679,10 +689,10 @@ impl<'a> Snapshot<'a> {
     pub fn hedged_by_ccy(&self) -> Vec<CcyHedge> {
         let mut m: BTreeMap<String, (f64, f64)> = BTreeMap::new();
         for n in &self.lots {
-            let (l, b) = (self.lot(n), self.bond(n));
+            let b = self.bond(n);
             let e = m.entry(b.ccy.clone()).or_default();
             e.0 += n.hedged_face * n.spot;
-            e.1 += (l.face - n.hedged_face) * n.spot;
+            e.1 += (n.face - n.hedged_face).max(0.0) * n.spot;
         }
         m.into_iter().map(|(ccy, (h, u))| CcyHedge { ccy, hedged_bhd: h, unhedged_bhd: u }).collect()
     }
@@ -723,7 +733,7 @@ impl<'a> Snapshot<'a> {
             .p
             .repos
             .iter()
-            .filter(|r| r.start <= self.on && r.end > self.on)
+            .filter(|r| r.open_on(self.on))
             .map(|r| {
                 let mut isins = Vec::new();
                 let mut coll = 0.0;
@@ -747,8 +757,12 @@ impl<'a> Snapshot<'a> {
                     rate: r.rate,
                     haircut_pct: r.haircut_pct,
                     days_left: (r.end - self.on).num_days(),
-                    collateral_face_bhd: coll,
-                    isins,
+                    collateral_face_bhd: if r.reverse() { r.collateral_face.unwrap_or(0.0) * self.m.spot(&r.ccy, self.on) } else { coll },
+                    isins: if r.reverse() { r.collateral_isin.clone().into_iter().collect() } else { isins },
+                    direction: r.direction.clone(),
+                    provisional: r.origin == "INTERNAL" && r.kondor_id.is_none(),
+                    collateral_note: r.collateral_note.clone(),
+                    rolled_from: None,
                 }
             })
             .collect();
@@ -757,7 +771,9 @@ impl<'a> Snapshot<'a> {
     }
 
     pub fn repo_summary(&self, receipts_12m: f64) -> RepoSummary {
-        let views = self.repo_views();
+        let all = self.repo_views();
+        let reverse: Vec<&RepoView> = all.iter().filter(|r| r.direction == "REVERSE").collect();
+        let views: Vec<&RepoView> = all.iter().filter(|r| r.direction != "REVERSE").collect();
         let amount: f64 = views.iter().map(|r| r.cash_bhd).sum();
         let pledged: f64 = self.lots.iter().map(|n| n.pledged_face * n.spot).sum();
         let held: f64 = self.lots.iter().map(|n| n.face_bhd).sum();
@@ -771,12 +787,14 @@ impl<'a> Snapshot<'a> {
             avg_haircut: wavg(views.iter().map(|r| (r.haircut_pct, r.cash_bhd))),
             wtd_maturity_days: wavg(views.iter().map(|r| (r.days_left as f64, r.cash_bhd))),
             receipts_12m_bhd: receipts_12m,
+            reverse_bhd: reverse.iter().map(|r| r.cash_bhd).sum(),
+            reverse_active: reverse.len() as u32,
         }
     }
 
     pub fn repo_by_remaining(&self) -> Vec<NamedAmount> {
         let mut out: Vec<NamedAmount> = REPO_BUCKETS.iter().map(|(l, _)| NamedAmount { label: l.to_string(), amount: 0.0 }).collect();
-        for r in self.repo_views() {
+        for r in self.repo_views().into_iter().filter(|r| r.direction != "REVERSE") {
             let i = REPO_BUCKETS.iter().position(|(_, d)| r.days_left <= *d).unwrap_or(REPO_BUCKETS.len() - 1);
             out[i].amount += r.cash_bhd;
         }
@@ -803,9 +821,9 @@ impl<'a> Snapshot<'a> {
     pub fn funding_flows(&self) -> Vec<MonthFlow> {
         let first = add_months(month_start(self.on), -6);
         let mut out: Vec<MonthFlow> = (0..13).map(|i| MonthFlow { month: add_months(first, i), a: 0.0, b: 0.0 }).collect();
-        for r in &self.p.repos {
+        for r in self.p.repos.iter().filter(|r| !r.reverse()) {
             let fx = self.m.spot(&r.ccy, self.on);
-            for (d, is_start) in [(r.start, true), (r.end, false)] {
+            for (d, is_start) in [(r.start, true), (r.end_on(), false)] {
                 if let Some(mf) = out.iter_mut().find(|x| month_start(d) == x.month) {
                     if is_start {
                         mf.a += r.cash * fx;
@@ -948,6 +966,9 @@ fn aggregate(children: &[PositionRow], level: RowLevel, key: String, parent: Opt
         share: children.iter().map(|c| c.share).sum(),
         income,
         daily_carry_bhd: children.iter().map(|c| c.daily_carry_bhd).sum(),
+        provisional: children.iter().any(|c| c.provisional),
+        lot_id: None,
+        free_face_local: None,
     }
 }
 
@@ -1034,6 +1055,9 @@ pub fn with_reinvestment(m: &Market, p: &Portfolio, on: NaiveDate, horizon: Naiv
             ftp_rate: m.ftp.rate(&b.ccy, on, tenor_days).map(|x| x.0),
             ftp_publication_id: None,
             status: "PROJECTED".into(),
+            face: l.face_on(on),
+            sales: Vec::new(),
+            origin: "PROJECTED".into(),
             ..l.clone()
         };
         if nb.maturity <= horizon {

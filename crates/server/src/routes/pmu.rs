@@ -42,6 +42,7 @@ async fn stamp(conn: &mut PgConnection) -> Result<String, ApiError> {
             (SELECT max(updated_at)::text FROM bonds), (SELECT max(updated_at)::text FROM pmu_books), \
             (SELECT max(updated_at)::text FROM irs), (SELECT count(*) FROM irs), (SELECT count(*) FROM irs_unwinds), (SELECT count(*) FROM irs_hedges), \
             (SELECT max(updated_at)::text FROM repos), (SELECT count(*) FROM repos), (SELECT count(*) FROM repo_collateral), \
+            (SELECT count(*) FROM lot_sales), (SELECT max(updated_at)::text FROM lot_sales), (SELECT count(closed_on) FROM repos), \
             (SELECT max(as_of)::text FROM bond_prices), (SELECT count(*) FROM bond_prices), (SELECT max(quoted_at)::text FROM repo_quotes), \
             (SELECT max(id) FROM ftp_publications), (SELECT max(as_of)::text FROM market_rates), (SELECT max(as_of)::text FROM fx_spots))",
     )
@@ -88,8 +89,18 @@ async fn load(conn: &mut PgConnection, on: NaiveDate) -> Result<PmuData, ApiErro
         })
         .collect();
 
-    let rows: Vec<(Uuid, String, String, NaiveDate, NaiveDate, Decimal, Decimal, Decimal, Option<String>, Decimal, Option<Decimal>, Option<i32>, String)> = sqlx::query_as(
-        "SELECT id, book, isin, trade_date, settle_date, face, clean_price, accrued_paid, kondor_id, eir, ftp_rate, ftp_publication_id, status FROM bond_lots \
+    let rows: Vec<(Uuid, Uuid, String, NaiveDate, NaiveDate, Decimal, Decimal, Option<String>)> = sqlx::query_as(
+        "SELECT id, lot_id, sale_ref, trade_date, settle_date, face, clean_price, kondor_id FROM lot_sales WHERE trade_date <= $1 ORDER BY settle_date, id",
+    )
+    .bind(on)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut sales: BTreeMap<Uuid, Vec<domain::LotSale>> = BTreeMap::new();
+    for (id, lot, sale_ref, trade_date, settle_date, face, clean, kondor_id) in rows {
+        sales.entry(lot).or_default().push(domain::LotSale { id, sale_ref, trade_date, settle_date, face: f(face), clean_price: f(clean), kondor_id });
+    }
+    let rows: Vec<(Uuid, String, String, NaiveDate, NaiveDate, Decimal, Decimal, Decimal, Option<String>, Decimal, Option<Decimal>, Option<i32>, String, String)> = sqlx::query_as(
+        "SELECT id, book, isin, trade_date, settle_date, face, clean_price, accrued_paid, kondor_id, eir, ftp_rate, ftp_publication_id, status, origin FROM bond_lots \
          WHERE trade_date <= $1 ORDER BY trade_date, id",
     )
     .bind(on)
@@ -97,7 +108,7 @@ async fn load(conn: &mut PgConnection, on: NaiveDate) -> Result<PmuData, ApiErro
     .await?;
     let lots: Vec<Lot> = rows
         .into_iter()
-        .map(|(id, book, isin, trade_date, settle_date, face, clean, acc, kondor_id, eir, ftp_rate, ftp_publication_id, status)| Lot {
+        .map(|(id, book, isin, trade_date, settle_date, face, clean, acc, kondor_id, eir, ftp_rate, ftp_publication_id, status, origin)| Lot {
             id,
             book,
             isin,
@@ -111,6 +122,8 @@ async fn load(conn: &mut PgConnection, on: NaiveDate) -> Result<PmuData, ApiErro
             ftp_rate: ftp_rate.map(f),
             ftp_publication_id,
             status,
+            origin,
+            sales: sales.remove(&id).unwrap_or_default(),
         })
         .collect();
 
@@ -146,12 +159,18 @@ async fn load(conn: &mut PgConnection, on: NaiveDate) -> Result<PmuData, ApiErro
         })
         .collect();
 
-    let rows: Vec<(Uuid, String, Option<String>, String, NaiveDate, NaiveDate, Decimal, Decimal, Decimal)> =
-        sqlx::query_as("SELECT id, counterparty, kondor_id, ccy::text, start_date, end_date, cash, rate, haircut_pct FROM repos WHERE start_date <= $1").bind(on).fetch_all(&mut *conn).await?;
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(Uuid, String, Option<String>, String, NaiveDate, NaiveDate, Decimal, Decimal, Decimal, String, Option<NaiveDate>, String, Option<String>, Option<Decimal>, Option<String>)> = sqlx::query_as(
+        "SELECT id, counterparty, kondor_id, ccy::text, start_date, end_date, cash, rate, haircut_pct, direction, closed_on, origin, collateral_isin, collateral_face, collateral_note \
+         FROM repos WHERE start_date <= $1",
+    )
+    .bind(on)
+    .fetch_all(&mut *conn)
+    .await?;
     let coll: Vec<(Uuid, Uuid, Decimal)> = sqlx::query_as("SELECT repo_id, lot_id, face FROM repo_collateral").fetch_all(&mut *conn).await?;
     let repos = rows
         .into_iter()
-        .map(|(id, counterparty, kondor_id, ccy, start, end, cash, rate, haircut)| Repo {
+        .map(|(id, counterparty, kondor_id, ccy, start, end, cash, rate, haircut, direction, closed_on, origin, ci, cf, cn)| Repo {
             id,
             counterparty,
             kondor_id,
@@ -162,6 +181,12 @@ async fn load(conn: &mut PgConnection, on: NaiveDate) -> Result<PmuData, ApiErro
             rate: f(rate),
             haircut_pct: f(haircut),
             collateral: coll.iter().filter(|c| c.0 == id).map(|c| (c.1, f(c.2))).collect(),
+            direction,
+            closed_on,
+            origin,
+            collateral_isin: ci,
+            collateral_face: cf.map(f),
+            collateral_note: cn,
         })
         .collect();
 
