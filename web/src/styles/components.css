@@ -1697,3 +1697,183 @@ dialog.ticket::backdrop {
 .ftp-preview .notice {
   margin: 6px 0;
 }
+
+/* PMU: the bond portfolio pages */
+.pmu-body {
+  overflow: auto;
+  min-height: 0;
+}
+.panel-row.pmu-ov {
+  grid-template-columns: minmax(380px, 1.5fr) repeat(3, minmax(230px, 1fr));
+}
+.panel-row.pmu-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1360px) {
+  .panel-row.pmu-ov {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 1100px) {
+  .panel-row.pmu-three {
+    grid-template-columns: 1fr;
+  }
+}
+.table tr.clickable {
+  cursor: pointer;
+}
+.table tr.clickable:hover td {
+  background: var(--hover);
+}
+.mini-bar,
+.split-bar,
+.div-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hairline);
+  overflow: hidden;
+  width: 100%;
+}
+.mini-bar > span,
+.split-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--s1);
+}
+.split-bar > span + span {
+  margin-left: 2px;
+}
+.split-bar > span.light {
+  opacity: 0.4;
+}
+/* A diverging bar around a centre line: gains to the right, losses to the left. */
+.div-bar {
+  position: relative;
+  background: none;
+}
+.div-bar::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--border);
+}
+.div-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+.div-bar > span.pos {
+  left: 50%;
+  background: var(--s1);
+}
+.div-bar > span.neg {
+  right: 50%;
+  background: var(--bad);
+}
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dimmed {
+  opacity: 0.6;
+  transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.table.compact td {
+  height: 20px;
+  font-size: 12px;
+}
+.period .input[type='date'] {
+  width: 140px;
+}
+
+/* The positions tree */
+.tree-wrap {
+  margin-top: 8px;
+  overflow-x: auto;
+}
+.table.tree td.name {
+  white-space: nowrap;
+}
+.table.tree .twisty {
+  display: inline-block;
+  width: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+.table.tree span.twisty {
+  cursor: default;
+}
+.table.tree tr.lvl-book td {
+  font-weight: 600;
+  background: var(--surface-alt);
+  border-top: 1px solid var(--hairline);
+}
+.table.tree tr.lvl-bond td.name {
+  padding-left: 22px;
+}
+.table.tree tr.lvl-lot td {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.table.tree tr.lvl-lot td.name {
+  padding-left: 46px;
+}
+.table.tree tr.selected td {
+  background: var(--selection);
+}
+.btn-link,
+button.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+button.link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* The bond detail floats over the right of the page, so the tree keeps its width. */
+.detail-pane {
+  position: fixed;
+  right: 16px;
+  top: 96px;
+  bottom: 40px;
+  width: 400px;
+  z-index: 20;
+  padding: 12px 14px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+.detail-pane .table td {
+  font-size: 12px;
+}
+.detail-pane .kv {
+  grid-template-columns: auto 1fr;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.detail-pane .kv > span:nth-child(odd) {
+  color: var(--text-2);
+}
+@media (max-width: 900px) {
+  .detail-pane {
+    left: 16px;
+    width: auto;
+  }
+}

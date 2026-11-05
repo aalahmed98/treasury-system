@@ -1,7 +1,7 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -181,4 +181,11 @@ export const endpoints = {
   ftpPublish: (req: { as_of: string; curves: FtpCurve[]; file_name: string | null; file_sha256: string | null; note: string }) =>
     api<FtpPublication>('/ftp/publish', { method: 'POST', body: req }),
   ftpTemplate: () => download('/ftp/template.xlsx', 'ftp-curves.xlsx'),
+  pmuOverview: () => api<PmuOverview>('/pmu/overview', { passive: true }),
+  pmuPositions: (from?: string, to?: string) => api<PmuPositions>(`/pmu/positions${q({ from, to })}`, { passive: true }),
+  pmuIncome: (from?: string, to?: string) => api<PmuIncome>(`/pmu/income${q({ from, to })}`, { passive: true }),
+  pmuForecast: (reinvest: boolean) => api<PmuForecast>(`/pmu/forecast${q({ reinvest: String(reinvest) })}`, { passive: true }),
+  pmuRisk: () => api<PmuRisk>('/pmu/risk', { passive: true }),
+  pmuFunding: () => api<PmuFunding>('/pmu/funding', { passive: true }),
+  pmuBond: (isin: string) => api<PmuBondDetail>(`/pmu/bond/${encodeURIComponent(isin)}`, { passive: true }),
 };

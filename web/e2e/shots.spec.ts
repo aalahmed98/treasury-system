@@ -25,6 +25,11 @@ const routes: [string, string][] = [
   ['alm-ewi', '/app/alm/ewi'],
   ['alm-pack', '/app/alm/pack'],
   ['ftp', '/app/ftp'],
+  ['pmu', '/app/pmu'],
+  ['pmu-positions', '/app/pmu/positions'],
+  ['pmu-income', '/app/pmu/income'],
+  ['pmu-risk', '/app/pmu/risk'],
+  ['pmu-funding', '/app/pmu/funding'],
   ['alm-ftp', '/app/alm/ftp'],
 ];
 

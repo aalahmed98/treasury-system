@@ -36,6 +36,12 @@ function Tooltip({ tip }: { tip: Tip | null }) {
   );
 }
 
+/** Every how many categories a label fits: thins the axis instead of letting labels collide. */
+function labelStep<T>(data: [string, ...T[]][], slot: number): number {
+  const longest = Math.max(1, ...data.map((d) => d[0].length));
+  return Math.max(1, Math.ceil((longest * 6.6 + 8) / Math.max(slot, 1)));
+}
+
 export const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)'];
 
 export type Fmt = (v: number) => string;
@@ -45,7 +51,28 @@ export type Fmt = (v: number) => string;
  * every value). `auto` labels every bar when there is room and only the extremes when there is not. */
 export type Labels = 'auto' | 'all' | 'extremes' | 'none';
 
-export function Bars({ data, color = SERIES[0], height = 150, fmt, labels = 'auto' }: { data: [string, number][]; color?: string; height?: number; fmt: Fmt; labels?: Labels }) {
+export function Bars({
+  data,
+  color = SERIES[0],
+  height = 150,
+  fmt,
+  labels = 'auto',
+  dim,
+  dimLegend,
+  colorOf,
+}: {
+  data: [string, number][];
+  color?: string;
+  height?: number;
+  fmt: Fmt;
+  labels?: Labels;
+  /** Bars drawn lighter, for example forecast months beside actual ones. */
+  dim?: boolean[];
+  /** Legend for the two styles: [solid, light]. */
+  dimLegend?: [string, string];
+  /** A colour per bar instead of one for all (losses in the bad colour, for instance). */
+  colorOf?: (v: number, i: number) => string;
+}) {
   const [ref, width] = useMeasure<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const [hot, setHot] = useState<number | null>(null);
@@ -64,8 +91,21 @@ export function Bars({ data, color = SERIES[0], height = 150, fmt, labels = 'aut
   const maxI = data.reduce((m, d, i) => (d[1] > data[m][1] ? i : m), 0);
   const minI = data.reduce((m, d, i) => (d[1] < data[m][1] ? i : m), 0);
   const labelled = (i: number) => mode === 'all' || (mode === 'extremes' && (i === maxI || (i === minI && data[minI][1] < 0)));
+  const step = labelStep(data, slot);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
+      {dimLegend && (
+        <div className="legend">
+          <span>
+            <span className="sw" style={{ background: color }} />
+            {dimLegend[0]}
+          </span>
+          <span>
+            <span className="sw" style={{ background: color, opacity: 0.4 }} />
+            {dimLegend[1]}
+          </span>
+        </div>
+      )}
       {width > 0 && (
         <svg
           className="chart"
@@ -86,19 +126,21 @@ export function Bars({ data, color = SERIES[0], height = 150, fmt, labels = 'aut
                 key={i}
                 onMouseMove={(e) => {
                   setHot(i);
-                  setTip({ x: e.clientX, y: e.clientY, text: `${label}: ${fmt(v)}` });
+                  setTip({ x: e.clientX, y: e.clientY, text: `${label}: ${fmt(v)}${dim?.[i] && dimLegend ? ` (${dimLegend[1]})` : ''}` });
                 }}
               >
                 <rect x={cx - slot / 2} y={0} width={slot} height={height} fill="transparent" />
-                <rect x={cx - barW / 2} y={y0} width={barW} height={h} rx={3} fill={color} opacity={hot === null || hot === i ? 1 : 0.8} />
+                <rect x={cx - barW / 2} y={y0} width={barW} height={h} rx={3} fill={colorOf ? colorOf(v, i) : color} opacity={(dim?.[i] ? 0.4 : 1) * (hot === null || hot === i ? 1 : 0.8)} />
                 {v !== 0 && labelled(i) && (
                   <text className="value" x={cx} y={v >= 0 ? y0 - 3 : baseY - 3} textAnchor="middle">
                     {fmt(v)}
                   </text>
                 )}
-                <text x={cx} y={height - 4} textAnchor="middle">
-                  {label}
-                </text>
+                {i % step === 0 && (
+                  <text x={cx} y={height - 4} textAnchor="middle">
+                    {label}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -127,6 +169,7 @@ export function BarsPair({ data, names, height = 150, fmt }: { data: [string, nu
   const baseY = yOf(0);
   const slot = width / data.length;
   const barW = Math.min(26, Math.max(4, slot * 0.3));
+  const step = labelStep(data, slot);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div className="legend">
@@ -149,9 +192,11 @@ export function BarsPair({ data, names, height = 150, fmt }: { data: [string, nu
                   const y = yOf(v);
                   return <rect key={j} x={x - barW / 2} y={Math.min(y, baseY)} width={barW} height={Math.abs(y - baseY)} rx={2} fill={colors[j]} opacity={0.92} />;
                 })}
-                <text x={cx} y={height - 4} textAnchor="middle">
-                  {label}
-                </text>
+                {i % step === 0 && (
+                  <text x={cx} y={height - 4} textAnchor="middle">
+                    {label}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -350,6 +395,64 @@ export function Waterfall({ steps, height = 200, fmt }: { steps: [string, number
               </g>
             );
           })}
+        </svg>
+      )}
+      <Tooltip tip={tip} />
+    </div>
+  );
+}
+
+/** Two series stacked in one bar per category (both non-negative), with a 2 px surface gap
+ * between the segments and a legend; the total sits above each bar where there is room. */
+export function StackedBars({ data, names, colors = [SERIES[0], SERIES[3]], height = 160, fmt, testId }: { data: [string, number, number][]; names: [string, string]; colors?: [string, string]; height?: number; fmt: Fmt; testId?: string }) {
+  const [ref, width] = useMeasure<HTMLDivElement>();
+  const [tip, setTip] = useState<Tip | null>(null);
+  if (!data.length) return <div className="t-muted">no data</div>;
+  const top = 16;
+  const bottom = 18;
+  const plotH = height - top - bottom;
+  const hi = Math.max(1e-9, ...data.map((d) => Math.max(0, d[1]) + Math.max(0, d[2])));
+  const hOf = (v: number) => (plotH * Math.max(0, v)) / hi;
+  const slot = width / data.length;
+  const barW = Math.min(44, Math.max(8, slot * 0.56));
+  const base = top + plotH;
+  const step = labelStep(data, slot);
+  return (
+    <div ref={ref} style={{ position: 'relative' }} data-testid={testId}>
+      <div className="legend">
+        {names.map((n, i) => (
+          <span key={n}>
+            <span className="sw" style={{ background: colors[i] }} />
+            {n}
+          </span>
+        ))}
+      </div>
+      {width > 0 && (
+        <svg className="chart" width={width} height={height} onMouseLeave={() => setTip(null)}>
+          {data.map(([label, a, b], i) => {
+            const cx = slot * (i + 0.5);
+            const ha = hOf(a);
+            const hb = hOf(b);
+            const gap = ha > 0 && hb > 0 ? 2 : 0;
+            return (
+              <g key={i} onMouseMove={(e) => setTip({ x: e.clientX, y: e.clientY, text: `${label}: ${names[0]} ${fmt(a)} · ${names[1]} ${fmt(b)} · total ${fmt(a + b)}` })}>
+                <rect x={cx - slot / 2} y={0} width={slot} height={height} fill="transparent" />
+                {ha > 0 && <rect x={cx - barW / 2} y={base - ha} width={barW} height={ha} rx={ha > 4 ? 2 : 0} fill={colors[0]} />}
+                {hb > 0 && <rect x={cx - barW / 2} y={base - ha - gap - hb} width={barW} height={hb} rx={3} fill={colors[1]} />}
+                {a + b > 0 && slot >= 44 && (
+                  <text className="value" x={cx} y={base - ha - gap - hb - 3} textAnchor="middle">
+                    {fmt(a + b)}
+                  </text>
+                )}
+                {i % step === 0 && (
+                  <text x={cx} y={height - 4} textAnchor="middle">
+                    {label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          <line className="baseline" x1={0} x2={width} y1={base} y2={base} />
         </svg>
       )}
       <Tooltip tip={tip} />

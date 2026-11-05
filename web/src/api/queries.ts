@@ -31,6 +31,15 @@ export const useFxRisk = (enabled = true) => useQuery({ queryKey: ['risk', 'fx']
 export const useFxHistory = (days = 30) => useQuery({ queryKey: ['risk', 'history', days], queryFn: () => endpoints.fxHistory(days), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
 export const useRiskLimits = () => useQuery({ queryKey: ['risk', 'limits'], queryFn: endpoints.riskLimits, staleTime: MINUTE });
 export const useBreaches = (days = 30) => useQuery({ queryKey: ['risk', 'breaches', days], queryFn: () => endpoints.breaches(days), staleTime: MINUTE });
+export const usePmuOverview = () => useQuery({ queryKey: ['pmu', 'overview'], queryFn: endpoints.pmuOverview, refetchInterval: 5 * MINUTE, staleTime: MINUTE });
+export const usePmuPositions = (from?: string, to?: string) =>
+  useQuery({ queryKey: ['pmu', 'positions', from, to], queryFn: () => endpoints.pmuPositions(from, to), staleTime: MINUTE, placeholderData: (p) => p });
+export const usePmuIncome = (from?: string, to?: string) =>
+  useQuery({ queryKey: ['pmu', 'income', from, to], queryFn: () => endpoints.pmuIncome(from, to), staleTime: MINUTE, placeholderData: (p) => p });
+export const usePmuForecast = (reinvest: boolean) => useQuery({ queryKey: ['pmu', 'forecast', reinvest], queryFn: () => endpoints.pmuForecast(reinvest), staleTime: MINUTE, placeholderData: (p) => p });
+export const usePmuRisk = () => useQuery({ queryKey: ['pmu', 'risk'], queryFn: endpoints.pmuRisk, staleTime: MINUTE });
+export const usePmuFunding = () => useQuery({ queryKey: ['pmu', 'funding'], queryFn: endpoints.pmuFunding, staleTime: MINUTE });
+export const usePmuBond = (isin: string | null) => useQuery({ queryKey: ['pmu', 'bond', isin], queryFn: () => endpoints.pmuBond(isin!), enabled: !!isin, staleTime: MINUTE });
 export const useFtp = (asOf?: string) => useQuery({ queryKey: ['ftp', 'current', asOf ?? 'today'], queryFn: () => endpoints.ftp(asOf), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
 export const useFtpHistory = (ccy: string, tenor: string, days = 90) =>
   useQuery({ queryKey: ['ftp', 'history', ccy, tenor, days], queryFn: () => endpoints.ftpHistory(ccy, tenor, days), staleTime: 5 * MINUTE, enabled: !!ccy && !!tenor });

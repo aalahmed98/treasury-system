@@ -43,6 +43,7 @@ export const SHORTCUTS: [string[], string][] = [
   [['g', 'l'], 'Liquidity ladder'],
   [['g', 'r'], 'FX risk'],
   [['g', 'a'], 'ALM workbench'],
+  [['g', 'p'], 'Bond portfolio (PMU)'],
   [['↑', '↓'], 'Move the selection in a table'],
   [['Enter'], 'Open the selected row'],
   [['Esc'], 'Close the detail, the ticket or a popup'],
@@ -60,7 +61,7 @@ const isTyping = (t: EventTarget | null) => {
 export function PaletteProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const navigate = useNavigate();
-  const { canSeeAlm, canSeeRisk } = useSession();
+  const { canSeeAlm, canSeeRisk, canSeePmu } = useSession();
   const open = useCallback((m: Mode = 'commands') => setMode(m), []);
   const close = useCallback(() => setMode(null), []);
   const pending = useRef<number | null>(null);
@@ -76,7 +77,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
       if (pending.current !== null) {
         window.clearTimeout(pending.current);
         pending.current = null;
-        const to = e.key === 'o' ? '/' : e.key === 'b' ? '/blotter' : e.key === 'k' ? '/breaks' : e.key === 'l' ? '/liquidity' : e.key === 'r' && canSeeRisk ? '/risk' : e.key === 'a' && canSeeAlm ? '/alm' : null;
+        const to = e.key === 'o' ? '/' : e.key === 'b' ? '/blotter' : e.key === 'k' ? '/breaks' : e.key === 'l' ? '/liquidity' : e.key === 'r' && canSeeRisk ? '/risk' : e.key === 'a' && canSeeAlm ? '/alm' : e.key === 'p' && canSeePmu ? '/pmu' : null;
         if (to) {
           e.preventDefault();
           navigate(to);
@@ -100,7 +101,7 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, canSeeAlm, canSeeRisk]);
+  }, [navigate, canSeeAlm, canSeeRisk, canSeePmu]);
 
   const api = useMemo(() => ({ open, close }), [open, close]);
   return (
@@ -124,7 +125,7 @@ function score(item: Item, q: string): number {
 function useItems(q: string): Item[] {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canSeeAlm, canSeeRisk, bookableDesks, logout } = useSession();
+  const { canSeeAlm, canSeeRisk, canSeePmu, bookableDesks, logout } = useSession();
   const withRecords = q.length >= 2;
   return useMemo(() => {
     const go = (to: string) => () => navigate(to);
@@ -140,6 +141,16 @@ function useItems(q: string): Item[] {
         { id: 'p-risk', group: 'Pages', label: 'FX risk', hint: 'g r', keywords: 'risk fx position nop pnl p&l var limits counterparty', run: go('/risk') },
         { id: 'p-limits', group: 'Pages', label: 'FX limits', keywords: 'limits stop-loss lines counterparty var nop', run: go('/risk/limits') },
       );
+    }
+    if (canSeePmu) {
+      const pages: [string, string, string, string?][] = [
+        ['', 'Bond portfolio overview', 'pmu bond portfolio overview carry dv01 yield', 'g p'],
+        ['positions', 'Bond positions', 'pmu positions register lots isin kondor tree holdings'],
+        ['income', 'Bond income and forecast', 'pmu income accrual coupon amortisation ftp carry nii forecast'],
+        ['risk', 'Bond risk and hedges', 'pmu risk hedges dv01 swaps irs shock duration unhedged'],
+        ['funding', 'Bond funding and repo', 'pmu repo funding collateral quotes sofr receipts'],
+      ];
+      for (const [pg, label, kw, hint] of pages) items.push({ id: `pmu-${pg || 'overview'}`, group: 'PMU', label, keywords: kw, hint, run: go(pg ? `/pmu/${pg}` : '/pmu') });
     }
     if (canSeeAlm) {
       const tools: [string, string, string][] = [
@@ -199,7 +210,7 @@ function useItems(q: string): Item[] {
       }
     }
     return items;
-  }, [navigate, qc, canSeeAlm, canSeeRisk, bookableDesks.length, logout, withRecords]);
+  }, [navigate, qc, canSeeAlm, canSeeRisk, canSeePmu, bookableDesks.length, logout, withRecords]);
 }
 
 function setTheme(p: 'auto' | 'light' | 'dark') {

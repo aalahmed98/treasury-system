@@ -988,3 +988,250 @@ export interface FtpPreview {
   previous: FtpCurve[];
   file_sha256: string;
 }
+
+// PMU: the bond portfolio. Amounts in BHD unless a field says local; DV01 is the P&L of +1 bp.
+export interface PmuIncomeParts {
+  coupon: number;
+  amortisation: number;
+  eir_income: number;
+  ftp: number;
+  carry: number;
+  irs: number;
+  net_nii: number;
+  repo: number;
+  accounting_nii: number;
+}
+export type RowLevel = 'BOOK' | 'BOND' | 'LOT';
+export interface PositionRow {
+  level: RowLevel;
+  key: string;
+  parent: string | null;
+  book: string;
+  isin: string | null;
+  label: string;
+  issuer: string | null;
+  ccy: string | null;
+  kondor_id: string | null;
+  trade_date: string | null;
+  maturity: string | null;
+  lots: number;
+  face_local: number | null;
+  face_bhd: number;
+  price: number;
+  market_price: number | null;
+  market_value_bhd: number;
+  book_value_bhd: number;
+  mtm_bhd: number;
+  eir: number;
+  ytm: number | null;
+  ftp_rate: number | null;
+  dv01_bhd: number;
+  swap_dv01_bhd: number;
+  mod_duration: number;
+  hedged_face_bhd: number;
+  pledged_face_bhd: number;
+  share: number;
+  income: PmuIncomeParts;
+  daily_carry_bhd: number;
+}
+export interface SwapView {
+  id: string;
+  book: string;
+  kondor_id: string | null;
+  ccy: string;
+  notional: number;
+  closed_notional: number;
+  start: string;
+  maturity: string;
+  pay_fixed: boolean;
+  fixed_rate: number;
+  float_index: string;
+  float_rate: number;
+  mtm_bhd: number;
+  dv01_bhd: number;
+  isins: string[];
+}
+export interface HedgePair {
+  isin: string;
+  name: string;
+  ccy: string;
+  face_bhd: number;
+  hedged_face_bhd: number;
+  bond_dv01: number;
+  irs_dv01: number;
+  net_dv01: number;
+  bond_mtm: number;
+  irs_mtm: number;
+  net_mtm: number;
+  closed_notional: number;
+  swaps: number;
+}
+export interface BookFigure {
+  book: string;
+  name: string;
+  accounting: 'AFS' | 'HTM' | 'FVTPL';
+  face_bhd: number;
+  market_value_bhd: number;
+  book_value_bhd: number;
+  mtm_bhd: number;
+  dv01_bhd: number;
+  net_dv01_bhd: number;
+  mod_duration: number;
+  yield_pct: number;
+  daily_carry_bhd: number;
+}
+export interface HedgeBucket {
+  label: string;
+  hedged_bhd: number;
+  unhedged_bhd: number;
+}
+export interface RepoSummary {
+  amount_bhd: number;
+  available_face_bhd: number;
+  pledged_face_bhd: number;
+  due_7d_bhd: number;
+  active: number;
+  avg_rate: number;
+  avg_haircut: number;
+  wtd_maturity_days: number;
+  receipts_12m_bhd: number;
+}
+export interface PmuHeadline {
+  portfolio_face_bhd: number;
+  market_value_bhd: number;
+  book_value_bhd: number;
+  net_mtm_bhd: number;
+  mtd_carry_bhd: number;
+  net_dv01_bhd: number;
+  mtd_nii_bhd: number;
+  portfolio_yield: number;
+  mod_duration: number;
+  lots: number;
+  kondor_pct: number;
+  daily_carry_bhd: number;
+}
+export interface MonthIncome {
+  month: string;
+  actual: boolean;
+  income: PmuIncomeParts;
+}
+export interface PmuOverview {
+  as_of: string;
+  previous: string | null;
+  headline: PmuHeadline;
+  headline_prev: PmuHeadline | null;
+  by_book: BookFigure[];
+  monthly: MonthIncome[];
+  maturity_now: HedgeBucket[];
+  maturity_year_end: HedgeBucket[];
+  concentration: PositionRow[];
+  repo: RepoSummary;
+  warnings: { key: string; message: string }[];
+}
+export interface PmuPositions {
+  as_of: string;
+  from: string;
+  to: string;
+  rows: PositionRow[];
+  swaps: SwapView[];
+  headline: PmuHeadline;
+}
+export interface NamedIncome {
+  key: string;
+  label: string;
+  income: PmuIncomeParts;
+}
+export interface PmuIncome {
+  from: string;
+  to: string;
+  total: PmuIncomeParts;
+  daily: { date: string; income: PmuIncomeParts }[];
+  by_bond: NamedIncome[];
+  by_book: NamedIncome[];
+}
+export interface BookYear {
+  book: string;
+  actual: PmuIncomeParts;
+  forecast: PmuIncomeParts;
+}
+export interface PmuForecast {
+  as_of: string;
+  reinvest: boolean;
+  full_year: PmuIncomeParts;
+  year_to_date: PmuIncomeParts;
+  rest_of_year: PmuIncomeParts;
+  monthly: MonthIncome[];
+  periods: { label: string; from: string; to: string; partial: boolean; income: PmuIncomeParts }[];
+  by_book: BookYear[];
+  year_end_face_bhd: number;
+  year_end_hedged_face_bhd: number;
+}
+export interface PmuRisk {
+  as_of: string;
+  hedge_pairs: HedgePair[];
+  unhedged: PositionRow[];
+  dv01_buckets: { label: string; bond: number; irs: number; net: number }[];
+  books: string[];
+  shocks: { shift_bp: number; by_book: number[]; total: number }[];
+  by_book: BookFigure[];
+  yield_by_year: { book: string | null; year: number; face_bhd: number; yield_all: number; yield_unhedged: number | null }[];
+  hedged_by_ccy: { ccy: string; hedged_bhd: number; unhedged_bhd: number }[];
+  maturity_now: HedgeBucket[];
+  maturity_year_end: HedgeBucket[];
+  headline: PmuHeadline;
+  year_end_face_bhd: number;
+  year_end_hedged_face_bhd: number;
+}
+export interface RepoView {
+  id: string;
+  counterparty: string;
+  kondor_id: string | null;
+  ccy: string;
+  start: string;
+  end: string;
+  cash_bhd: number;
+  rate: number;
+  haircut_pct: number;
+  days_left: number;
+  collateral_face_bhd: number;
+  isins: string[];
+}
+export interface MonthFlow {
+  month: string;
+  a: number;
+  b: number;
+}
+export interface PmuFunding {
+  as_of: string;
+  summary: RepoSummary;
+  repos: RepoView[];
+  by_remaining: { label: string; amount: number }[];
+  funding_flows: MonthFlow[];
+  collateral_by_book: { book: string; pledged_bhd: number; free_bhd: number }[];
+  quotes: { counterparty: string; tenor: string; tenor_days: number; spread_bp: number; as_of: string; age_days: number; sofr: number | null }[];
+  receipts: MonthFlow[];
+  hedge_cash: MonthFlow[];
+  by_book_year: BookYear[];
+}
+export interface PmuBondDetail {
+  bond: {
+    isin: string;
+    name: string;
+    issuer: string;
+    issuer_type: string;
+    ccy: string;
+    coupon: number;
+    coupon_freq: number;
+    day_count: string;
+    issue_date: string;
+    maturity: string;
+    rate_type: 'FIXED' | 'FLOAT';
+    float_index: string | null;
+    float_spread: number;
+    hqla_level: string | null;
+  };
+  lots: PositionRow[];
+  swaps: SwapView[];
+  repos: RepoView[];
+  cash_flows: { date: string; kind: string; amount_local: number; amount_bhd: number }[];
+}

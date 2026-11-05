@@ -77,7 +77,7 @@ export function PageSkeleton() {
 }
 
 function TopBar() {
-  const { homeDesk, canSeeAlm, canSeeRisk } = useSession();
+  const { homeDesk, canSeeAlm, canSeeRisk, canSeePmu } = useSession();
   const deals = useDeals();
   const breaks = useBreaks(false);
   const risk = useFxRisk(canSeeRisk);
@@ -99,6 +99,7 @@ function TopBar() {
         <Tab to="/breaks" label="Breaks" count={open > 0 ? String(open) : undefined} tone={open > 0 ? 'bad' : 'neutral'} />
         <Tab to="/liquidity" label="Liquidity" />
         {canSeeRisk && <Tab to="/risk" label="Risk" count={breached > 0 ? String(breached) : undefined} tone="bad" />}
+        {canSeePmu && <Tab to="/pmu" label="PMU" />}
         {canSeeAlm && <Tab to="/alm" label="ALM" />}
       </nav>
       <div className="cluster">

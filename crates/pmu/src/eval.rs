@@ -19,7 +19,7 @@ use crate::market::{Market, curve_rate};
 pub const SHOCKS_BP: [f64; 6] = [-200.0, -100.0, -50.0, 50.0, 100.0, 200.0];
 
 /// Remaining-maturity buckets for maturity profiles and DV01, as (label, up to years).
-pub const MATURITY_BUCKETS: [(&str, f64); 7] = [("Under 1Y", 1.0), ("1-2Y", 2.0), ("2-3Y", 3.0), ("3-5Y", 5.0), ("5-7Y", 7.0), ("7-10Y", 10.0), ("10Y+", f64::INFINITY)];
+pub const MATURITY_BUCKETS: [(&str, f64); 7] = [("<1Y", 1.0), ("1-2Y", 2.0), ("2-3Y", 3.0), ("3-5Y", 5.0), ("5-7Y", 7.0), ("7-10Y", 10.0), ("10Y+", f64::INFINITY)];
 
 /// Remaining-maturity buckets for repos, as (label, up to days).
 pub const REPO_BUCKETS: [(&str, i64); 6] = [("7 days", 7), ("8-30 days", 30), ("1-3 months", 91), ("3-6 months", 182), ("6-12 months", 365), ("Over 1 year", i64::MAX)];

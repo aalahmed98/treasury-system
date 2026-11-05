@@ -18,6 +18,7 @@ const Ladder = lazy(() => load.liquidity().then((m) => ({ default: m.Ladder })))
 const Alm = lazy(() => load.alm().then((m) => ({ default: m.Alm })));
 const Risk = lazy(() => load.risk().then((m) => ({ default: m.Risk })));
 const Ftp = lazy(() => load.ftp().then((m) => ({ default: m.Ftp })));
+const Pmu = lazy(() => load.pmu().then((m) => ({ default: m.Pmu })));
 
 function Gate() {
   const { current, canSeeAlm } = useSession();
@@ -36,6 +37,7 @@ function Gate() {
                   <Route path="liquidity" element={<Ladder />} />
                   <Route path="risk/*" element={<Risk />} />
                   <Route path="ftp" element={<Ftp />} />
+                  <Route path="pmu/*" element={<Pmu />} />
                   <Route
                     path="alm/:tool?"
                     element={
