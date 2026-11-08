@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use alm::curve::{Curve, shock_bp};
 use alm::funding::DepositorGroup;
 use alm::nii::Curves;
-use alm::{attribution, eve, funding, gap, ird, nii, nsfr, stress};
+use alm::{attribution, eve, funding, gap, ird, nii, nsfr, schedule, stress};
 use chrono::NaiveDate;
 use domain::{AlmParams, Amort, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
 
@@ -198,6 +198,36 @@ fn nii_projects_fixed_floating_and_administered_cohorts() {
     assert!(close(du.nii - db.nii, -1000.0 * 0.01 * 365.0 / 360.0, 1e-9), "half the 200 bp passes through");
     assert_eq!(du.earning_assets, 0.0);
     assert_eq!(du.nim, None);
+}
+
+#[test]
+fn nii_on_a_running_off_balance_sheet_stops_at_maturity() {
+    let as_of = d(AS_OF);
+    let curves = flat("BHD", 4.0);
+    let mut loan = pos("loan", BsSide::Asset, "BHD", 1200.0);
+    loan.rate = 5.0;
+    loan.day_count = DayCount::Act360;
+    loan.origination = Some(d("2025-11-04"));
+    loan.maturity = Some(schedule::add_months(as_of, 4));
+    let mut p = AlmParams::default();
+    let constant = nii::compute(&[loan.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    p.nii.constant_balance_sheet = false;
+    let runoff = nii::compute(&[loan.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    // Running off: 5% until maturity, then the cash it releases earns the one-month rate (4%).
+    let four_months = (schedule::add_months(as_of, 4) - as_of).num_days() as f64;
+    let expected = 1200.0 * 0.05 * four_months / 360.0 + 1200.0 * 0.04 * (365.0 - four_months) / 360.0;
+    assert!(close(runoff.nii, expected, 1e-6), "runoff {} expected {expected}", runoff.nii);
+    assert!(runoff.by_book.iter().any(|b| b.key == "BALANCING" && b.nii > 0.0));
+    // A maturing deposit is replaced by funding at the one-month rate.
+    let mut dep = pos("dep", BsSide::Liability, "BHD", 1000.0);
+    dep.rate = 3.0;
+    dep.day_count = DayCount::Act360;
+    dep.maturity = Some(schedule::add_months(as_of, 4));
+    let funded = nii::compute(&[dep], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    let expected = -(1000.0 * 0.03 * four_months / 360.0 + 1000.0 * 0.04 * (365.0 - four_months) / 360.0);
+    assert!(close(funded.nii, expected, 1e-6), "funded {} expected {expected}", funded.nii);
+    // Constant: rolled at today's curve plus its margin (5% over a flat 4%), so the full year at 5%.
+    assert!(close(constant.nii, 1200.0 * 0.05 * 365.0 / 360.0, 1e-9), "constant {}", constant.nii);
 }
 
 #[test]
