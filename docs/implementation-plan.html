@@ -121,13 +121,14 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2f" class="is-done"><span class="num">Phase 2F</span><span class="name">FX risk and the ALCO toolkit</span><span class="badge done">Done</span></a>
   <a href="#p2g" class="is-done"><span class="num">Phase 2G</span><span class="name">FTP and the PMU desk</span><span class="badge done">Done</span></a>
   <a href="#p2h" class="is-done"><span class="num">Phase 2H</span><span class="name">PMU booking</span><span class="badge done">Done</span></a>
+  <a href="#p2i" class="is-done"><span class="num">Phase 2I</span><span class="name">FTP upload log</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
   <a href="#p6" class="is-partial"><span class="num">Phase 6</span><span class="name">Desk rollout</span><span class="badge partial">Partly blocked</span></a>
 </nav>
 <div class="tally">
-  <span><b>11</b> phases done</span>
+  <span><b>12</b> phases done</span>
   <span><b>2</b> partly blocked</span>
   <span><b>2</b> blocked</span>
 </div>
@@ -385,6 +386,21 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </table></div>
   <div class="cols"><div><h4>Progress log</h4><ul id="log2h">
     <li>5 Nov, afternoon: phase complete. Holdings now count from the trade date (a purchase not yet settled is already a position) while accrual starts at settlement. 5 new Rust tests (a half sale, allocation around pledged face, reverse and closed repos, the ISIN check digit, and the whole booking flow over HTTP with its refusals) and 6 Playwright scenarios; the verification script books a purchase, a sale and a repo from a clean database. Out of scope still: booking swaps, correcting or cancelling a booking, and the Kondor feed matching bookings.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2i">
+  <div class="phase-head"><span class="num">Phase 2I</span><h3>FTP upload log</h3><span class="badge done">Done</span><span class="when">8 November 2026</span></div>
+  <p class="goal">ALM drops the day's FTP workbook (every currency and tenor) and the latest one published is what every desk is charged; keep a log of who uploaded each workbook and who replaced it. The drop, preview and publish already existed from Phase 2G; this phase keeps the files themselves and the history of replacements.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Upload log in the database</td><td>Migration 0010: every dropped workbook stored as it arrived (bytes, size, SHA-256 computed by the database) with who dropped it and when, published or not; a publication points at its upload and records when and by which publication it was replaced. Only the person who dropped a workbook may publish it, never one with errors; desks other than ALM read only the published files.</td><td>Phase 2G</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">API</td><td>The preview records the drop; publishing reads the stored file again and publishes exactly what it holds; <code>GET /ftp/log</code> (paged, workbooks only or with the application's curves) and <code>GET /ftp/upload/{id}/file</code> (audited). The command-line import logs its file the same way.</td><td>Upload log</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Pages</td><td>The upload log on the FTP page for every desk and on ALM's publish page (with the workbooks never published); each entry with its file to download, the day it is for, its status (in force, published, replaced, not published) and who it replaced or was replaced by. Before publishing, ALM is told whose curves for that day will be replaced.</td><td>API</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2i">
+    <li>8 Nov: phase complete. 1 new HTTP test (two users' workbooks, the replacement recorded both ways, a broken file logged and never published, drafts hidden from a dealer, the file downloaded byte for byte, paging) and 1 Playwright scenario (ALM publishes, the head replaces it and is told whose curves, a dealer reads the log and downloads the file); the verification script publishes from the upload log and downloads the file. 128 Rust tests, 45 Playwright checks.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

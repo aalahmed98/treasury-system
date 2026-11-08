@@ -6,15 +6,16 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use domain::{
-    AsOfQuery, Calendar, CurvePoint, FtpCurrent, FtpCurve, FtpHistory, FtpHistoryPoint, FtpHistoryQuery, FtpPreview, FtpPublication, FtpPublicationSummary,
-    FtpPublishRequest,
+    AsOfQuery, Calendar, CurvePoint, FtpCurrent, FtpCurve, FtpHistory, FtpHistoryPoint, FtpHistoryQuery, FtpLog, FtpLogEntry, FtpLogQuery, FtpLogStatus, FtpPreview,
+    FtpPublication, FtpPublicationSummary, FtpPublishRequest, FtpReplacement,
 };
+use serde::Deserialize;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use sha2::{Digest, Sha256};
@@ -165,8 +166,46 @@ pub async fn history(State(state): State<AppState>, Extension(auth): Extension<A
     Ok(Json(FtpHistory { ccy, tenor, points: rows.into_iter().map(|(as_of, r)| FtpHistoryPoint { as_of, rate: r.to_f64().unwrap_or(0.0) }).collect() }))
 }
 
-/// Reads a dropped workbook and says what publishing it would do. Nothing is stored.
-pub async fn preview(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, body: Bytes) -> Result<Json<FtpPreview>, ApiError> {
+#[derive(Debug, Default, Deserialize)]
+pub struct PreviewQuery {
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// A file name fit for the log: printable, at most 255 characters, never empty.
+fn clean_name(name: Option<&str>) -> String {
+    let n: String = name.unwrap_or("").chars().filter(|c| !c.is_control()).take(255).collect::<String>().trim().to_string();
+    if n.is_empty() { "workbook.xlsx".into() } else { n }
+}
+
+/// The curves as the JSON array the publishing functions take.
+fn points_json(curves: &[FtpCurve]) -> serde_json::Value {
+    serde_json::Value::Array(
+        curves
+            .iter()
+            .flat_map(|c| c.points.iter().map(move |p| serde_json::json!({ "ccy": c.ccy, "tenor": p.tenor, "tenor_days": p.tenor_days, "rate": (p.rate * 1e6).round() / 1e6 })))
+            .collect(),
+    )
+}
+
+/// Records a dropped workbook in the upload log, as the signed-in user; returns its entry.
+async fn record_upload(conn: &mut PgConnection, name: &str, bytes: &[u8], p: &ftp_sheet::Parsed, via: &str) -> Result<i32, ApiError> {
+    let ccys: Vec<String> = p.curves.iter().map(|c| c.ccy.clone()).collect();
+    Ok(sqlx::query_scalar("SELECT ftp_upload($1, $2, $3, $4, $5, $6, $7)")
+        .bind(name)
+        .bind(bytes)
+        .bind(p.sheet_date)
+        .bind(&ccys)
+        .bind(p.errors.len() as i32)
+        .bind(p.warnings.len() as i32)
+        .bind(via)
+        .fetch_one(&mut *conn)
+        .await?)
+}
+
+/// Reads a dropped workbook and says what publishing it would do. The file goes into the upload
+/// log (so who dropped what is kept, published or not); no curves are published.
+pub async fn preview(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Query(q): Query<PreviewQuery>, body: Bytes) -> Result<Json<FtpPreview>, ApiError> {
     if body.is_empty() {
         return Err(ApiError::BadRequest("the file is empty".into()));
     }
@@ -180,14 +219,15 @@ pub async fn preview(State(state): State<AppState>, Extension(auth): Extension<A
     let today = db::business_now(&mut tx).await?.date_naive();
     let parsed = tokio::task::spawn_blocking(move || {
         let sha = hex::encode(Sha256::digest(&body));
-        (ftp_sheet::parse(&body), sha)
+        (ftp_sheet::parse(&body), sha, body)
     })
     .await
     .map_err(|e| ApiError::Internal(e.into()))?;
-    let (p, sha) = parsed;
+    let (p, sha, body) = parsed;
     let as_of = p.sheet_date.unwrap_or(today);
     // Compare with what is in force the day before, so republishing a day compares with its eve.
     let (before, _) = in_force(&mut tx, as_of - Duration::days(1)).await?;
+    let upload_id = record_upload(&mut tx, &clean_name(q.name.as_deref()), &body, &p, "browser").await?;
     tx.commit().await?;
     let changes = before.as_ref().map(|b| ftp_sheet::changes(&b.curves, &p.curves)).unwrap_or_default();
     let mut warnings = p.warnings;
@@ -208,6 +248,7 @@ pub async fn preview(State(state): State<AppState>, Extension(auth): Extension<A
         compared_with: before.as_ref().map(|b| b.as_of),
         previous: before.map(|b| b.curves).unwrap_or_default(),
         file_sha256: sha,
+        upload_id: Some(upload_id),
     }))
 }
 
@@ -256,9 +297,10 @@ pub async fn publish(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Extension(auth): Extension<AuthUser>,
-    Json(req): Json<FtpPublishRequest>,
+    Json(mut req): Json<FtpPublishRequest>,
 ) -> Result<(StatusCode, Json<FtpPublication>), ApiError> {
-    let note = req.note.trim();
+    let note = req.note.trim().to_string();
+    let note = note.as_str();
     if note.is_empty() || note.chars().count() > 500 || note.chars().any(char::is_control) {
         return Err(ApiError::BadRequest("a note of up to 500 printable characters is required".into()));
     }
@@ -267,21 +309,41 @@ pub async fn publish(
         return Err(ApiError::Forbidden("only ALM may publish the FTP curves".into()));
     }
     let today = db::business_now(&mut tx).await?.date_naive();
-    validate(&req, today)?;
-    let points: Vec<serde_json::Value> = req
-        .curves
-        .iter()
-        .flat_map(|c| c.points.iter().map(move |p| serde_json::json!({ "ccy": c.ccy, "tenor": p.tenor, "tenor_days": p.tenor_days, "rate": (p.rate * 1e6).round() / 1e6 })))
-        .collect();
-    let file_name = req.file_name.as_deref().map(|f| f.chars().filter(|c| !c.is_control()).take(255).collect::<String>());
-    let id: i32 = sqlx::query_scalar("SELECT ftp_publish($1, $2, $3, $4, $5)")
-        .bind(req.as_of)
-        .bind(serde_json::Value::Array(points))
-        .bind(file_name.as_deref())
-        .bind(req.file_sha256.as_deref())
-        .bind(note)
-        .fetch_one(&mut *tx)
-        .await?;
+    let id: i32 = if let Some(upload) = req.upload_id {
+        // Publish what the stored workbook holds, read again, so the log's file and the curves agree.
+        let stored: Option<(String, String, Vec<u8>)> = sqlx::query_as("SELECT file_name, file_sha256, content FROM ftp_uploads WHERE id = $1")
+            .bind(upload)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let (name, sha, content) = stored.ok_or_else(|| ApiError::BadRequest("that workbook is not in the upload log; drop it again".into()))?;
+        let parsed = tokio::task::spawn_blocking(move || ftp_sheet::parse(&content)).await.map_err(|e| ApiError::Internal(e.into()))?;
+        if !parsed.errors.is_empty() {
+            return Err(ApiError::BadRequest(format!("that workbook has {} errors to fix first", parsed.errors.len())));
+        }
+        req.curves = parsed.curves;
+        req.file_name = Some(name);
+        req.file_sha256 = Some(sha);
+        validate(&req, today)?;
+        sqlx::query_scalar("SELECT ftp_publish($1, $2, $3::integer, $4)")
+            .bind(req.as_of)
+            .bind(points_json(&req.curves))
+            .bind(upload)
+            .bind(note)
+            .fetch_one(&mut *tx)
+            .await?
+    } else {
+        validate(&req, today)?;
+        req.file_name = req.file_name.as_deref().map(|f| f.chars().filter(|c| !c.is_control()).take(255).collect::<String>());
+        sqlx::query_scalar("SELECT ftp_publish($1, $2, $3, $4, $5)")
+            .bind(req.as_of)
+            .bind(points_json(&req.curves))
+            .bind(req.file_name.as_deref())
+            .bind(req.file_sha256.as_deref())
+            .bind(note)
+            .fetch_one(&mut *tx)
+            .await?
+    };
+    let file_name = req.file_name.clone();
     let rows: Vec<PubRow> = sqlx::query_as(concat!(pub_select!(), " WHERE p.id = $1")).bind(id).fetch_all(&mut *tx).await?;
     let publication = publications(&mut tx, rows).await?.into_iter().next().ok_or_else(|| ApiError::Internal(anyhow::anyhow!("publication {id} vanished")))?;
     tx.commit().await?;
@@ -293,7 +355,7 @@ pub async fn publish(
         &auth.user.username,
         "ftp_publish",
         &ctx,
-        Some(serde_json::json!({ "id": id, "as_of": req.as_of, "currencies": ccys, "file": file_name, "sha256": req.file_sha256, "note": note })),
+        Some(serde_json::json!({ "id": id, "as_of": req.as_of, "currencies": ccys, "file": file_name, "sha256": req.file_sha256, "upload": req.upload_id, "note": note })),
     )
     .await;
     Ok((StatusCode::CREATED, Json(publication)))
@@ -337,25 +399,22 @@ pub async fn import_file(owner: &sqlx::PgPool, app: &sqlx::PgPool, username: &st
     let mut tx = db::begin_as(app, user).await?;
     anyhow::ensure!(can_publish(&mut tx).await.map_err(|e| anyhow::anyhow!("{e:?}"))?, "{username} may not publish the FTP curves");
     let today = db::business_now(&mut tx).await?.date_naive();
+    let file_name = clean_name(path.file_name().map(|f| f.to_string_lossy()).as_deref());
+    let upload = record_upload(&mut tx, &file_name, &bytes, &parsed, "command line").await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let req = FtpPublishRequest {
         as_of: as_of.or(parsed.sheet_date).unwrap_or(today),
         curves: parsed.curves,
-        file_name: path.file_name().map(|f| f.to_string_lossy().into_owned()),
+        file_name: Some(file_name),
         file_sha256: Some(hex::encode(Sha256::digest(&bytes))),
         note: note.trim().to_string(),
+        upload_id: Some(upload),
     };
     anyhow::ensure!(!req.note.is_empty(), "a note is required (--note)");
     validate(&req, today).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let points: Vec<serde_json::Value> = req
-        .curves
-        .iter()
-        .flat_map(|c| c.points.iter().map(move |p| serde_json::json!({ "ccy": c.ccy, "tenor": p.tenor, "tenor_days": p.tenor_days, "rate": (p.rate * 1e6).round() / 1e6 })))
-        .collect();
-    let id: i32 = sqlx::query_scalar("SELECT ftp_publish($1, $2, $3, $4, $5)")
+    let id: i32 = sqlx::query_scalar("SELECT ftp_publish($1, $2, $3::integer, $4)")
         .bind(req.as_of)
-        .bind(serde_json::Value::Array(points))
-        .bind(req.file_name.as_deref())
-        .bind(req.file_sha256.as_deref())
+        .bind(points_json(&req.curves))
+        .bind(upload)
         .bind(&req.note)
         .fetch_one(&mut *tx)
         .await?;
@@ -367,8 +426,151 @@ pub async fn import_file(owner: &sqlx::PgPool, app: &sqlx::PgPool, username: &st
         username,
         "ftp_publish",
         &AuditCtx { client_ip: None, request_id: None },
-        Some(serde_json::json!({ "id": id, "as_of": req.as_of, "currencies": ccys, "file": req.file_name, "sha256": req.file_sha256, "note": req.note, "via": "command line" })),
+        Some(serde_json::json!({ "id": id, "as_of": req.as_of, "currencies": ccys, "file": req.file_name, "sha256": req.file_sha256, "note": req.note, "upload": upload, "via": "command line" })),
     )
     .await;
     Ok((id, req.as_of, ccys))
+}
+
+#[derive(sqlx::FromRow)]
+struct LogRow {
+    pub_id: Option<i32>,
+    upload_id: Option<i32>,
+    at: DateTime<Utc>,
+    uploaded_at: Option<DateTime<Utc>>,
+    by_name: Option<String>,
+    via: Option<String>,
+    file_name: Option<String>,
+    file_sha256: Option<String>,
+    size_bytes: Option<i32>,
+    as_of: Option<NaiveDate>,
+    currencies: Vec<String>,
+    note: Option<String>,
+    errors: i32,
+    is_current: bool,
+    r_id: Option<i32>,
+    r_at: Option<DateTime<Utc>>,
+    r_by: Option<String>,
+    r_file: Option<String>,
+    o_id: Option<i32>,
+    o_at: Option<DateTime<Utc>>,
+    o_by: Option<String>,
+    o_file: Option<String>,
+}
+
+fn replacement(id: Option<i32>, at: Option<DateTime<Utc>>, by: Option<String>, file_name: Option<String>) -> Option<FtpReplacement> {
+    Some(FtpReplacement { publication_id: id?, at: at?, by, file_name })
+}
+
+/// The upload log, newest first: every publication with the workbook it came from, who published
+/// it, what it replaced and what replaced it, and (for ALM) the workbooks dropped and never published.
+pub async fn log(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Query(q): Query<FtpLogQuery>) -> Result<Json<FtpLog>, ApiError> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).clamp(0, 1_000_000);
+    let files_only = q.files_only.unwrap_or(false);
+    let mut tx = db::begin_as(&state.pool, auth.user.id).await?;
+    let today = db::business_now(&mut tx).await?.date_naive();
+    let (now, _) = in_force(&mut tx, today).await?;
+    let rows: Vec<LogRow> = sqlx::query_as(
+        "SELECT p.id AS pub_id, p.upload_id, p.published_at AS at, f.uploaded_at, pu.display_name AS by_name, f.via, \
+                coalesce(f.file_name, p.file_name) AS file_name, coalesce(f.file_sha256, p.file_sha256) AS file_sha256, f.size_bytes, \
+                p.as_of, coalesce((SELECT array_agg(DISTINCT x.ccy::text ORDER BY x.ccy::text) FROM ftp_points x WHERE x.publication_id = p.id), '{}') AS currencies, \
+                p.note, coalesce(f.errors, 0) AS errors, p.is_current, \
+                r.id AS r_id, r.published_at AS r_at, ru.display_name AS r_by, r.file_name AS r_file, \
+                o.id AS o_id, o.published_at AS o_at, ou.display_name AS o_by, o.file_name AS o_file \
+         FROM ftp_publications p \
+         LEFT JOIN ftp_uploads f ON f.id = p.upload_id \
+         LEFT JOIN users pu ON pu.id = p.published_by \
+         LEFT JOIN ftp_publications r ON r.id = p.replaced_by_id LEFT JOIN users ru ON ru.id = r.published_by \
+         LEFT JOIN ftp_publications o ON o.replaced_by_id = p.id LEFT JOIN users ou ON ou.id = o.published_by \
+         WHERE NOT $1 OR p.published_by IS NOT NULL OR p.upload_id IS NOT NULL \
+         UNION ALL \
+         SELECT NULL, f.id, f.uploaded_at, f.uploaded_at, uu.display_name, f.via, f.file_name, f.file_sha256, f.size_bytes, \
+                NULL::date, f.currencies, NULL, f.errors, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL \
+         FROM ftp_uploads f JOIN users uu ON uu.id = f.uploaded_by \
+         WHERE NOT EXISTS (SELECT 1 FROM ftp_publications p WHERE p.upload_id = f.id) \
+         ORDER BY at DESC, pub_id DESC NULLS LAST, upload_id DESC NULLS LAST \
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(files_only)
+    .bind(limit + 1)
+    .bind(offset)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let more = rows.len() as i64 > limit;
+    let in_force_id = now.map(|n| n.id);
+    let entries = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(|r| FtpLogEntry {
+            status: match r.pub_id {
+                None => FtpLogStatus::NotPublished,
+                Some(id) if Some(id) == in_force_id => FtpLogStatus::InForce,
+                Some(_) if r.is_current => FtpLogStatus::Published,
+                Some(_) => FtpLogStatus::Replaced,
+            },
+            publication_id: r.pub_id,
+            has_file: r.upload_id.is_some(),
+            upload_id: r.upload_id,
+            at: r.at,
+            uploaded_at: r.uploaded_at,
+            by: r.by_name,
+            via: r.via,
+            file_name: r.file_name,
+            file_sha256: r.file_sha256,
+            size_bytes: r.size_bytes,
+            as_of: r.as_of,
+            currencies: r.currencies,
+            note: r.note,
+            errors: r.errors,
+            replaced_by: replacement(r.r_id, r.r_at, r.r_by, r.r_file),
+            replaces: replacement(r.o_id, r.o_at, r.o_by, r.o_file),
+        })
+        .collect();
+    Ok(Json(FtpLog { entries, more }))
+}
+
+/// A name safe inside a Content-Disposition header.
+fn header_name(name: &str) -> String {
+    let n: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || " .-_()".contains(c) { c } else { '_' }).collect();
+    if n.trim().is_empty() { "workbook.xlsx".into() } else { n }
+}
+
+/// The workbook exactly as it was dropped. ALM reads every upload; other desks only the ones published.
+pub async fn file(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Extension(auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> Result<Response, ApiError> {
+    let mut tx = db::begin_as(&state.pool, auth.user.id).await?;
+    let row: Option<(String, String, Vec<u8>)> = sqlx::query_as("SELECT file_name, file_sha256, content FROM ftp_uploads WHERE id = $1").bind(id).fetch_optional(&mut *tx).await?;
+    tx.commit().await?;
+    let (name, sha, content) = row.ok_or(ApiError::NotFound)?;
+    audit::write(
+        &state.pool,
+        Some(auth.user.id),
+        &auth.user.username,
+        "ftp_download",
+        &AuditCtx::new(Some(peer), &headers),
+        Some(serde_json::json!({ "upload": id, "file": name, "sha256": sha })),
+    )
+    .await;
+    let lower = name.to_ascii_lowercase();
+    let ctype = if lower.ends_with(".xlsm") {
+        "application/vnd.ms-excel.sheet.macroEnabled.12"
+    } else if lower.ends_with(".xls") {
+        "application/vnd.ms-excel"
+    } else {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    };
+    let mut res = content.into_response();
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(ctype));
+    if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", header_name(&name))) {
+        h.insert(header::CONTENT_DISPOSITION, v);
+    }
+    Ok(res)
 }

@@ -7,10 +7,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiError, endpoints } from '../../api/client';
 import { useFtp } from '../../api/queries';
 import type { FtpChange, FtpPreview } from '../../api/types';
-import { fmtDateLong, fmtDateShort } from '../../lib/fmt';
-import { Badge } from '../../components/ui';
+import { fmtDateLong, fmtDateShort, fmtLocal } from '../../lib/fmt';
+import { Badge, Section } from '../../components/ui';
 import { useToast } from '../../components/feedback';
 import { FtpCurvesChart, FtpTable } from '../Ftp';
+import { FtpUploadLog } from '../FtpLog';
 
 function describe(c: FtpChange): string {
   switch (c.kind) {
@@ -45,6 +46,7 @@ export function FtpPublish() {
       setPreview(p);
       setAsOf(p.as_of);
       setError(null);
+      void qc.invalidateQueries({ queryKey: ['ftp', 'log'] });
     },
     onError: (e) => {
       setPreview(null);
@@ -52,7 +54,8 @@ export function FtpPublish() {
     },
   });
   const publish = useMutation({
-    mutationFn: () => endpoints.ftpPublish({ as_of: asOf, curves: preview!.curves, file_name: file?.name ?? null, file_sha256: preview!.file_sha256, note: note.trim() }),
+    mutationFn: () =>
+      endpoints.ftpPublish({ as_of: asOf, curves: preview!.curves, file_name: file?.name ?? null, file_sha256: preview!.file_sha256, note: note.trim(), upload_id: preview!.upload_id }),
     onSuccess: (p) => {
       void qc.invalidateQueries({ queryKey: ['ftp'] });
       void qc.invalidateQueries({ queryKey: ['pmu'] });
@@ -76,6 +79,9 @@ export function FtpPublish() {
   };
 
   const cur = ftp.data?.current ?? null;
+  // What publishing for the chosen day would replace.
+  const onDay = useFtp(asOf || undefined);
+  const replacing = onDay.data?.current && onDay.data.current.as_of === asOf ? onDay.data.current : null;
   const blocked = !preview || preview.errors.length > 0 || preview.curves.length === 0;
   return (
     <div className="alm-layout single">
@@ -228,13 +234,23 @@ export function FtpPublish() {
                 </button>
               </div>
               <div className="t-small prose" style={{ marginTop: 6 }}>
-                {blocked
-                  ? 'Fix the cells listed above in the workbook and drop it again.'
-                  : `Publishing for ${asOf ? fmtDateLong(asOf) : 'the date above'} replaces any curves already published for that day; the earlier ones are kept in the history.`}
+                {blocked ? (
+                  'Fix the cells listed above in the workbook and drop it again.'
+                ) : replacing ? (
+                  <span data-testid="ftp-replaces">
+                    Publishing replaces the curves for {fmtDateLong(asOf)} that <b>{replacing.published_by ?? 'the application'}</b> published {fmtLocal(replacing.published_at)}
+                    {replacing.file_name ? ` from ${replacing.file_name}` : ''}. They stay in the upload log, marked replaced by you.
+                  </span>
+                ) : (
+                  `Nothing is published for ${asOf ? fmtDateLong(asOf) : 'the date above'} yet; every desk sees these curves the moment you publish.`
+                )}
               </div>
             </div>
           </div>
         )}
+
+        <Section title="Upload log" meta="every workbook dropped here, by whom, and what replaced it; workbooks never published show only to ALM" />
+        <FtpUploadLog testId="ftp-publish-log" />
       </section>
     </div>
   );

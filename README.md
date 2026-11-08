@@ -45,7 +45,7 @@ implementation plan with what is blocked and what is not lives in `docs/implemen
 | `assets/` | the bundled typeface, Inter (OFL 1.1) as a static build with tabular figures, the favicon and the theme bootstrap script; served by the server under `/app` |
 | `DESIGN.md`, `PRODUCT.md` | the visual system and the product brief it serves |
 | `docs/pmu-desk-spec.md` | the PMU desk's eight Power BI tabs as described by the desk, the decisions taken, the proposed definitions, where each tab went, and the open questions |
-| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off), `0006_ftp` (the PMU desk, FTP publications), `0007_pmu` (books, bonds, purchase lots, swaps with their hedges and unwinds, repos and collateral, repo quotes, bond prices), `0008_dealing_desks` (deals only on the FX and money-market desks, each with its own products), `0009_pmu_booking` (PMU purchases, sales, repos and reverse repos, closing and rolling, Kondor ids, through definer functions for the desk's bookers) |
+| `db/migrations` | `0001_init` (identity, deals, RLS, login hardening), `0002_recon` (event log, source state, breaks, feeds, recon role), `0003_liquidity` (cash flows, nostro statements, amendments, history access), `0004_alm` (banking-book snapshots, market data, versioned parameters, income by month, activity feed), `0005_risk` (versioned FX limits, breach sign-offs, ALCO commentary and sign-off), `0006_ftp` (the PMU desk, FTP publications), `0007_pmu` (books, bonds, purchase lots, swaps with their hedges and unwinds, repos and collateral, repo quotes, bond prices), `0008_dealing_desks` (deals only on the FX and money-market desks, each with its own products), `0009_pmu_booking` (PMU purchases, sales, repos and reverse repos, closing and rolling, Kondor ids, through definer functions for the desk's bookers), `0010_ftp_uploads` (the FTP upload log: every workbook dropped, kept with who dropped it, and which publication replaced which) |
 | `db/init` | Docker-only bootstrap: the three roles and the database, passwords from `.env` |
 | `scripts/` | `smoke.sh` (API check), `verify.sh` (end to end from a clean database), `web-setup.cmd` and `build-web.cmd` (web client), `build-desktop.cmd` (desktop shell and installer) |
 
@@ -175,7 +175,17 @@ named by its code; an `As of` cell sets the date), names every bad cell by sheet
 reads rates written as fractions as percent, and compares it with the curves in force (currencies
 added or missing, tenors added or dropped, points moved by more than 25 bp). Nothing is stored until
 Publish, which needs a note; a corrected workbook replaces the day's earlier publication and both
-are kept. The currencies are whatever the workbook holds (BHD, USD, AED and SAR today), so a curve
+are kept.
+
+**FTP upload log.** Every workbook dropped is stored as it arrived (bytes, size, SHA-256 computed by
+the database) with who dropped it and when, published or not. Publishing names the dropped file:
+the server reads the stored file again and publishes exactly what it holds, so the log's file and
+the curves always agree, and only the person who dropped a workbook may publish it. A publication
+that replaces the day's earlier one records on the earlier one when it was replaced and by which
+publication (and so by whom). The FTP page shows the log to every desk (`GET /ftp/log`), newest
+first, each entry with its file to download (`GET /ftp/upload/{id}/file`, audited); ALM's publish
+page shows the same log plus the workbooks dropped and never published, which other desks cannot
+read (row-level security), and says before publishing whose curves for that day will be replaced. The currencies are whatever the workbook holds (BHD, USD, AED and SAR today), so a curve
 is added or retired by the workbook, not by code. Every desk reads the curves in force on the FTP
 page and in the status bar; ALM is reminded when a business day passes without a publication. The
 template download is the curves in force in the wide layout, ready to edit. For a file that arrives
@@ -393,12 +403,12 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-127 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
+128 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
 interest under each day count, price and yield inverting and DV01 against duration, a premium bond
 amortised to par exactly at maturity, FTP locked to the trade-date curve, a par swap worth nothing
 and its carry with an unwind, the parts of income adding up with hedged face and the tree, the
 forecast running off or reinvesting), 5 on the workbook reader (both layouts, fractions, bad cells by
-reference, the template read back), 2 over HTTP for publishing (preview, publish, supersede, rights)
+reference, the template read back), 3 over HTTP for publishing (preview, publish, supersede, rights; the upload log with who replaced whom, drafts hidden from the desks, the file downloaded as dropped)
 and 4 for the portfolio (a hand-built bond, swap and repo; who may see it; deals only on the dealing desks; the whole booking flow), plus 3 engine cases for sales and repos and the ISIN check digit. FX risk: 9 hand-worked cases (revaluation of a direct and a cross deal, covered
 interest parity and discounting, the shorthand position, the P&L split, VaR and expected shortfall,
 no VaR on pegged currencies, counterparty add-on and settlement peak, the off-market measure, the
@@ -418,8 +428,8 @@ reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege b
 ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 44 Playwright checks on the installed Edge, among them the FTP page and ALM's
-template-drop-publish round trip, the five PMU pages (the tree's expand and filters, the period in
+cases) and 45 Playwright checks on the installed Edge, among them the FTP page and ALM's
+template-drop-publish round trip, a second workbook replacing the first with the log naming who replaced whom, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged; buying by ISIN, setting up a
 new bond, selling chosen lots, a repo closed early and a reverse repo), the FX risk page, the limits
 page as a dealer and as the head, the ticket's off-market check, and the ladder, early-warning and

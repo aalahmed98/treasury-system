@@ -40,6 +40,8 @@ export const usePmuForecast = (reinvest: boolean) => useQuery({ queryKey: ['pmu'
 export const usePmuRisk = () => useQuery({ queryKey: ['pmu', 'risk'], queryFn: endpoints.pmuRisk, staleTime: MINUTE });
 export const usePmuFunding = () => useQuery({ queryKey: ['pmu', 'funding'], queryFn: endpoints.pmuFunding, staleTime: MINUTE });
 export const usePmuBond = (isin: string | null) => useQuery({ queryKey: ['pmu', 'bond', isin], queryFn: () => endpoints.pmuBond(isin!), enabled: !!isin, staleTime: MINUTE });
+export const useFtpLog = (limit: number, filesOnly: boolean) =>
+  useQuery({ queryKey: ['ftp', 'log', limit, filesOnly], queryFn: () => endpoints.ftpLog(limit, filesOnly), staleTime: MINUTE, placeholderData: (prev) => prev });
 export const useFtp = (asOf?: string) => useQuery({ queryKey: ['ftp', 'current', asOf ?? 'today'], queryFn: () => endpoints.ftp(asOf), refetchInterval: 5 * MINUTE, staleTime: MINUTE });
 export const useFtpHistory = (ccy: string, tenor: string, days = 90) =>
   useQuery({ queryKey: ['ftp', 'history', ccy, tenor, days], queryFn: () => endpoints.ftpHistory(ccy, tenor, days), staleTime: 5 * MINUTE, enabled: !!ccy && !!tenor });

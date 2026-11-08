@@ -99,6 +99,8 @@ pub fn router(state: AppState) -> Router {
         .route("/ftp/template.xlsx", get(ftp::template))
         .route("/ftp/preview", post(ftp::preview).layer(DefaultBodyLimit::max(ftp::MAX_WORKBOOK + 1024)))
         .route("/ftp/publish", post(ftp::publish))
+        .route("/ftp/log", get(ftp::log))
+        .route("/ftp/upload/{id}/file", get(ftp::file))
         .route("/pmu/overview", get(pmu::overview))
         .route("/pmu/positions", get(pmu::positions))
         .route("/pmu/income", get(pmu::income))

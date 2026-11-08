@@ -1937,3 +1937,13 @@ button.link:hover {
   border: 1px solid var(--hairline);
   border-radius: 6px;
 }
+/* The FTP upload log: replaced and unpublished entries recede, the one in force does not. */
+.table.ftp-log td {
+  vertical-align: top;
+}
+.table.ftp-log tr.dim td {
+  color: var(--text-2);
+}
+.nowrap {
+  white-space: nowrap;
+}

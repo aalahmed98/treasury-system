@@ -198,10 +198,15 @@ print(f"  fx1 reads: HTTP {s1} | in force {cur['as_of']} | {', '.join(x['ccy'] f
 s2, book = call("/ftp/template.xlsx", alm)
 s3, prev = call("/ftp/preview", alm, raw=book)
 print(f"  alm1 template: HTTP {s2} ({len(book)} bytes) | preview: HTTP {s3} | {len(prev['curves'])} curves, {len(prev['errors'])} errors, layout {prev['layout']!r}")
-s4, pub = call("/ftp/publish", alm, {"as_of": prev["as_of"], "curves": prev["curves"], "file_name": "verify.xlsx", "file_sha256": prev["file_sha256"], "note": "verify: the curves in force, republished"})
+s4, pub = call("/ftp/publish", alm, {"as_of": prev["as_of"], "curves": [], "upload_id": prev["upload_id"], "note": "verify: the curves in force, republished"})
 s5, _ = call("/ftp/preview", fx, raw=book)
-print(f"  alm1 publish: HTTP {s4} (expect 201) | fx1 preview: HTTP {s5} (expect 403)")
-ok = s1 == 200 and len(cur["curves"]) >= 4 and s2 == 200 and book[:2] == b"PK" and s3 == 200 and not prev["errors"] and s4 == 201 and s5 == 403
+print(f"  alm1 publish from the upload log: HTTP {s4} (expect 201) | fx1 preview: HTTP {s5} (expect 403)")
+s6, log = call("/ftp/log?limit=5&files_only=true", fx)
+top = log["entries"][0] if s6 == 200 and log["entries"] else {}
+s7, stored = call(f"/ftp/upload/{prev['upload_id']}/file", fx)
+print(f"  fx1 upload log: HTTP {s6} | newest {top.get('status')} by {top.get('by')} | file download: HTTP {s7}, identical {stored == book}")
+ok = (s1 == 200 and len(cur["curves"]) >= 4 and s2 == 200 and book[:2] == b"PK" and s3 == 200 and not prev["errors"] and s4 == 201 and s5 == 403
+      and top.get("status") == "in_force" and top.get("upload_id") == prev["upload_id"] and s7 == 200 and stored == book)
 print("  checks:", "ok" if ok else "FAILED")
 PY
 

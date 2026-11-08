@@ -1,6 +1,6 @@
 // The FTP curves in force, for every desk: one table of every tenor against every currency with
 // the move since the previous publication, the curves drawn side by side, one rate's history, and
-// the publications behind them. ALM publishes from the workbench (ALM, FTP).
+// the upload log behind them (who dropped each workbook and who replaced it). ALM publishes from the workbench (ALM, FTP).
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { endpoints } from '../api/client';
@@ -11,6 +11,7 @@ import { fmtDateLong, fmtDateShort, fmtLocal } from '../lib/fmt';
 import { Badge, Chip, Section } from '../components/ui';
 import { Empty, SkeletonLines, useToast } from '../components/feedback';
 import { LineChart, SERIES } from '../components/charts';
+import { FtpUploadLog } from './FtpLog';
 
 /** A currency keeps its colour wherever it is drawn: the four the bank publishes first, in order. */
 const ORDER = ['BHD', 'USD', 'AED', 'SAR'];
@@ -202,35 +203,8 @@ export function Ftp() {
             )}
           </div>
 
-          <Section title="Publications" meta="the latest fifteen; a corrected workbook replaces the day's earlier one, which is kept" />
-          <table className="table" data-testid="ftp-recent">
-            <thead>
-              <tr>
-                <th>For</th>
-                <th>Published</th>
-                <th>By</th>
-                <th>Currencies</th>
-                <th>File</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {c.recent.map((r) => (
-                <tr key={r.id} className={r.is_current ? '' : 't-muted'}>
-                  <td>
-                    {fmtDateShort(r.as_of)} {!r.is_current && <Badge>replaced</Badge>}
-                  </td>
-                  <td>{fmtLocal(r.published_at)}</td>
-                  <td>{r.published_by ?? 'application'}</td>
-                  <td>{r.currencies.join(', ')}</td>
-                  <td className="t-small">{r.file_name ?? '—'}</td>
-                  <td className="t-small ellipsis" style={{ maxWidth: 380 }} title={r.note ?? ''}>
-                    {r.note ?? ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Section title="Upload log" meta="every workbook published, who dropped it, and who replaced it; click a file to download it as it arrived" />
+          <FtpUploadLog />
         </>
       )}
     </div>

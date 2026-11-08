@@ -120,6 +120,9 @@ pub struct FtpPreview {
     #[serde(default)]
     pub previous: Vec<FtpCurve>,
     pub file_sha256: String,
+    /// The entry the drop made in the upload log; publishing names it.
+    #[serde(default)]
+    pub upload_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,4 +134,77 @@ pub struct FtpPublishRequest {
     #[serde(default)]
     pub file_sha256: Option<String>,
     pub note: String,
+    /// The dropped workbook to publish. When given, the server reads the curves from the stored
+    /// file again and publishes those, so the log's file and the curves always agree.
+    #[serde(default)]
+    pub upload_id: Option<i32>,
+}
+
+/// Where an entry of the upload log stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FtpLogStatus {
+    /// The curves every desk is charged today.
+    InForce,
+    /// The day's publication, since followed by a later day's.
+    Published,
+    /// Replaced by a later workbook for the same day.
+    Replaced,
+    /// Dropped and read, never published.
+    NotPublished,
+}
+
+/// The other side of a replacement: who published it and when.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FtpReplacement {
+    pub publication_id: i32,
+    pub at: DateTime<Utc>,
+    /// `None` when the application wrote it (synthetic data).
+    pub by: Option<String>,
+    pub file_name: Option<String>,
+}
+
+/// One entry of the upload log: a workbook dropped, a publication, or both.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FtpLogEntry {
+    pub publication_id: Option<i32>,
+    pub upload_id: Option<i32>,
+    /// When it was published, or dropped when it never was.
+    pub at: DateTime<Utc>,
+    pub uploaded_at: Option<DateTime<Utc>>,
+    /// The publisher, or the uploader of a workbook never published; `None` for the application.
+    pub by: Option<String>,
+    pub via: Option<String>,
+    pub file_name: Option<String>,
+    pub file_sha256: Option<String>,
+    pub size_bytes: Option<i32>,
+    /// The workbook itself can be downloaded.
+    pub has_file: bool,
+    pub as_of: Option<NaiveDate>,
+    pub currencies: Vec<String>,
+    pub note: Option<String>,
+    pub errors: i32,
+    pub status: FtpLogStatus,
+    /// The publication this one replaced, if it replaced the day's earlier curves.
+    pub replaces: Option<FtpReplacement>,
+    /// The publication that replaced this one.
+    pub replaced_by: Option<FtpReplacement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FtpLog {
+    pub entries: Vec<FtpLogEntry>,
+    /// More entries exist past these.
+    pub more: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FtpLogQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Workbooks only, leaving out publications the application wrote.
+    #[serde(default)]
+    pub files_only: Option<bool>,
 }

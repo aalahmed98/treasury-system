@@ -171,3 +171,79 @@ async fn the_function_itself_refuses_a_dealer_and_an_empty_publication(owner: Pg
     let e = sqlx::query("SELECT ftp_publish(now()::date, $1, NULL, NULL, 'x')").bind(&pts).execute(&mut *tx).await.unwrap_err();
     assert!(e.to_string().contains("only ALM"), "{e}");
 }
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn the_upload_log_keeps_every_file_and_who_replaced_it(owner: PgPool) {
+    use domain::{FtpLog, FtpLogStatus};
+    let app = pool_for(&owner, "APP_DATABASE_URL").await;
+    seed::run(&owner, &app).await.unwrap();
+    let router = server::app(AppState::new(app.clone(), Config::default()));
+    let alm = token(&router, "alm1").await;
+    let head = token(&router, "head1").await;
+    let fx = token(&router, "fx1").await;
+
+    // Two drops, one by ALM and one by the head, and a file that is not a workbook.
+    let morning = workbook(0.0);
+    let p1: FtpPreview = json(post_file(&router, "/ftp/preview?name=FTP%2008-Nov.xlsx", &alm, morning.clone()).await).await;
+    let p2: FtpPreview = json(post_file(&router, "/ftp/preview?name=FTP%2008-Nov%20v2.xlsx", &head, workbook(0.40)).await).await;
+    let bad: FtpPreview = json(post_file(&router, "/ftp/preview?name=notes.xlsx", &alm, b"not a workbook".to_vec()).await).await;
+    assert!(!bad.errors.is_empty());
+    let (u1, u2, ub) = (p1.upload_id.unwrap(), p2.upload_id.unwrap(), bad.upload_id.unwrap());
+    // The same file dropped again, still unpublished, is the same entry.
+    let again: FtpPreview = json(post_file(&router, "/ftp/preview?name=notes.xlsx", &alm, b"not a workbook".to_vec()).await).await;
+    assert_eq!(again.upload_id, Some(ub));
+    // A dealer cannot drop, so leaves no entry.
+    assert_eq!(post_file(&router, "/ftp/preview?name=x.xlsx", &fx, morning.clone()).await.status(), StatusCode::FORBIDDEN);
+
+    // Publishing reads the stored file again: the curves sent are ignored. Only the person who
+    // dropped a workbook may publish it, and never one with errors.
+    let publish = |upload: i32, note: &str| serde_json::json!({ "as_of": p1.as_of, "curves": [], "upload_id": upload, "note": note });
+    assert_eq!(post_json(&router, "/ftp/publish", &head, publish(u1, "not mine")).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(post_json(&router, "/ftp/publish", &alm, publish(ub, "broken")).await.status(), StatusCode::BAD_REQUEST);
+    let res = post_json(&router, "/ftp/publish", &alm, publish(u1, "Morning curves")).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let first: FtpPublication = json(res).await;
+    assert_eq!(first.curves.len(), 4);
+    assert_eq!(first.file_name.as_deref(), Some("FTP 08-Nov.xlsx"));
+    let res = post_json(&router, "/ftp/publish", &head, publish(u2, "Corrected BHD 5Y")).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let second: FtpPublication = json(res).await;
+
+    // ALM's log: the head's workbook in force, replacing ALM's; ALM's replaced by the head's; the
+    // broken file dropped and never published.
+    let log: FtpLog = json(get(&router, "/ftp/log", &alm).await).await;
+    assert_eq!(log.entries.len(), 3, "{:#?}", log.entries);
+    let of = |id: i32| log.entries.iter().find(|e| e.publication_id == Some(id)).unwrap();
+    let now = of(second.id);
+    assert_eq!(now.status, FtpLogStatus::InForce);
+    assert_eq!(now.by.as_deref(), Some("Head of Treasury"));
+    assert_eq!(now.upload_id, Some(u2));
+    let r = now.replaces.as_ref().unwrap();
+    assert_eq!((r.publication_id, r.by.as_deref(), r.file_name.as_deref()), (first.id, Some("ALM Analyst"), Some("FTP 08-Nov.xlsx")));
+    let was = of(first.id);
+    assert_eq!(was.status, FtpLogStatus::Replaced);
+    let rb = was.replaced_by.as_ref().unwrap();
+    assert_eq!((rb.publication_id, rb.by.as_deref()), (second.id, Some("Head of Treasury")));
+    assert_eq!(was.file_sha256.as_deref(), Some(p1.file_sha256.as_str()));
+    let draft = log.entries.iter().find(|e| e.upload_id == Some(ub)).unwrap();
+    assert_eq!(draft.status, FtpLogStatus::NotPublished);
+    assert!(draft.errors > 0 && draft.publication_id.is_none());
+    assert_eq!(draft.by.as_deref(), Some("ALM Analyst"));
+
+    // The dealer's log has the two publications and not the draft; the files download as dropped.
+    let log: FtpLog = json(get(&router, "/ftp/log?files_only=true", &fx).await).await;
+    assert_eq!(log.entries.len(), 2);
+    let res = get(&router, &format!("/ftp/upload/{u1}/file"), &fx).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(res.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("FTP 08-Nov.xlsx"));
+    assert_eq!(bytes(res).await, morning);
+    assert_eq!(get(&router, &format!("/ftp/upload/{ub}/file"), &fx).await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(get(&router, &format!("/ftp/upload/{ub}/file"), &alm).await.status(), StatusCode::OK);
+
+    // Paging, and the app role cannot write the log directly.
+    let page: FtpLog = json(get(&router, "/ftp/log?limit=1", &alm).await).await;
+    assert!(page.more && page.entries.len() == 1);
+    let mut tx = db::begin_as(&app, seed::user_id("alm1")).await.unwrap();
+    let denied = sqlx::query("UPDATE ftp_uploads SET file_name = 'x'").execute(&mut *tx).await;
+    assert!(denied.is_err() || denied.unwrap().rows_affected() == 0);
+}

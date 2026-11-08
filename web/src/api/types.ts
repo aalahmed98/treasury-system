@@ -987,6 +987,8 @@ export interface FtpPreview {
   compared_with: string | null;
   previous: FtpCurve[];
   file_sha256: string;
+  /** The drop's entry in the upload log; publishing names it. */
+  upload_id: number | null;
 }
 
 // PMU: the bond portfolio. Amounts in BHD unless a field says local; DV01 is the P&L of +1 bp.
@@ -1391,4 +1393,39 @@ export interface RepoPreview {
 export interface Booked {
   id: string;
   message: string;
+}
+
+export type FtpLogStatus = 'in_force' | 'published' | 'replaced' | 'not_published';
+
+export interface FtpReplacement {
+  publication_id: number;
+  at: string;
+  by: string | null;
+  file_name: string | null;
+}
+
+/** One entry of the FTP upload log: a workbook dropped, a publication, or both. */
+export interface FtpLogEntry {
+  publication_id: number | null;
+  upload_id: number | null;
+  at: string;
+  uploaded_at: string | null;
+  by: string | null;
+  via: string | null;
+  file_name: string | null;
+  file_sha256: string | null;
+  size_bytes: number | null;
+  has_file: boolean;
+  as_of: string | null;
+  currencies: string[];
+  note: string | null;
+  errors: number;
+  status: FtpLogStatus;
+  replaces: FtpReplacement | null;
+  replaced_by: FtpReplacement | null;
+}
+
+export interface FtpLog {
+  entries: FtpLogEntry[];
+  more: boolean;
 }

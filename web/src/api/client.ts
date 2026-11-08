@@ -1,7 +1,8 @@
 // One fetch wrapper: the bearer session, the passive header for background polls, the server's
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
-import type { Booked, BondSearchHit, BondTerms, RepoPreview, RepoRequest, TicketPreview, TicketRequest, PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+import type { Booked, BondSearchHit, BondTerms, RepoPreview, RepoRequest, TicketPreview, TicketRequest, PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview,
+  FtpLog, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -177,9 +178,11 @@ export const endpoints = {
   packSign: (period: string, note: string) => api<void>('/alm/pack/sign', { method: 'POST', body: { period, note } }),
   ftp: (asOf?: string) => api<FtpCurrent>(`/ftp${q({ as_of: asOf })}`, { passive: true }),
   ftpHistory: (ccy: string, tenor: string, days: number) => api<FtpHistory>(`/ftp/history${q({ ccy, tenor, days })}`, { passive: true }),
-  ftpPreview: (file: Blob) => api<FtpPreview>('/ftp/preview', { method: 'POST', raw: file }),
-  ftpPublish: (req: { as_of: string; curves: FtpCurve[]; file_name: string | null; file_sha256: string | null; note: string }) =>
+  ftpPreview: (file: File) => api<FtpPreview>(`/ftp/preview${q({ name: file.name })}`, { method: 'POST', raw: file }),
+  ftpPublish: (req: { as_of: string; curves: FtpCurve[]; file_name: string | null; file_sha256: string | null; note: string; upload_id?: number | null }) =>
     api<FtpPublication>('/ftp/publish', { method: 'POST', body: req }),
+  ftpLog: (limit: number, filesOnly: boolean) => api<FtpLog>(`/ftp/log${q({ limit: String(limit), files_only: String(filesOnly) })}`, { passive: true }),
+  ftpFile: (uploadId: number, name: string) => download(`/ftp/upload/${uploadId}/file`, name),
   ftpTemplate: () => download('/ftp/template.xlsx', 'ftp-curves.xlsx'),
   pmuOverview: () => api<PmuOverview>('/pmu/overview', { passive: true }),
   pmuPositions: (from?: string, to?: string) => api<PmuPositions>(`/pmu/positions${q({ from, to })}`, { passive: true }),
