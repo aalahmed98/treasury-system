@@ -5,7 +5,8 @@
 //! cohort earns or pays nothing after its maturity and the cash it releases (an asset) or takes
 //! (a liability) is placed or funded at the scenario's one-month rate in its currency, shown as the
 //! BALANCING book; NIM is then on the average earning assets over the horizon. Administered
-//! deposits move by their beta times the shock at the short end.
+//! products move by their beta times the shock at the short end; the betas are ALM assumptions
+//! per product (and segment), not the source data's.
 
 use std::collections::BTreeMap;
 
@@ -24,7 +25,7 @@ fn curve_for<'a>(curves: &'a Curves, ccy: &str, fallback: &'a Curve) -> &'a Curv
 }
 
 /// The rate a cohort earns or pays in the month starting at `start`, under a scenario.
-pub fn rate_in_month(pos: &BsPosition, as_of: NaiveDate, start: NaiveDate, base: &Curve, shocked: &Curve) -> f64 {
+pub fn rate_in_month(pos: &BsPosition, beta: f64, as_of: NaiveDate, start: NaiveDate, base: &Curve, shocked: &Curve) -> f64 {
     match pos.rate_type {
         RateType::NotSensitive => 0.0,
         RateType::Fixed => match pos.maturity {
@@ -46,7 +47,7 @@ pub fn rate_in_month(pos: &BsPosition, as_of: NaiveDate, start: NaiveDate, base:
         }
         RateType::Admin => {
             let short = shocked.rate(1.0 / 12.0) - base.rate(1.0 / 12.0);
-            (pos.rate + pos.beta * short).max(0.0)
+            (pos.rate + beta * short).max(0.0)
         }
     }
     .max(0.0)
@@ -100,7 +101,7 @@ pub fn compute(
             }
             let base = curve_for(curves, &pos.ccy, &fallback);
             let sh = curve_for(&shocked, &pos.ccy, base);
-            let rate = rate_in_month(pos, as_of, start, base, sh);
+            let rate = rate_in_month(pos, params.nii.beta_for(&pos.product, &pos.segment), as_of, start, base, sh);
             let interest = pos.balance * fx(&pos.ccy) * rate / 100.0 * days / pos.day_count.basis();
             let signed = match pos.side {
                 BsSide::Asset => {

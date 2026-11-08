@@ -1947,3 +1947,17 @@ button.link:hover {
 .nowrap {
   white-space: nowrap;
 }
+/* An ALM assumption with nothing in the snapshot to act on: still editable, visibly idle. */
+.arow.idle .k {
+  color: var(--muted);
+}
+.arow .cover-none {
+  display: block;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+}
+.numwrap.idle input {
+  color: var(--muted);
+  border-style: dashed;
+}

@@ -298,6 +298,7 @@ struct Tpl {
     nsfr_class: Option<&'static str>,
     beta: f64,
     behavioural_months: Option<i16>,
+    encumbered: bool,
 }
 
 const fn t(pid: &'static str, side: BsSide, book: &'static str, segment: &'static str, product: &'static str, share: f64, mix: Mix) -> Tpl {
@@ -320,6 +321,7 @@ const fn t(pid: &'static str, side: BsSide, book: &'static str, segment: &'stati
         nsfr_class: None,
         beta: 0.0,
         behavioural_months: None,
+        encumbered: false,
     }
 }
 
@@ -346,6 +348,16 @@ impl Tpl {
         self.spread = rate;
         self.beta = beta;
         self.behavioural_months = Some(behavioural);
+        self
+    }
+    /// A rate-insensitive balance that still falls due every `term` months (a settlement receivable).
+    const fn due(mut self, term: i16) -> Self {
+        self.term_months = Some(term);
+        self
+    }
+    /// Pledged: out of the liquidity stock, and stable funding required at the encumbered factor.
+    const fn pledged(mut self) -> Self {
+        self.encumbered = true;
         self
     }
     const fn hqla(mut self, level: HqlaLevel) -> Self {
@@ -386,6 +398,13 @@ const TEMPLATES: &[Tpl] = &[
     t("CORP-FIX-2Y", Asset, "LOANS", "CORPORATE", "TERM_LOAN", 0.040, MIXED).fixed(2.20, 24, Some(6), Bullet).lcr("INFLOW_NONFIN").nsfr("LOANS_OTHER"),
     t("OVERDRAFT", Asset, "LOANS", "CORPORATE", "OVERDRAFT", 0.030, DOMESTIC).admin(8.5, 0.8, 12).lcr("INFLOW_NONFIN").nsfr("LOANS_OTHER"),
     t("OTHER-ASSETS", Asset, "OTHER", "OTHER", "OTHER_ASSETS", 0.070, DOMESTIC).nsfr("OTHER"),
+    // So every LCR and NSFR assumption has something to act on: pledged bonds, short paper and
+    // receivables falling due inside 30 days, and placements past six months and a year.
+    t("GOVT-PLEDGED", Asset, "SECURITIES", "SOVEREIGN", "GOVT_BOND", 0.030, DOMESTIC).fixed(0.30, 60, Some(6), Bullet).hqla(HqlaLevel::L1).pledged().lcr("INFLOW_SECURITIES"),
+    t("CP-1M", Asset, "SECURITIES", "CORPORATE", "COMMERCIAL_PAPER", 0.010, USD).fixed(0.60, 1, None, Bullet).lcr("INFLOW_SECURITIES").nsfr("LOANS_FI"),
+    t("SETTLEMENT", Asset, "SETTLEMENT", "OTHER", "SETTLEMENT_RECEIVABLE", 0.008, DOMESTIC).due(1).lcr("INFLOW_OTHER").nsfr("OTHER"),
+    t("PLACE-1Y", Asset, "INTERBANK", "FI", "PLACEMENT", 0.015, INTL).fixed(0.25, 12, None, Bullet).lcr("INFLOW_FI").nsfr("LOANS_FI"),
+    t("PLACE-2Y", Asset, "INTERBANK", "FI", "PLACEMENT", 0.010, INTL).fixed(0.35, 24, Some(6), Bullet).lcr("INFLOW_FI").nsfr("LOANS_FI"),
     // liabilities and equity
     t("CA-RETAIL", Liability, "DEPOSITS", "RETAIL", "CURRENT_ACCOUNT", 0.110, DOMESTIC).admin(0.0, 0.0, 36).lcr("RET_STABLE").nsfr("RETAIL_SME_STABLE"),
     t("SAV-RETAIL", Liability, "DEPOSITS", "RETAIL", "SAVINGS", 0.090, DOMESTIC).admin(1.5, 0.4, 48).lcr("RET_LESS_STABLE").nsfr("RETAIL_SME_LESS_STABLE"),
@@ -402,12 +421,33 @@ const TEMPLATES: &[Tpl] = &[
     t("INTERBANK-1M", Liability, "INTERBANK", "FI", "BORROWING", 0.055, INTL).fixed(0.05, 1, None, Bullet).lcr("FI_WHOLESALE").nsfr("FI"),
     t("TERM-3Y", Liability, "TERM_FUNDING", "FI", "SUKUK_ISSUED", 0.050, USD).fixed(0.90, 36, Some(6), Bullet).lcr("FI_WHOLESALE").nsfr("OTHER"),
     t("TERM-5Y", Liability, "TERM_FUNDING", "FI", "BOND_ISSUED", 0.030, USD).fixed(1.10, 60, Some(6), Bullet).lcr("FI_WHOLESALE").nsfr("OTHER"),
+    // Secured funding against each grade of collateral, funding past six months and a year,
+    // banks' current accounts and subordinated debt.
+    t("REPO-L1", Liability, "INTERBANK", "FI", "REPO", 0.025, INTL).fixed(0.00, 1, None, Bullet).lcr("SECURED_L1").nsfr("FI"),
+    t("REPO-L2A", Liability, "INTERBANK", "FI", "REPO", 0.010, USD).fixed(0.10, 1, None, Bullet).lcr("SECURED_L2A").nsfr("FI"),
+    t("REPO-L2B", Liability, "INTERBANK", "FI", "REPO", 0.005, USD).fixed(0.25, 1, None, Bullet).lcr("SECURED_L2B").nsfr("FI"),
+    t("REPO-OTHER", Liability, "INTERBANK", "FI", "REPO", 0.005, USD).fixed(0.40, 1, None, Bullet).lcr("SECURED_OTHER").nsfr("FI"),
+    // Corporate call accounts: an administered product with no beta of its own in the ALM
+    // assumptions, so it passes on the default beta.
+    t("CALL-CORP", Liability, "DEPOSITS", "CORPORATE", "CALL_ACCOUNT", 0.015, MIXED).admin(1.0, 0.5, 6).lcr("NONFIN_WHOLESALE").nsfr("NONFIN_WHOLESALE"),
+    t("CA-FI", Liability, "DEPOSITS", "FI", "CURRENT_ACCOUNT", 0.015, INTL).admin(0.0, 0.0, 6).lcr("FI_WHOLESALE").nsfr("FI"),
+    t("TD-SME-1M", Liability, "DEPOSITS", "SME", "TERM_DEPOSIT", 0.010, DOMESTIC).fixed(-0.60, 1, None, Bullet).lcr("SME_LESS_STABLE").nsfr("RETAIL_SME_LESS_STABLE"),
+    t("TD-SME-1Y", Liability, "DEPOSITS", "SME", "TERM_DEPOSIT", 0.010, DOMESTIC).fixed(-0.30, 12, None, Bullet).lcr("SME_LESS_STABLE").nsfr("RETAIL_SME_LESS_STABLE"),
+    t("TD-RETAIL-2Y", Liability, "DEPOSITS", "RETAIL", "TERM_DEPOSIT", 0.030, DOMESTIC).fixed(-0.20, 24, Some(12), Bullet).lcr("RET_STABLE").nsfr("RETAIL_SME_STABLE"),
+    t("TD-RETAIL-LS-2Y", Liability, "DEPOSITS", "RETAIL", "TERM_DEPOSIT", 0.015, MIXED).fixed(-0.10, 24, Some(12), Bullet).lcr("RET_LESS_STABLE").nsfr("RETAIL_SME_LESS_STABLE"),
+    t("TD-CORP-1Y", Liability, "DEPOSITS", "CORPORATE", "TERM_DEPOSIT", 0.030, MIXED).fixed(-0.10, 12, None, Bullet).lcr("NONFIN_WHOLESALE").nsfr("NONFIN_WHOLESALE"),
+    t("TD-CORP-2Y", Liability, "DEPOSITS", "CORPORATE", "TERM_DEPOSIT", 0.020, MIXED).fixed(0.00, 24, Some(12), Bullet).lcr("NONFIN_WHOLESALE").nsfr("NONFIN_WHOLESALE"),
+    t("FI-DEP-1Y", Liability, "DEPOSITS", "FI", "TERM_DEPOSIT", 0.015, INTL).fixed(0.05, 12, None, Bullet).lcr("FI_WHOLESALE").nsfr("FI"),
+    t("FI-BORROW-2Y", Liability, "INTERBANK", "FI", "BORROWING", 0.015, USD).fixed(0.40, 24, Some(6), Bullet).lcr("FI_WHOLESALE").nsfr("FI"),
+    t("SUBDEBT-10Y", Liability, "TERM_FUNDING", "FI", "SUBORDINATED_DEBT", 0.020, USD).fixed(2.00, 120, Some(6), Bullet).lcr("FI_WHOLESALE").nsfr("CAPITAL"),
     t("OTHER-LIAB", Liability, "OTHER", "OTHER", "OTHER_LIABILITIES", 0.050, DOMESTIC).nsfr("OTHER"),
     t("EQUITY", Liability, "EQUITY", "SHAREHOLDERS", "EQUITY", 0.115, DOMESTIC).nsfr("CAPITAL"),
     // commitments (undrawn)
     t("COMMIT-CORP", OffBalance, "COMMITMENTS", "CORPORATE", "COMMITTED_CREDIT", 0.080, MIXED).lcr("COMMIT_CREDIT_CORP"),
     t("COMMIT-RETAIL", OffBalance, "COMMITMENTS", "RETAIL", "CARD_LINES", 0.020, DOMESTIC).lcr("COMMIT_CREDIT_RETAIL"),
     t("COMMIT-LIQ", OffBalance, "COMMITMENTS", "CORPORATE", "LIQUIDITY_FACILITY", 0.020, MIXED).lcr("COMMIT_LIQ_CORP"),
+    t("COMMIT-FI", OffBalance, "COMMITMENTS", "FI", "FI_FACILITY", 0.010, INTL).lcr("COMMIT_FI"),
+    t("GUARANTEES", OffBalance, "GUARANTEES", "CORPORATE", "TRADE_FINANCE", 0.040, MIXED).lcr("OTHER_CONTINGENT"),
 ];
 
 /// Snapshot dates: month-ends for `month_ends` months, then every day for `daily_history` days
@@ -539,7 +579,7 @@ pub fn generate(cfg: &AlmCfg, market: &Market, business_date: NaiveDate, seed: u
                         origination,
                         day_count: day_count(ccy),
                         hqla_level: tpl.hqla,
-                        encumbered: false,
+                        encumbered: tpl.encumbered,
                         lcr_class: tpl.lcr_class.map(String::from),
                         nsfr_class: tpl.nsfr_class.map(String::from),
                         beta: tpl.beta,

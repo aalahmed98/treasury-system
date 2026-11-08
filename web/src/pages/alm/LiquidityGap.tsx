@@ -28,13 +28,13 @@ function Assumptions() {
       <AssumptionsHeader />
       <Group title="Stable share of deposits" help="The share of current, savings and operational deposits that stays, run off over their behavioural life; the rest is assumed to leave overnight.">
         {SEGMENTS.map(([s, label]) => (
-          <Row key={s} label={label}>
+          <Row key={s} label={label} cover={`liquidity_gap.stable_share_pct.${s}`}>
             <Pct value={g.stable_share_pct[s] ?? 50} base={b.stable_share_pct[s] ?? 50} onChange={(v) => edit((p) => void (p.liquidity_gap.stable_share_pct[s] = v))} />
           </Row>
         ))}
       </Group>
       <Group title="Commitments" help="The share of undrawn credit lines assumed drawn within a month.">
-        <Row label="Drawn within a month">
+        <Row label="Drawn within a month" cover="liquidity_gap.commitment_draw_pct">
           <Pct value={g.commitment_draw_pct} base={b.commitment_draw_pct} onChange={(v) => edit((p) => void (p.liquidity_gap.commitment_draw_pct = v))} />
         </Row>
       </Group>

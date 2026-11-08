@@ -27,30 +27,30 @@ function Assumptions() {
       </Group>
       <Group title="Liquid assets" help="Haircuts on each level of liquid assets, and the caps on how much level 2 may count towards the stock.">
         {['L1', 'L2A', 'L2B'].map((level) => (
-          <Row key={level} label={`${level} haircut`}>
+          <Row key={level} label={`${level} haircut`} cover={`lcr.haircuts.${level}`}>
             <Pct value={l.haircuts[level] ?? 0} base={b.haircuts[level] ?? 0} onChange={(v) => edit((p) => void (p.lcr.haircuts[level] = v))} />
           </Row>
         ))}
-        <Row label="Level 2 cap">
+        <Row label="Level 2 cap" cover="lcr.cap_l2_total_pct">
           <Pct value={l.cap_l2_total_pct} base={b.cap_l2_total_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2_total_pct = v))} />
         </Row>
-        <Row label="Level 2B cap">
+        <Row label="Level 2B cap" cover="lcr.cap_l2b_pct">
           <Pct value={l.cap_l2b_pct} base={b.cap_l2b_pct} max={99} onChange={(v) => edit((p) => void (p.lcr.cap_l2b_pct = v))} />
         </Row>
-        <Row label="Inflow cap">
+        <Row label="Inflow cap" cover="lcr.inflow_cap_pct">
           <Pct value={l.inflow_cap_pct} base={b.inflow_cap_pct} onChange={(v) => edit((p) => void (p.lcr.inflow_cap_pct = v))} />
         </Row>
       </Group>
       <Group title="Run-off rates" help="The share of each liability class assumed to leave within 30 days of stress." open={false} count={Object.keys(l.outflow_rates).length}>
         {Object.entries(l.outflow_rates).map(([k, v]) => (
-          <Row key={k} label={nice(k)}>
+          <Row key={k} label={nice(k)} cover={`lcr.outflow_rates.${k}`}>
             <Pct value={v} base={b.outflow_rates[k]} onChange={(x) => edit((p) => void (p.lcr.outflow_rates[k] = x))} />
           </Row>
         ))}
       </Group>
       <Group title="Inflow rates" help="The share of each receivable class assumed to arrive within 30 days, counted up to the inflow cap." open={false} count={Object.keys(l.inflow_rates).length}>
         {Object.entries(l.inflow_rates).map(([k, v]) => (
-          <Row key={k} label={nice(k)}>
+          <Row key={k} label={nice(k)} cover={`lcr.inflow_rates.${k}`}>
             <Pct value={v} base={b.inflow_rates[k]} onChange={(x) => edit((p) => void (p.lcr.inflow_rates[k] = x))} />
           </Row>
         ))}

@@ -4,6 +4,7 @@
 
 pub mod attribution;
 pub mod bucket;
+pub mod coverage;
 pub mod curve;
 pub mod eve;
 pub mod ewi;

@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui';
 import { useToast } from '../../components/feedback';
 import { useAlm } from '../../alm/state';
 import { Bp, ChangeList, Group, Num, Pct, Row, diffParams, revertPath } from '../../alm/tool';
+import { BetaRows } from './Nii';
 import { fmtLocal, nice } from '../../lib/fmt';
 
 export function Setup() {
@@ -272,7 +273,9 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
         <Row label="NII horizon (months)">
           <Num value={d.nii.horizon_months} base={b.nii.horizon_months} min={1} max={60} step={1} onChange={(v) => onChange((p) => void (p.nii.horizon_months = Math.round(v)))} />
         </Row>
-        <Row label="Default deposit beta">
+        <Group title="Rate pass-through (beta)" />
+        <BetaRows betas={d.nii.betas} base={b.nii.betas} onChange={(k, v) => onChange((p) => void (p.nii.betas[k] = v))} />
+        <Row label="Other products (default)">
           <Pct value={d.nii.default_beta * 100} base={b.nii.default_beta * 100} onChange={(v) => onChange((p) => void (p.nii.default_beta = v / 100))} />
         </Row>
         <Group title="Liquidity ladder" />

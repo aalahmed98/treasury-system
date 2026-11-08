@@ -2,11 +2,12 @@ import { useMemo } from 'react';
 import type { Factors3, NsfrResult } from '../../api/types';
 import { Card, Gauge } from '../../components/ui';
 import { useAlm, useTool } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { AssumptionsHeader, coverHint, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout, useCoverage } from '../../alm/tool';
 import { nsfrView, whenLine } from '../../alm/views';
 import { nice } from '../../lib/fmt';
 
-function FactorGrid({ map, base, onChange }: { map: Record<string, Factors3>; base: Record<string, Factors3>; onChange: (k: string, i: number, v: number) => void }) {
+function FactorGrid({ map, base, onChange, path }: { map: Record<string, Factors3>; base: Record<string, Factors3>; onChange: (k: string, i: number, v: number) => void; /** `nsfr.asf` or `nsfr.rsf`, for what each factor applies to. */ path: string }) {
+  const cover = useCoverage();
   return (
     <div className="factor-grid">
       <span />
@@ -17,9 +18,11 @@ function FactorGrid({ map, base, onChange }: { map: Record<string, Factors3>; ba
       ))}
       {Object.entries(map).map(([k, f]) => (
         <div key={k} style={{ display: 'contents' }}>
-          <span className="k">{nice(k)}</span>
+          <span className="k" title={nice(k)}>
+            {nice(k)}
+          </span>
           {f.map((v, i) => (
-            <Num key={i} value={v} base={base[k]?.[i]} min={0} max={100} step={0.5} decimals={1} width={64} onChange={(x) => onChange(k, i, x)} />
+            <Num key={i} value={v} base={base[k]?.[i]} min={0} max={100} step={0.5} decimals={1} width={64} onChange={(x) => onChange(k, i, x)} {...coverHint(cover(`${path}.${k}.${i}`))} />
           ))}
         </div>
       ))}
@@ -44,21 +47,21 @@ function Assumptions() {
         </Row>
       </Group>
       <Group title="Available stable funding factors" help="How much of each liability counts as stable funding, by the time left to maturity." open={false} count={Object.keys(n.asf).length}>
-        <FactorGrid map={n.asf} base={b.asf} onChange={(k, i, v) => edit((p) => void (p.nsfr.asf[k][i] = v))} />
+        <FactorGrid path="nsfr.asf" map={n.asf} base={b.asf} onChange={(k, i, v) => edit((p) => void (p.nsfr.asf[k][i] = v))} />
       </Group>
       <Group title="Required stable funding factors" help="How much stable funding each asset needs, by the time left to maturity." open={false} count={Object.keys(n.rsf).length}>
-        <FactorGrid map={n.rsf} base={b.rsf} onChange={(k, i, v) => edit((p) => void (p.nsfr.rsf[k][i] = v))} />
+        <FactorGrid path="nsfr.rsf" map={n.rsf} base={b.rsf} onChange={(k, i, v) => edit((p) => void (p.nsfr.rsf[k][i] = v))} />
       </Group>
       <Group title="Other required funding" help="Liquid assets, undrawn commitments and encumbered assets carry their own factors.">
         {['L1', 'L2A', 'L2B'].map((level) => (
-          <Row key={level} label={`HQLA ${level}`}>
+          <Row key={level} label={`HQLA ${level}`} cover={`nsfr.hqla_rsf.${level}`}>
             <Pct value={n.hqla_rsf[level] ?? 0} base={b.hqla_rsf[level] ?? 0} onChange={(v) => edit((p) => void (p.nsfr.hqla_rsf[level] = v))} />
           </Row>
         ))}
-        <Row label="Off-balance commitments">
+        <Row label="Off-balance commitments" cover="nsfr.off_balance_rsf_pct">
           <Pct value={n.off_balance_rsf_pct} base={b.off_balance_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.off_balance_rsf_pct = v))} />
         </Row>
-        <Row label="Encumbered a year or more">
+        <Row label="Encumbered a year or more" cover="nsfr.encumbered_rsf_pct">
           <Pct value={n.encumbered_rsf_pct} base={b.encumbered_rsf_pct} onChange={(v) => edit((p) => void (p.nsfr.encumbered_rsf_pct = v))} />
         </Row>
       </Group>

@@ -337,12 +337,36 @@ impl Default for StressParams {
 pub struct NiiParams {
     pub horizon_months: u32,
     pub constant_balance_sheet: bool,
+    /// Pass-through for administered products not listed in `betas`, as a fraction.
     pub default_beta: f64,
+    /// How much of a short-rate move each administered product passes on, as a fraction. Keyed by
+    /// product (`SAVINGS`), or by product and segment (`CURRENT_ACCOUNT.RETAIL`), which wins.
+    /// An ALM assumption: it replaces the beta the source data carries.
+    pub betas: BTreeMap<String, f64>,
 }
 
 impl Default for NiiParams {
     fn default() -> Self {
-        Self { horizon_months: 12, constant_balance_sheet: true, default_beta: 0.5 }
+        Self {
+            horizon_months: 12,
+            constant_balance_sheet: true,
+            default_beta: 0.5,
+            betas: map([
+                ("CURRENT_ACCOUNT", 0.2),
+                ("CURRENT_ACCOUNT.RETAIL", 0.0),
+                ("CURRENT_ACCOUNT.SME", 0.0),
+                ("SAVINGS", 0.4),
+                ("OPERATIONAL_DEPOSIT", 0.3),
+                ("OVERDRAFT", 0.8),
+            ]),
+        }
+    }
+}
+
+impl NiiParams {
+    /// The beta an administered cohort passes on: product and segment, else product, else the default.
+    pub fn beta_for(&self, product: &str, segment: &str) -> f64 {
+        self.betas.get(&format!("{product}.{segment}")).or_else(|| self.betas.get(product)).copied().unwrap_or(self.default_beta)
     }
 }
 
@@ -492,6 +516,16 @@ pub struct AlmRequest {
     pub compare_to: Option<CompareTo>,
     /// Attribution: the later period (first day of the month); defaults to the latest.
     pub period: Option<NaiveDate>,
+}
+
+/// What each lever applies to in the snapshot, in the reporting currency, keyed by the
+/// parameter's path (`lcr.outflow_rates.FI_WHOLESALE`, `nsfr.asf.FI.1`, `nii.betas.SAVINGS`). Zero
+/// means the lever has nothing to act on in this snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmCoverage {
+    pub as_of: NaiveDate,
+    pub reporting_ccy: String,
+    pub amounts: BTreeMap<String, f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

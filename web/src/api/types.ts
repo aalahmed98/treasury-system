@@ -421,7 +421,16 @@ export interface StressParams {
 export interface NiiParams {
   horizon_months: number;
   constant_balance_sheet: boolean;
+  /** Pass-through for administered products not listed in `betas`, as a fraction. */
   default_beta: number;
+  /** Pass-through by product (`SAVINGS`) or product and segment (`CURRENT_ACCOUNT.RETAIL`), as a fraction. */
+  betas: Record<string, number>;
+}
+/** What each lever applies to in the snapshot (reporting currency), keyed by its parameter path. */
+export interface AlmCoverage {
+  as_of: string;
+  reporting_ccy: string;
+  amounts: Record<string, number>;
 }
 export interface FundingParams {
   top1_limit_pct: number;

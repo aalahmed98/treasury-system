@@ -5,7 +5,7 @@ import { Bars } from '../../components/charts';
 import { useAlm, useTool } from '../../alm/state';
 import { AssumptionsHeader, Group, Headline, Num, Pct, ResultsHeader, Row, ScenarioPicker, SimpleTable, ToolLayout } from '../../alm/tool';
 import { niiView } from '../../alm/views';
-import { fmtDateLong, fmtMoneyShort } from '../../lib/fmt';
+import { fmtDateLong, fmtMoneyShort, nice } from '../../lib/fmt';
 
 export function ShockGrid() {
   const { working, edit, bank } = useAlm();
@@ -30,6 +30,26 @@ export function ShockGrid() {
   );
 }
 
+/** `CURRENT_ACCOUNT.RETAIL` → "Current account, retail". */
+export function betaLabel(key: string): string {
+  const [product, segment] = key.split('.');
+  return segment ? `${nice(product)}, ${nice(segment).toLowerCase()}` : nice(product);
+}
+
+export function BetaRows({ betas, base, onChange }: { betas: Record<string, number>; base: Record<string, number>; onChange: (key: string, v: number) => void }) {
+  return (
+    <>
+      {Object.keys(betas)
+        .sort()
+        .map((k) => (
+          <Row key={k} label={betaLabel(k)} cover={`nii.betas.${k}`}>
+            <Pct value={betas[k] * 100} base={base[k] === undefined ? undefined : base[k] * 100} onChange={(v) => onChange(k, v / 100)} />
+          </Row>
+        ))}
+    </>
+  );
+}
+
 function Assumptions() {
   const { working, edit, bank } = useAlm();
   if (!working || !bank) return null;
@@ -48,7 +68,10 @@ function Assumptions() {
         <Row label="Constant balance sheet">
           <input type="checkbox" checked={n.constant_balance_sheet} onChange={(e) => edit((p) => void (p.nii.constant_balance_sheet = e.target.checked))} />
         </Row>
-        <Row label="Default deposit beta">
+      </Group>
+      <Group title="Rate pass-through (beta)" help="How much of a move in short rates each administered product passes on to its rate. An entry for a product and segment beats the product's; products not listed take the default. They matter only when rates move, so pick a scenario other than Base to see them work." count={Object.keys(n.betas).length + 1}>
+        <BetaRows betas={n.betas} base={b.betas} onChange={(k, v) => edit((p) => void (p.nii.betas[k] = v))} />
+        <Row label="Other products (default)" cover="nii.default_beta">
           <Pct value={n.default_beta * 100} base={b.default_beta * 100} onChange={(v) => edit((p) => void (p.nii.default_beta = v / 100))} />
         </Row>
       </Group>

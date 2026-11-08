@@ -159,6 +159,15 @@ fn validate(p: &AlmParams) -> Result<(), ApiError> {
         return Err(bad("NII horizon must be 1 to 60 months".into()));
     }
     pct("default deposit beta", p.nii.default_beta * 100.0)?;
+    if p.nii.betas.len() > 100 {
+        return Err(bad("too many deposit betas".into()));
+    }
+    for (k, v) in &p.nii.betas {
+        if k.is_empty() || k.len() > 64 || !k.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+            return Err(bad(format!("'{k}' is not a product (or product.segment) code")));
+        }
+        pct(&format!("deposit beta for {k}"), v * 100.0)?;
+    }
     pct("largest depositor limit", p.funding.top1_limit_pct)?;
     pct("ten largest depositors limit", p.funding.top10_limit_pct)?;
     pct("wholesale funding limit", p.funding.wholesale_share_limit_pct)?;
@@ -398,6 +407,13 @@ async fn prepare(state: &AppState, auth: &AuthUser, req: &AlmRequest) -> Result<
 // ---------------------------------------------------------------------------------------------
 // The tools
 // ---------------------------------------------------------------------------------------------
+
+/// What each lever applies to in the snapshot, so the pages can show the ones with nothing to act on.
+pub async fn coverage(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<domain::AlmCoverage>, ApiError> {
+    let (book, _version, params) = prepare(&state, &auth, &req).await?;
+    let amounts = alm::coverage::compute(&book.positions, &params, &book.spots, book.as_of);
+    Ok(Json(domain::AlmCoverage { as_of: book.as_of, reporting_ccy: params.reporting_ccy.clone(), amounts }))
+}
 
 pub async fn lcr(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<LcrResult>, ApiError> {
     let (book, version, params) = prepare(&state, &auth, &req).await?;

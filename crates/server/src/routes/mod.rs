@@ -74,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/alm/positions", get(alm::positions))
         .route("/alm/overview", get(alm::overview))
         .route("/alm/trend", get(alm::trend))
+        .route("/alm/coverage", post(alm::coverage))
         .route("/alm/lcr", post(alm::lcr))
         .route("/alm/nsfr", post(alm::nsfr))
         .route("/alm/gap", post(alm::gap))

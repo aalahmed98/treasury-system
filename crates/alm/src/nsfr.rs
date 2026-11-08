@@ -31,7 +31,9 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
                 add(&mut asf, class, band, amount, factor);
             }
             BsSide::Asset => {
-                if let Some(level) = pos.hqla_level {
+                // Cash and central-bank reserves carry their own factor (0% under Basel III), not
+                // the Level 1 securities factor.
+                if let Some(level) = pos.hqla_level.filter(|_| pos.nsfr_class.as_deref() != Some("CASH_CB")) {
                     let factor = if pos.encumbered && band == 2 { p.encumbered_rsf_pct } else { p.hqla_rsf.get(level.as_str()).copied().unwrap_or(100.0) };
                     add(&mut rsf, format!("HQLA {}", level.as_str()), band, amount, factor);
                 } else {

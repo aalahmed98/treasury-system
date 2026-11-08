@@ -20,7 +20,7 @@ function Assumptions() {
       <AssumptionsHeader />
       <Group title="Behavioural life (months)" help="How long deposits with no contractual maturity are assumed to stay, which decides the bucket they reprice in.">
         {Object.entries(g.nmd_behavioural_months).map(([k, v]) => (
-          <Row key={k} label={nice(k)}>
+          <Row key={k} label={nice(k)} cover={`gap.nmd_behavioural_months.${k}`}>
             <Num value={v} base={b.nmd_behavioural_months[k]} min={1} max={240} step={1} onChange={(x) => edit((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
           </Row>
         ))}

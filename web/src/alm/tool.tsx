@@ -7,7 +7,24 @@ import { SCENARIO_LABEL, standingLabel, standingTone, type Standing } from '../l
 import { nice } from '../lib/fmt';
 import { usePref } from '../lib/prefs';
 import { Badge, Chip, useOutsideClose } from '../components/ui';
-import { useAlm } from './state';
+import { useAlm, useTool } from './state';
+import type { AlmCoverage } from '../api/types';
+import { fmtMoneyShort } from '../lib/fmt';
+
+/** What a lever applies to in the snapshot: `undefined` while loading or for a lever the server does
+ * not measure, `0` when there is nothing for it to act on. */
+export function useCoverage(): (path: string) => number | undefined {
+  const q = useTool<AlmCoverage>('coverage');
+  const amounts = q.data?.amounts;
+  return useCallback((path: string) => amounts?.[path], [amounts]);
+}
+
+/** The tooltip and the empty flag for a lever, from its coverage. */
+export function coverHint(amount: number | undefined): { empty: boolean; title?: string } {
+  if (amount === undefined) return { empty: false };
+  if (Math.abs(amount) < 0.5) return { empty: true, title: 'nothing in this snapshot for this assumption to act on' };
+  return { empty: false, title: `applies to ${fmtMoneyShort(amount)} in this snapshot` };
+}
 
 export const BASEL: RateScenario[] = ['PARALLEL_UP', 'PARALLEL_DOWN', 'STEEPENER', 'FLATTENER', 'SHORT_UP', 'SHORT_DOWN'];
 
@@ -168,7 +185,8 @@ export function Group({ title, help, open = true, count, children }: { title: st
   );
 }
 
-export function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
+export function Row({ label, children, cover }: { label: ReactNode; children: ReactNode; /** The lever's parameter path, to show what it applies to. */ cover?: string }) {
+  if (cover) return <CoveredRow label={label} cover={cover}>{children}</CoveredRow>;
   return (
     <label className="arow">
       <span className="k">{label}</span>
@@ -177,12 +195,26 @@ export function Row({ label, children }: { label: ReactNode; children: ReactNode
   );
 }
 
+function CoveredRow({ label, children, cover }: { label: ReactNode; children: ReactNode; cover: string }) {
+  const amount = useCoverage()(cover);
+  const { empty, title } = coverHint(amount);
+  return (
+    <label className={`arow${empty ? ' idle' : ''}`} title={title} data-empty={empty ? '1' : undefined}>
+      <span className="k">
+        {label}
+        {empty && <span className="cover-none">nothing in this snapshot</span>}
+      </span>
+      <span className="v">{children}</span>
+    </label>
+  );
+}
+
 /** A number input: commits on each change, keeps the caret, clamps to the range. With `base`, the
  * bank's value appears as a ghost beside an edited input; clicking it puts the value back. */
-export function Num({ value, onChange, min, max, step = 1, decimals = 0, suffix, width = 84, disabled, base }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; decimals?: number; suffix?: string; width?: number; disabled?: boolean; base?: number }) {
+export function Num({ value, onChange, min, max, step = 1, decimals = 0, suffix, width = 84, disabled, base, empty, title }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; decimals?: number; suffix?: string; width?: number; disabled?: boolean; base?: number; /** Nothing in the snapshot for it to act on. */ empty?: boolean; title?: string }) {
   const edited = base !== undefined && Number.isFinite(base) && Math.abs(base - value) > 1e-9;
   return (
-    <span className={`numwrap${edited ? ' edited' : ''}`}>
+    <span className={`numwrap${edited ? ' edited' : ''}${empty ? ' idle' : ''}`} title={title} data-empty={empty ? '1' : undefined}>
       <input
         type="number"
         className="input input-sm input-num"

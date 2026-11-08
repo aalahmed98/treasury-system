@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use alm::curve::{Curve, shock_bp};
 use alm::funding::DepositorGroup;
 use alm::nii::Curves;
-use alm::{attribution, eve, funding, gap, ird, nii, nsfr, schedule, stress};
+use alm::{attribution, coverage, eve, funding, gap, ird, nii, nsfr, schedule, stress};
 use chrono::NaiveDate;
 use domain::{AlmParams, Amort, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
 
@@ -198,6 +198,79 @@ fn nii_projects_fixed_floating_and_administered_cohorts() {
     assert!(close(du.nii - db.nii, -1000.0 * 0.01 * 365.0 / 360.0, 1e-9), "half the 200 bp passes through");
     assert_eq!(du.earning_assets, 0.0);
     assert_eq!(du.nim, None);
+}
+
+#[test]
+fn deposit_betas_come_from_the_assumptions_by_product_and_segment() {
+    let as_of = d(AS_OF);
+    let curves = flat("BHD", 4.0);
+    let deposit = |product: &str, segment: &str| {
+        let mut p = pos(product, BsSide::Liability, "BHD", 1000.0);
+        p.rate_type = RateType::Admin;
+        p.rate = 1.0;
+        p.beta = 0.9; // the source's beta: ignored, the assumption decides
+        p.day_count = DayCount::Act360;
+        p.product = product.into();
+        p.segment = segment.into();
+        p
+    };
+    let mut params = AlmParams::default();
+    params.nii.betas = [("SAVINGS".to_string(), 0.4), ("CURRENT_ACCOUNT".to_string(), 0.2), ("CURRENT_ACCOUNT.RETAIL".to_string(), 0.0)].into();
+    params.nii.default_beta = 0.5;
+    // Under +200 bp the extra cost is beta × 2% on 1000 for the year.
+    let delta = |p: &BsPosition, params: &AlmParams| {
+        let b = nii::compute(std::slice::from_ref(p), params, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None).nii;
+        let u = nii::compute(std::slice::from_ref(p), params, &BTreeMap::new(), &curves, as_of, RateScenario::ParallelUp, 0.0, None).nii;
+        (b - u) / (1000.0 * 0.02 * 365.0 / 360.0)
+    };
+    assert!(close(delta(&deposit("SAVINGS", "RETAIL"), &params), 0.4, 1e-9));
+    assert!(close(delta(&deposit("CURRENT_ACCOUNT", "CORPORATE"), &params), 0.2, 1e-9));
+    assert!(close(delta(&deposit("CURRENT_ACCOUNT", "RETAIL"), &params), 0.0, 1e-9), "the segment's entry wins");
+    assert!(close(delta(&deposit("CALL_ACCOUNT", "RETAIL"), &params), 0.5, 1e-9), "an unlisted product takes the default");
+    params.nii.betas.insert("SAVINGS".into(), 0.7);
+    assert!(close(delta(&deposit("SAVINGS", "RETAIL"), &params), 0.7, 1e-9), "the lever moves the result");
+}
+
+#[test]
+fn coverage_says_what_each_lever_acts_on_and_what_has_nothing() {
+    let as_of = d(AS_OF);
+    let mut sav = pos("sav", BsSide::Liability, "BHD", 400.0);
+    sav.rate_type = RateType::Admin;
+    sav.product = "SAVINGS".into();
+    sav.segment = "RETAIL".into();
+    sav.lcr_class = Some("RET_LESS_STABLE".into());
+    sav.nsfr_class = Some("RETAIL_SME_LESS_STABLE".into());
+    let mut call = sav.clone();
+    call.position_id = "call".into();
+    call.product = "CALL_ACCOUNT".into();
+    call.segment = "CORPORATE".into();
+    call.balance = 100.0;
+    let mut td = pos("td", BsSide::Liability, "BHD", 300.0);
+    td.lcr_class = Some("FI_WHOLESALE".into());
+    td.nsfr_class = Some("FI".into());
+    td.maturity = Some(d("2027-08-04")); // past 30 days and six months
+    let c = coverage::compute(&[sav, call, td], &AlmParams::default(), &BTreeMap::new(), as_of);
+    assert_eq!(c["nii.betas.SAVINGS"], 400.0);
+    assert_eq!(c["nii.default_beta"], 100.0, "a product with no entry takes the default");
+    assert_eq!(c["nii.betas.OVERDRAFT"], 0.0);
+    assert_eq!(c["lcr.outflow_rates.RET_LESS_STABLE"], 500.0);
+    assert_eq!(c["lcr.outflow_rates.FI_WHOLESALE"], 0.0, "maturing after 30 days: no LCR outflow");
+    assert_eq!(c["nsfr.asf.FI.1"], 300.0);
+    assert_eq!(c["nsfr.asf.FI.0"], 0.0);
+    assert_eq!(c["liquidity_gap.stable_share_pct.RETAIL"], 400.0);
+    assert_eq!(c["nsfr.encumbered_rsf_pct"], 0.0);
+}
+
+#[test]
+fn cash_at_the_central_bank_needs_no_stable_funding_even_as_hqla() {
+    let as_of = d(AS_OF);
+    let mut cash = pos("cash", BsSide::Asset, "BHD", 1000.0);
+    cash.nsfr_class = Some("CASH_CB".into());
+    cash.hqla_level = Some(HqlaLevel::L1);
+    let mut govt = pos("govt", BsSide::Asset, "BHD", 1000.0);
+    govt.hqla_level = Some(HqlaLevel::L1);
+    let r = nsfr::compute(&[cash, govt], &AlmParams::default(), &BTreeMap::new(), as_of, None);
+    assert!(close(r.rsf, 50.0, 1e-9), "cash 0%, Level 1 securities 5%: rsf {}", r.rsf);
 }
 
 #[test]

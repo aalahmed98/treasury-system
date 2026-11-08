@@ -152,6 +152,19 @@ the server validates, the database function versions and audits it, and every op
 over the live stream. Version 1 holds Basel III defaults; the CBB LM-11 and LM-12 calibration and the
 bank's own limits are to be confirmed, which is why every factor is a parameter.
 
+**Every lever acts.** Each assumption on a tool's rail changes that tool's result (checked one by
+one against the live engine). A lever with nothing in the snapshot to act on, such as a factor for
+a maturity band no balance falls into, is drawn dashed with "nothing in this snapshot"; hovering
+any other lever shows the balance it applies to (`POST /alm/coverage`, read from the LCR and NSFR
+calculations' own lines, so it counts exactly what the ratios count). NII: deposit betas are ALM
+assumptions per product, or product and segment (`CURRENT_ACCOUNT.RETAIL` beats
+`CURRENT_ACCOUNT`), with a default for products not listed; they act only when rates move. The
+constant balance sheet switch, when off, runs the book off: a cohort earns or pays nothing after
+maturity and the cash it releases or takes is placed or funded at the scenario's one-month rate (the
+BALANCING book), with NIM on average earning assets. NSFR: cash and central-bank reserves take their
+own factor (0%), not the Level 1 securities factor. The rate floor binds only when a shock takes a
+rate below it, which at NBB's rate levels takes a custom shock of several hundred basis points.
+
 The maths lives in `crates/alm` and is pure: the server runs it on a banking-book snapshot (and
 caches official results per snapshot, generation time and parameter version), the client runs the
 IRD calculator on the latest curves itself. Analytics carry `f64`; every ratio with a possibly-zero
@@ -403,7 +416,7 @@ set -a; source .env; set +a
 cargo test --workspace
 ```
 
-128 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
+132 Rust tests. PMU and FTP: 8 hand-worked engine cases (a par purchase earns its coupon, accrued
 interest under each day count, price and yield inverting and DV01 against duration, a premium bond
 amortised to par exactly at maturity, FTP locked to the trade-date curve, a par swap worth nothing
 and its carry with an unwind, the parts of income adding up with hedged face and the tree, the
@@ -419,16 +432,16 @@ and scenario coverage), 12 pipeline scenarios on a fresh database each (three-wa
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
 anchor and merge, poisoned event, rebuild) and 3 on the synthetic banking book. Domain: 2 on the
-calendar. ALM: 14 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
+calendar. ALM: 18 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
 schedules by amortisation profile, curves and shocks with the floor, NSFR factors and bands, gap
-slotting and limits, NII by cohort type, EVE on the shocked curve, stress across scenarios with the
+slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
 reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 5 on the
 ALM endpoints and 1 on the browser hardening headers.
 
 The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 45 Playwright checks on the installed Edge, among them the FTP page and ALM's
+cases) and 47 Playwright checks on the installed Edge, among them NII's betas, default beta and run-off moving the figures, idle levers marked, the FTP page and ALM's
 template-drop-publish round trip, a second workbook replacing the first with the log naming who replaced whom, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged; buying by ISIN, setting up a
 new bond, selling chosen lots, a repo closed early and a reverse repo), the FX risk page, the limits
