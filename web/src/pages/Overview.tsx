@@ -485,7 +485,7 @@ export function AlmBlock() {
         </div>
         <div className="panel">
           <div className="t-heading">Repricing gap by bucket</div>
-          <Bars data={gap} color="var(--s3)" fmt={fmtMoneyShort} labels="extremes" />
+          <Bars data={gap} color="var(--s3)" fmt={fmtMoneyShort} />
         </div>
       </div>
     </>

@@ -5,7 +5,7 @@ import { Bars } from '../../components/charts';
 import { useAlm, useTool } from '../../alm/state';
 import { AssumptionsHeader, Group, Headline, Num, Pct, ResultsHeader, Row, ScenarioPicker, SimpleTable, ToolLayout } from '../../alm/tool';
 import { niiView } from '../../alm/views';
-import { fmtDateLong, fmtMoneyShort, nice } from '../../lib/fmt';
+import { fmtDateLong, fmtMoneyShort, fmtMonth, nice } from '../../lib/fmt';
 
 export function ShockGrid() {
   const { working, edit, bank } = useAlm();
@@ -96,7 +96,16 @@ export function Nii() {
         <>
           <Headline value={v.headline} standing="comfortable" line1={`over ${raw.horizon_months} months from ${fmtDateLong(raw.as_of)} · ${v.basis} · in ${raw.reporting_ccy}`} line2={`NIM ${v.nim} on earning assets of ${fmtMoneyShort(raw.earning_assets)}${v.delta ? ` · ${v.delta}` : ''}`} testId="headline" />
           <Card title="NII by month" width={720}>
-            <Bars data={v.monthBars} color="var(--s1)" height={170} fmt={fmtMoneyShort} labels="extremes" />
+            <Bars
+              data={v.monthBars}
+              color="var(--s1)"
+              height={170}
+              fmt={fmtMoneyShort}
+              detail={(i) => {
+                const m = raw.months[i];
+                return `${fmtMonth(m.period, true)}: NII ${fmtMoneyShort(m.nii)} · income ${fmtMoneyShort(m.income)} · expense ${fmtMoneyShort(m.expense)}`;
+              }}
+            />
           </Card>
           <div className="row-wrap" style={{ marginTop: 10 }}>
             <Card title="Months" width={440}>

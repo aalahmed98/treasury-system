@@ -46,11 +46,43 @@ export const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(
 
 export type Fmt = (v: number) => string;
 
-/** Category bars: the value above each bar, the category under it. */
-/** Which bars carry a value label: every one, the extremes only, or none (the tooltip still has
- * every value). `auto` labels every bar when there is room and only the extremes when there is not. */
-export type Labels = 'auto' | 'all' | 'extremes' | 'none';
+/** Round gridline values for a range: 3 to 6 ticks on a 1, 2, 2.5 or 5 step, covering it with the
+ * least slack. Zero is always one of them when the range spans it. */
+export function niceTicks(lo: number, hi: number): number[] {
+  if (!(hi > lo)) return [lo];
+  const raw = (hi - lo) / 4;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  let best: { s: number; a: number; b: number } | null = null;
+  for (const q of [p / 10, p, p * 10]) {
+    for (const m of [1, 2, 2.5, 5]) {
+      const s = q * m;
+      const a = Math.floor(lo / s + 1e-9) * s;
+      const b = Math.ceil(hi / s - 1e-9) * s;
+      const n = Math.round((b - a) / s);
+      if (n < 2 || n > 5) continue;
+      if (!best || b - a < best.b - best.a - 1e-9 || (Math.abs(b - a - (best.b - best.a)) < 1e-9 && s > best.s)) best = { s, a, b };
+    }
+  }
+  if (!best) return [lo, hi];
+  const out: number[] = [];
+  for (let v = best.a; v <= best.b + best.s / 2; v += best.s) out.push(Math.abs(v) < best.s / 1e6 ? 0 : v);
+  return out;
+}
 
+/** An axis value without the zeros a significant-figures format pads it with: "5.00m" → "5m",
+ * "1.50bn" → "1.5bn". Gridlines sit on round values, so the padding only adds noise. */
+export function trimZeros(s: string): string {
+  return s.replace(/(\d)\.(\d*?)0+(?=\D*$)/, (_, d: string, keep: string) => (keep ? `${d}.${keep}` : d));
+}
+
+/** Whether a bar chart labels its bars: every one (`all`), none (`none`, with a gridded axis and
+ * the tooltip for exact values), or `auto`: every bar when there are at most eight and each label
+ * fits its bar, otherwise none. Never some bars and not others. */
+export type Labels = 'auto' | 'all' | 'none';
+
+/** Category bars. Labelled: the value above every bar, no axis. Unlabelled: three to five
+ * hairline gridlines with their values on the left. Either way, hovering a bar shows its exact
+ * value (and `detail`, when given) and lifts it. */
 export function Bars({
   data,
   color = SERIES[0],
@@ -60,6 +92,7 @@ export function Bars({
   dim,
   dimLegend,
   colorOf,
+  detail,
 }: {
   data: [string, number][];
   color?: string;
@@ -72,25 +105,31 @@ export function Bars({
   dimLegend?: [string, string];
   /** A colour per bar instead of one for all (losses in the bad colour, for instance). */
   colorOf?: (v: number, i: number) => string;
+  /** The tooltip for bar `i` in place of "category: value". */
+  detail?: (i: number) => string;
 }) {
   const [ref, width] = useMeasure<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const [hot, setHot] = useState<number | null>(null);
   if (!data.length) return <div className="t-muted">no data</div>;
-  const top = 16;
-  const bottom = 18;
+  const values = data.map((d) => d[1]);
+  const widest = Math.max(...values.map((v) => fmt(v).length)) * 6.6 + 10;
+  const fits = data.length <= 8 && width / data.length >= widest;
+  const labelled = labels === 'all' || (labels === 'auto' && fits);
+  const ticks = labelled ? [] : niceTicks(Math.min(0, ...values), Math.max(0, ...values));
+  const tickText = (t: number) => trimZeros(fmt(t));
+  const left = labelled ? 0 : Math.max(30, Math.max(...ticks.map((t) => tickText(t).length)) * 6.2 + 10);
+  // A labelled negative bar carries its value under its end, so it needs room there.
+  const top = labelled ? 16 : 8;
+  const bottom = 18 + (labelled && values.some((v) => v < 0) ? 14 : 0);
   const plotH = height - top - bottom;
-  const lo = Math.min(0, ...data.map((d) => d[1]));
-  const hi = Math.max(0, ...data.map((d) => d[1]));
+  const lo = labelled ? Math.min(0, ...values) : ticks[0];
+  const hi = labelled ? Math.max(0, ...values) : ticks[ticks.length - 1];
   const span = Math.max(hi - lo, 1e-9);
   const yOf = (v: number) => top + plotH * (1 - (v - lo) / span);
   const baseY = yOf(0);
-  const slot = width / data.length;
+  const slot = Math.max(1, width - left) / data.length;
   const barW = Math.min(40, Math.max(6, slot * 0.56));
-  const mode: Labels = labels === 'auto' ? (slot >= 52 ? 'all' : 'extremes') : labels;
-  const maxI = data.reduce((m, d, i) => (d[1] > data[m][1] ? i : m), 0);
-  const minI = data.reduce((m, d, i) => (d[1] < data[m][1] ? i : m), 0);
-  const labelled = (i: number) => mode === 'all' || (mode === 'extremes' && (i === maxI || (i === minI && data[minI][1] < 0)));
   const step = labelStep(data, slot);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -111,13 +150,22 @@ export function Bars({
           className="chart"
           width={width}
           height={height}
+          data-labels={labelled ? 'all' : 'none'}
           onMouseLeave={() => {
             setTip(null);
             setHot(null);
           }}
         >
+          {ticks.map((t) => (
+            <g key={t}>
+              {t !== 0 && <line className="grid" x1={left} x2={width} y1={yOf(t)} y2={yOf(t)} />}
+              <text x={left - 6} y={yOf(t) + 4} textAnchor="end">
+                {tickText(t)}
+              </text>
+            </g>
+          ))}
           {data.map(([label, v], i) => {
-            const cx = slot * (i + 0.5);
+            const cx = left + slot * (i + 0.5);
             const y = yOf(v);
             const y0 = Math.min(y, baseY);
             const h = Math.abs(y - baseY);
@@ -126,13 +174,13 @@ export function Bars({
                 key={i}
                 onMouseMove={(e) => {
                   setHot(i);
-                  setTip({ x: e.clientX, y: e.clientY, text: `${label}: ${fmt(v)}${dim?.[i] && dimLegend ? ` (${dimLegend[1]})` : ''}` });
+                  setTip({ x: e.clientX, y: e.clientY, text: detail ? detail(i) : `${label}: ${fmt(v)}${dim?.[i] && dimLegend ? ` (${dimLegend[1]})` : ''}` });
                 }}
               >
                 <rect x={cx - slot / 2} y={0} width={slot} height={height} fill="transparent" />
                 <rect x={cx - barW / 2} y={y0} width={barW} height={h} rx={3} fill={colorOf ? colorOf(v, i) : color} opacity={(dim?.[i] ? 0.4 : 1) * (hot === null || hot === i ? 1 : 0.8)} />
-                {v !== 0 && labelled(i) && (
-                  <text className="value" x={cx} y={v >= 0 ? y0 - 3 : baseY - 3} textAnchor="middle">
+                {labelled && v !== 0 && (
+                  <text className="value" x={cx} y={v >= 0 ? y0 - 3 : y0 + h + 12} textAnchor="middle">
                     {fmt(v)}
                   </text>
                 )}
@@ -144,7 +192,7 @@ export function Bars({
               </g>
             );
           })}
-          <line className="baseline" x1={0} x2={width} y1={baseY} y2={baseY} />
+          <line className="baseline" x1={left} x2={width} y1={baseY} y2={baseY} />
         </svg>
       )}
       <Tooltip tip={tip} />

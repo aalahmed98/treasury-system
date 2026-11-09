@@ -94,7 +94,6 @@ function Body({ o }: { o: PmuOverview }) {
             dim={months.map((m) => !m.actual)}
             dimLegend={['booked', 'forecast (runs off)']}
             fmt={bhd}
-            labels="extremes"
             color={SERIES[0]}
           />
         </div>

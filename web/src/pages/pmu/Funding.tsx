@@ -161,7 +161,6 @@ function Body({ f, names }: { f: PmuFunding; names: Record<string, string> }) {
             dim={f.hedge_cash.map((m) => m.month.slice(0, 7) > thisMonth)}
             dimLegend={['settled', 'projected']}
             fmt={bhd}
-            labels="extremes"
             colorOf={(v) => (v < 0 ? 'var(--bad)' : 'var(--s1)')}
           />
           <div className="t-small">Net periodic settlements of the swaps plus any unwind cash, by month; received above the line, paid below.</div>

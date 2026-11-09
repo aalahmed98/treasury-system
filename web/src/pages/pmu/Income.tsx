@@ -72,7 +72,7 @@ function Period({ d, busy }: { d: PmuIncome; busy: boolean }) {
         </div>
         <div className="panel">
           <div className="t-heading">Carry after FTP earned each day</div>
-          <Bars data={d.daily.map((x) => [fmtDateShort(x.date).slice(0, 6), x.income.carry])} fmt={bhd} labels="extremes" colorOf={(v) => (v < 0 ? 'var(--bad)' : SERIES[0])} />
+          <Bars data={d.daily.map((x) => [fmtDateShort(x.date).slice(0, 6), x.income.carry])} fmt={bhd} colorOf={(v) => (v < 0 ? 'var(--bad)' : SERIES[0])} />
         </div>
       </div>
 
@@ -193,7 +193,7 @@ function ForecastBody({ f, names, busy }: { f: PmuForecast; names: Record<string
             dim={f.monthly.map((m) => !m.actual)}
             dimLegend={['booked', 'forecast']}
             fmt={bhd}
-            labels="extremes"
+           
           />
         </div>
         <div className="panel">

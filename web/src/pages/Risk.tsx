@@ -145,7 +145,7 @@ function RiskPage() {
         <div className="panel">
           <div className="t-heading">Daily P&L</div>
           {history.data ? (
-            <Bars data={history.data.points.map((p) => [fmtDate(p.date).slice(4, 6), p.pnl_day])} color="var(--s1)" fmt={signed} labels="extremes" height={140} />
+            <Bars data={history.data.points.map((p) => [fmtDate(p.date).slice(4, 6), p.pnl_day])} color="var(--s1)" fmt={signed} height={140} />
           ) : (
             <SkeletonLines n={4} />
           )}

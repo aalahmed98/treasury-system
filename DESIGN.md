@@ -77,6 +77,12 @@ hairline stroke everywhere; light mode has one soft shadow on popups, dark mode 
   tabular digits, selected row in selection.
 - **Limit gauge**: 8 px track in hairline, fill in the standing colour, limit tick in text.
 - **Charts**: thin marks, 2 px gaps, hairline baseline, labels in muted, values in text_2.
+- **Bar values**: a bar chart labels every bar or none, never only the largest. Up to eight bars
+  whose values fit: the value on each (above a positive bar, under the end of a negative one) and no
+  axis. A series (months, days, maturity buckets) or anything wider: three to five hairline
+  gridlines on round values, their labels in muted on the left without padding zeros (5m, not
+  5.00m), and the exact figure in the hover tooltip, which may carry the parts (income and expense
+  beside NII). A table of the same figures nearby is a reason to leave the bars unlabelled.
 
 - **Attention list**: one surface, a heading row on `surface_alt`, then rows of dot, title, detail,
   age and a chevron; the first thing on the Overview, and a calm one-line empty state when nothing

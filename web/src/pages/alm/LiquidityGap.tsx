@@ -124,11 +124,11 @@ export function LiquidityGap() {
           <div className="panel-row two">
             <div className="panel">
               <div className="t-heading">Cumulative gap</div>
-              <Bars data={l.buckets.map((b) => [b.label, b.cumulative])} color="var(--s1)" fmt={signed} labels="extremes" height={160} />
+              <Bars data={l.buckets.map((b) => [b.label, b.cumulative])} color="var(--s1)" fmt={signed} height={160} />
             </div>
             <div className="panel">
               <div className="t-heading">Gap per bucket</div>
-              <Bars data={l.buckets.map((b) => [b.label, b.gap])} color="var(--s3)" fmt={signed} labels="extremes" height={160} />
+              <Bars data={l.buckets.map((b) => [b.label, b.gap])} color="var(--s3)" fmt={signed} height={160} />
             </div>
           </div>
           <div className="panel" style={{ marginTop: 12 }}>

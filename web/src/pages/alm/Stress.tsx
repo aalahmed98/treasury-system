@@ -91,10 +91,10 @@ export function Stress() {
           )}
           <div className="row-wrap" style={{ marginTop: 10 }}>
             <Card title="ΔNII by scenario" width={440}>
-              <Bars data={v.niiBars} color="var(--s1)" height={160} fmt={fmtMoneyShort} labels="extremes" />
+              <Bars data={v.niiBars} color="var(--s1)" height={160} fmt={fmtMoneyShort} />
             </Card>
             <Card title="ΔEVE by scenario" width={440}>
-              <Bars data={v.eveBars} color="var(--s2)" height={160} fmt={fmtMoneyShort} labels="extremes" />
+              <Bars data={v.eveBars} color="var(--s2)" height={160} fmt={fmtMoneyShort} />
             </Card>
           </div>
           <div className="row-wrap" style={{ marginTop: 10 }}>
