@@ -164,7 +164,10 @@ the effect on twelve-month NII (each bucket's gap times the move times the part 
 after it reprices; the balances themselves do not move). The EVE tab shows the full revaluation by
 bucket and currency beside the duration gap and its estimate,
 `ΔEVE ≈ −[D_A − (L/A) × D_L] × A × Δy / (1 + y)`, which is given only for a parallel move because
-that is what the formula assumes. NII shows the projection under three balance-sheet assumptions
+that is what the formula assumes. Beside it are the key rates: per bucket, the change in EVE for
+one basis point more at that bucket alone (assets, liabilities and net), and a key rate estimate
+that adds up every cash flow's sensitivity times the move at its own tenor, so steepeners,
+flatteners and tenor-limited shocks have an estimate too. NII shows the projection under three balance-sheet assumptions
 side by side: constant and run-off (the two static views) and dynamic, where cohorts are replaced
 and balances grow at a yearly rate per side or per product, the cash growth takes or brings going
 through the balancing book. Deposits with no maturity take a behavioural profile per product: a
@@ -471,9 +474,9 @@ and scenario coverage), 12 pipeline scenarios on a fresh database each (three-wa
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
 anchor and merge, poisoned event, rebuild) and 3 on the synthetic banking book. Domain: 2 on the
-calendar. ALM: 24 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
+calendar. ALM: 25 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
 schedules by amortisation profile, curves and shocks with the floor, NSFR factors and bands, gap
-slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, a trial swap starting at par and taking the rate risk it is sized for, stress across scenarios with the
+slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, a trial swap starting at par and taking the rate risk it is sized for, key rates placing the risk on the curve and estimating a shock of any shape, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
 reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 6 on the

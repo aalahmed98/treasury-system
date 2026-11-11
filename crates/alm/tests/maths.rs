@@ -731,3 +731,50 @@ fn a_trial_hedge_starts_at_par_and_takes_the_rate_risk_it_is_sized_for() {
     let funding = TrialHedge { kind: HedgeKind::FixedFunding, ..swap };
     assert_eq!(hedge::reset_months(&funding), 1);
 }
+
+#[test]
+fn key_rates_place_the_risk_on_the_curve_and_estimate_any_shape_of_shock() {
+    let as_of = d(AS_OF);
+    let p = AlmParams::default();
+    let curves = flat("BHD", 5.0);
+    let none = BTreeMap::new();
+    let mut bond = pos("bond", BsSide::Asset, "BHD", 1000.0);
+    bond.maturity = Some(d("2029-11-04")); // three years: the 5Y bucket
+    let mut dep = pos("dep", BsSide::Liability, "BHD", 600.0);
+    dep.maturity = Some(d("2027-11-04")); // one year: the 1Y bucket
+    let book = [bond, dep];
+
+    let base = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    assert_eq!(base.key_rates.len(), 9);
+    assert_eq!(base.key_rate_estimate, None);
+    let k = |r: &domain::EveResult, label: &str| r.key_rates.iter().find(|k| k.label == label).unwrap().clone();
+    let (y5, y1) = (k(&base, "5Y"), k(&base, "1Y"));
+    assert!(y5.assets < 0.0 && y5.liabilities == 0.0, "the bond loses when its rate rises: {y5:?}");
+    assert!(y1.liabilities > 0.0 && y1.assets == 0.0, "the deposit is worth less, which EVE gains: {y1:?}");
+    assert!(close(y1.net, 630.0 / 1.05 * 1.0 / 1.05 * 1e-4, 1e-9), "t * PV / (1 + r) per basis point: {}", y1.net);
+    assert!(base.key_rates.iter().filter(|k| k.label != "5Y" && k.label != "1Y").all(|k| k.net == 0.0));
+    assert_eq!(y5.estimate, None);
+
+    // One basis point at one bucket moves EVE by that bucket's key rate.
+    for label in ["1Y", "5Y"] {
+        let one = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, CustomShock::from_labels(1.0, &[label.to_string()]).unwrap(), None);
+        assert!((one.delta - k(&base, label).net).abs() < 1e-3 * k(&base, label).net.abs(), "{label}: {} against {}", one.delta, k(&base, label).net);
+    }
+
+    // A shock aimed at some tenors: the duration formula has nothing to say, the key rates do.
+    let aimed = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, CustomShock::from_labels(100.0, &["5Y".to_string()]).unwrap(), None);
+    assert_eq!(aimed.duration.estimate, None);
+    let est = aimed.key_rate_estimate.unwrap();
+    assert!(close(est, y5.net * 100.0, 1e-9), "only the 5Y bucket moves");
+    assert!(close(k(&aimed, "5Y").estimate.unwrap(), est, 1e-9) && close(k(&aimed, "1Y").estimate.unwrap(), 0.0, 1e-12));
+    assert!(aimed.delta < 0.0 && (est - aimed.delta).abs() < 0.05 * aimed.delta.abs(), "close to the full revaluation: {est} against {}", aimed.delta);
+
+    // A steepener, where every tenor moves by a different amount.
+    let steep = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Steepener, 0.0, None);
+    let est = steep.key_rate_estimate.unwrap();
+    assert!((est - steep.delta).abs() < 0.05 * steep.delta.abs().max(1.0), "{est} against {}", steep.delta);
+
+    // On a flat curve a parallel move gives the duration formula's answer.
+    let par = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(par.key_rate_estimate.unwrap(), par.duration.estimate.unwrap(), 1e-9));
+}

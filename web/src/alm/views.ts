@@ -98,15 +98,21 @@ export function eveView(raw: EveResult) {
     ['Duration gap', years(g.gap_years)],
     ['Yield (y)', `${g.yield_pct.toFixed(2)}%`],
   ];
-  const estimateRows: [string, string][] =
-    g.estimate === null
-      ? []
-      : [
-          ['Rate move (Δy)', g.shock_bp === null ? 'by currency' : `${bpText(g.shock_bp)} bp`],
-          ['Estimate from the formula', signed(g.estimate)],
-          ['Full revaluation', signed(raw.delta)],
-          ['Difference', signed(raw.delta - g.estimate)],
-        ];
+  // Under a shock: the formula's estimate when the move is parallel, the key rate estimate for
+  // any shape, and the full revaluation they are both measured against.
+  const estimateRows: [string, string][] = shocked
+    ? [
+        ...(g.estimate === null
+          ? []
+          : ([
+              ['Rate move (Δy)', g.shock_bp === null ? 'by currency' : `${bpText(g.shock_bp)} bp`],
+              ['Estimate from the formula', signed(g.estimate)],
+            ] as [string, string][])),
+        ...(raw.key_rate_estimate === null ? [] : ([['Key rate estimate', signed(raw.key_rate_estimate)]] as [string, string][])),
+        ['Full revaluation', signed(raw.delta)],
+      ]
+    : [];
+  const perBp = (v: number) => (Math.abs(v) < 0.5 ? '0' : signed(v));
   return {
     basis: basisLabel(raw.params_version),
     shocked,
@@ -117,6 +123,10 @@ export function eveView(raw: EveResult) {
     estimateRows,
     /** Why there is no estimate, when there is a shock but none. */
     noEstimate: shocked && g.estimate === null,
+    keyBars: raw.key_rates.map((k) => [k.label, k.net] as [string, number]),
+    keyRows: raw.key_rates.map((k) => [k.label, perBp(k.assets), perBp(k.liabilities), perBp(k.net), ...(shocked ? [k.estimate === null ? '—' : signed(k.estimate)] : [])]),
+    keyHeaders: ['Bucket', 'Assets', 'Liabilities', 'Net', ...(shocked ? ['Under the shock'] : [])],
+    keyTotal: raw.key_rates.reduce((sum, k) => sum + k.net, 0),
     deltaBars: raw.by_bucket.map((b) => [b.label, b.delta] as [string, number]),
     valueBars: raw.by_bucket.map((b) => [b.label, b.base] as [string, number]),
     ccyRows: raw.by_ccy.map((c) => [c.ccy, fmtMoneyShort(c.base), ...(shocked ? [fmtMoneyShort(c.shocked), signed(c.delta)] : [])]),

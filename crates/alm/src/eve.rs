@@ -2,12 +2,13 @@
 //! the shocked curve. Fixed cohorts contribute their schedule, floating cohorts par plus accrued
 //! at the next reset, administered deposits their behavioural run-off; equity and other
 //! non-sensitive items are left out. Beside the full revaluation it reports the duration gap and
-//! what that predicts for a parallel move, so the two can be read against each other.
+//! what that predicts for a parallel move, so the two can be read against each other, and the
+//! sensitivity bucket by bucket (key rates), which gives an estimate for any shape of shock.
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use domain::{AlmParams, BsPosition, BsSide, DurationGap, EveBucket, EveCurrency, EveResult, RateScenario, RateType};
+use domain::{AlmParams, BsPosition, BsSide, DurationGap, EveBucket, EveCurrency, EveResult, KeyRate, RateScenario, RateType};
 
 use crate::bucket::GAP_BUCKETS;
 use crate::curve::{Curve, CustomShock, bucket_of_years, scenario_curve, shock_for, shock_label};
@@ -75,6 +76,9 @@ pub fn compute(
     let (mut rate_weight, mut weight) = (0.0f64, 0.0f64);
     // Per currency: assets' less liabilities' time-weighted present value.
     let mut dollar_duration: BTreeMap<String, f64> = BTreeMap::new();
+    // Per bucket: the first-order change in value for one basis point there, assets then
+    // liabilities (as it reaches EVE), and the scenario's first-order effect.
+    let mut key = vec![(0.0f64, 0.0f64, 0.0f64); GAP_BUCKETS.len()];
     for pos in positions {
         if pos.side == BsSide::OffBalance {
             continue;
@@ -104,6 +108,15 @@ pub fn compute(
             rate_weight += b.abs() * t * base.rate(t);
             weight += b.abs() * t;
             *dollar_duration.entry(pos.ccy.clone()).or_default() += sign * b * t;
+            // dPV/dr with yearly compounding is -t * PV / (1 + r); one basis point is 1e-4.
+            let per_unit = -sign * b * t / (1.0 + base.rate(t) / 100.0);
+            let k = &mut key[bucket_of_years(t)];
+            if pos.side == BsSide::Asset {
+                k.0 += per_unit * 1e-4;
+            } else {
+                k.1 += per_unit * 1e-4;
+            }
+            k.2 += per_unit * (sh.rate(t) - base.rate(t)) / 100.0;
         }
     }
     let by_ccy: Vec<EveCurrency> = per.into_iter().map(|(ccy, (base, shocked))| EveCurrency { ccy, base, shocked, delta: shocked - base }).collect();
@@ -125,6 +138,14 @@ pub fn compute(
         _ => None,
     };
 
+    let shocked_run = scenario != RateScenario::Base;
+    let key_rates: Vec<KeyRate> = GAP_BUCKETS
+        .iter()
+        .zip(&key)
+        .map(|((label, _), (assets, liabilities, estimate))| KeyRate { label: (*label).into(), assets: *assets, liabilities: *liabilities, net: assets + liabilities, estimate: shocked_run.then_some(*estimate) })
+        .collect();
+    let key_rate_estimate = shocked_run.then(|| key.iter().map(|k| k.2).sum::<f64>());
+
     let tier1 = params.tier1_capital;
     let loss_pct_tier1 = (tier1 > 0.0).then(|| basel_loss / tier1 * 100.0);
     EveResult {
@@ -144,6 +165,8 @@ pub fn compute(
             .map(|((label, _), (assets, liabilities, base, shocked))| EveBucket { label: (*label).into(), assets, liabilities, base, shocked, delta: shocked - base })
             .collect(),
         duration: DurationGap { assets: pv_a, liabilities: pv_l, d_assets, d_liabilities, gap_years, yield_pct, shock_bp, estimate },
+        key_rates,
+        key_rate_estimate,
         tier1_capital: tier1,
         loss_pct_tier1,
         limit_pct_tier1: params.gap.eve_limit_pct_tier1,

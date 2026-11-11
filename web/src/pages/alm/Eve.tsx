@@ -88,10 +88,24 @@ export function Eve() {
               </div>
               <div className="t-small">
                 {v.noEstimate
-                  ? 'The formula assumes every tenor moves by the same amount, so there is no estimate for this shock. The full revaluation is the figure.'
+                  ? 'The formula assumes every tenor moves by the same amount, so it has no estimate for this shock. The key rate estimate adds up each bucket’s sensitivity times its own move.'
                   : v.estimateRows.length > 0
-                    ? 'The estimate is a straight line through today’s value; the full revaluation also catches the curvature and the post-shock floor.'
+                    ? 'Both estimates are a straight line through today’s value; the full revaluation also catches the curvature and the post-shock floor.'
                     : 'A positive gap means assets are longer than liabilities, so a rise in rates lowers EVE.'}
+              </div>
+            </Card>
+          </div>
+          <div className="row-wrap" style={{ marginTop: 10 }}>
+            <Card title="Key rate sensitivity (EVE per +1 bp, by bucket)" width={460}>
+              <Bars data={v.keyBars} color="var(--s4)" height={170} fmt={fmtMoneyShort} />
+              <div className="t-small" style={{ marginTop: 4 }}>
+                A bar below the line is a tenor where a rise in rates costs value; above it, one where it adds value. All tenors together: {signed(v.keyTotal)} per basis point.
+              </div>
+            </Card>
+            <Card title="Key rates per basis point" width={460}>
+              <SimpleTable headers={v.keyHeaders} rows={v.keyRows} testId="key-rates" />
+              <div className="t-small" style={{ marginTop: 4 }}>
+                Assets lose value when their rate rises; liabilities are worth less too, which EVE gains. To hedge a tenor, look for the bars furthest from the line: paying fixed at that tenor adds a positive bar there.
               </div>
             </Card>
           </div>

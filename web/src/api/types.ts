@@ -645,6 +645,13 @@ export interface DurationGap {
   shock_bp: number | null;
   estimate: number | null;
 }
+export interface KeyRate {
+  label: string;
+  assets: number;
+  liabilities: number;
+  net: number;
+  estimate: number | null;
+}
 export interface EveResult {
   as_of: string;
   params_version: number | null;
@@ -658,6 +665,10 @@ export interface EveResult {
   shock_label: string | null;
   by_bucket: EveBucket[];
   duration: DurationGap;
+  /** Per bucket: the change in EVE for one basis point more at that bucket alone. */
+  key_rates: KeyRate[];
+  /** Each cash flow's sensitivity times the move at its own tenor; null on today's curve. */
+  key_rate_estimate: number | null;
   tier1_capital: number;
   loss_pct_tier1: number | null;
   limit_pct_tier1: number;

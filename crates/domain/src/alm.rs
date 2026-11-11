@@ -990,6 +990,13 @@ pub struct EveResult {
     /// Present value by the bucket each cash flow falls in, assets less liabilities.
     pub by_bucket: Vec<EveBucket>,
     pub duration: DurationGap,
+    /// Where on the curve the value at risk sits: per bucket, the change in EVE for one basis
+    /// point more at that bucket alone.
+    pub key_rates: Vec<KeyRate>,
+    /// The first-order estimate of the change in EVE under the scenario: every cash flow's
+    /// sensitivity times the move at its own tenor. Unlike the duration gap it holds for shocks
+    /// that are not parallel. None on the base curve.
+    pub key_rate_estimate: Option<f64>,
     pub tier1_capital: f64,
     pub loss_pct_tier1: Option<f64>,
     pub limit_pct_tier1: f64,
@@ -1004,6 +1011,19 @@ pub struct EveBucket {
     pub base: f64,
     pub shocked: f64,
     pub delta: f64,
+}
+
+/// One bucket's rate sensitivity, in the reporting currency per basis point: what a rise of one
+/// basis point at this bucket alone does to the value of assets (a loss), to EVE through
+/// liabilities (a gain, as they are worth less) and to EVE in all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyRate {
+    pub label: String,
+    pub assets: f64,
+    pub liabilities: f64,
+    pub net: f64,
+    /// This bucket's share of the scenario's estimate; none on the base curve.
+    pub estimate: Option<f64>,
 }
 
 /// The duration gap and what it predicts: the change in EVE is about

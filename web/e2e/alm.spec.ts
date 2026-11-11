@@ -133,6 +133,10 @@ test('one rate shock is chosen once and every rates tab runs under it', async ({
   await expect(badge).toContainText('Custom +100 bp at 1Y to 10Y+');
   await expect(page.getByTestId('duration-gap')).toContainText('Duration gap');
   await expect(page.locator('.alm-results')).toContainText('The formula assumes every tenor moves by the same amount');
+  // Where the duration formula stops, the key rates carry on: an estimate for a shock at some tenors only.
+  await expect(page.getByTestId('duration-gap')).toContainText('Key rate estimate');
+  await expect(page.getByTestId('duration-gap')).not.toContainText('Estimate from the formula');
+  await expect(page.getByTestId('key-rates')).toContainText('Under the shock');
   await open('NII / NIM');
   await expect(badge).toContainText('Custom +100 bp at 1Y to 10Y+');
   await open('Stress');
@@ -156,6 +160,9 @@ test('one rate shock is chosen once and every rates tab runs under it', async ({
   await bar.getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(badge).toHaveCount(0);
   await expect(page.getByTestId('duration-gap')).not.toContainText('Estimate from the formula');
+  await expect(page.getByTestId('duration-gap')).not.toContainText('Key rate estimate');
+  await expect(page.getByTestId('key-rates').locator('tbody tr')).toHaveCount(9);
+  await expect(page.getByTestId('key-rates')).not.toContainText('Under the shock');
 });
 
 test('deposit behaviour: the core share and its decay move the gap and EVE', async ({ page }) => {

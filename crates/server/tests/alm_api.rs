@@ -193,6 +193,8 @@ async fn every_tool_answers_for_alm_users_only(owner: PgPool) {
     assert_eq!(eve.shock_label.as_deref(), Some("Custom +100 bp at 3M to 1Y"));
     assert_eq!(eve.duration.estimate, None, "the duration formula needs a parallel move");
     assert_eq!(eve.by_bucket.len(), 9);
+    assert_eq!(eve.key_rates.len(), 9);
+    assert!(eve.key_rate_estimate.is_some(), "the key rates estimate a shock at some tenors, where the duration formula cannot");
     let (_, par) = post::<EveResult>(&router, &alm1, "/alm/eve", r#"{"scenario":"CUSTOM","custom_shock_bp":100}"#).await;
     assert!(par.unwrap().duration.estimate.is_some());
     let (_, nii) = post::<NiiResult>(&router, &alm1, "/alm/nii", aimed).await;
