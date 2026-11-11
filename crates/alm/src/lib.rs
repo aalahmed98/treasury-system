@@ -3,6 +3,7 @@
 //! ones that need only market data.
 
 pub mod attribution;
+pub mod behaviour;
 pub mod bucket;
 pub mod coverage;
 pub mod curve;

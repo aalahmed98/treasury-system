@@ -244,6 +244,29 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
             </Row>
           </div>
         ))}
+        <Group title="Prepayment and early withdrawal (% a year)" />
+        {Object.entries(d.behaviour.prepayment_pct).map(([k, v]) => (
+          <Row key={k} label={`${nice(k)} prepaid`}>
+            <Pct value={v} base={b.behaviour.prepayment_pct[k]} max={50} onChange={(x) => onChange((p) => void (p.behaviour.prepayment_pct[k] = x))} />
+          </Row>
+        ))}
+        {Object.entries(d.behaviour.withdrawal_pct).map(([k, v]) => (
+          <Row key={k} label={`${nice(k)} broken early`}>
+            <Pct value={v} base={b.behaviour.withdrawal_pct[k]} max={50} onChange={(x) => onChange((p) => void (p.behaviour.withdrawal_pct[k] = x))} />
+          </Row>
+        ))}
+        {(
+          [
+            ['prepayment_when_rates_rise', 'Prepayment speed when rates rise'],
+            ['prepayment_when_rates_fall', 'Prepayment speed when rates fall'],
+            ['withdrawal_when_rates_rise', 'Withdrawal speed when rates rise'],
+            ['withdrawal_when_rates_fall', 'Withdrawal speed when rates fall'],
+          ] as const
+        ).map(([k, label]) => (
+          <Row key={k} label={label}>
+            <Num value={d.behaviour[k]} base={b.behaviour[k]} min={0} max={3} step={0.05} decimals={2} suffix="×" onChange={(x) => onChange((p) => void (p.behaviour[k] = x))} />
+          </Row>
+        ))}
         <Group title="Stress shocks (bp)" />
         <div className="t-small" style={{ marginBottom: 4 }}>
           per currency: parallel · short end · long end

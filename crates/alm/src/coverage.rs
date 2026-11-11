@@ -48,6 +48,12 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
     for k in params.nii.betas.keys() {
         add(format!("nii.betas.{k}"), 0.0);
     }
+    for k in params.behaviour.prepayment_pct.keys() {
+        add(format!("behaviour.prepayment_pct.{k}"), 0.0);
+    }
+    for k in params.behaviour.withdrawal_pct.keys() {
+        add(format!("behaviour.withdrawal_pct.{k}"), 0.0);
+    }
     for k in ["nsfr.encumbered_rsf_pct", "nsfr.off_balance_rsf_pct", "liquidity_gap.commitment_draw_pct", "nii.default_beta", "lcr.cap_l2_total_pct", "lcr.cap_l2b_pct", "lcr.inflow_cap_pct"] {
         add(k.into(), 0.0);
     }
@@ -105,6 +111,13 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
                 }
             }
             BsSide::OffBalance => add("liquidity_gap.commitment_draw_pct".into(), p.undrawn * fx(&p.ccy)),
+        }
+        if p.rate_type == RateType::Fixed && p.maturity.is_some_and(|m| m > as_of) {
+            match p.side {
+                BsSide::Asset if params.behaviour.prepayment_pct.contains_key(&p.product) => add(format!("behaviour.prepayment_pct.{}", p.product), amount),
+                BsSide::Liability if params.behaviour.withdrawal_pct.contains_key(&p.product) => add(format!("behaviour.withdrawal_pct.{}", p.product), amount),
+                _ => {}
+            }
         }
         if p.rate_type == RateType::Admin {
             add(format!("gap.nmd_behavioural_months.{}", p.product), amount);

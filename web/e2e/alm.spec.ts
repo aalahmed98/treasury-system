@@ -318,3 +318,35 @@ test('scenarios: kept privately, opened again, shared with the desk, compared on
   await panel.getByLabel(`delete ${name}`).click();
   await expect(page.getByTestId('scenarios-mine')).not.toContainText(name);
 });
+
+test('prepayment and early withdrawal: zero is contractual, a rate moves Gap, EVE and NII and no liquidity tool', async ({ page }) => {
+  await login(page, 'alm1');
+  await page.goto('/app/alm/eve');
+  await ready(page);
+  const strip = page.getByTestId('alm-strip-bar');
+  await page.getByTestId('shock-bar').getByLabel('Rate shock').selectOption('PARALLEL_UP');
+  const before = await results(page);
+  // Closed to start with: nothing is set.
+  await page.getByText('Prepayment and early withdrawal', { exact: true }).click();
+  const group = page.getByTestId('early-repayment');
+  await group.locator('.arow', { hasText: /^mortgage/i }).locator('input').fill('15');
+  const prepaid = await results(page);
+  expect(prepaid).not.toBe(before);
+  await group.locator('.arow', { hasText: /^term deposit/i }).locator('input').fill('10');
+  const withdrawn = await results(page);
+  expect(withdrawn).not.toBe(prepaid);
+  // The direction of the shock matters: no slowdown when rates rise is a different answer.
+  await group.locator('.arow', { hasText: 'Prepayment when rates rise' }).locator('input').fill('1');
+  expect(await results(page)).not.toBe(withdrawn);
+  await expect(page.getByText(/what-if · 3 changes/)).toBeVisible();
+
+  // The same what-if on the gap and on NII.
+  for (const tab of ['Gap', 'NII / NIM']) {
+    await strip.getByRole('button', { name: tab, exact: true }).click();
+    await ready(page);
+    await expect(page.getByTestId('early-repayment').locator('.arow', { hasText: /^mortgage/i }).locator('input')).toHaveValue('15');
+  }
+  const nii = await results(page);
+  await page.getByTestId('early-repayment').locator('.arow', { hasText: /^mortgage/i }).locator('input').fill('0');
+  expect(await results(page)).not.toBe(nii);
+});

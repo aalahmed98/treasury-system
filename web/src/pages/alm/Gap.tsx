@@ -45,6 +45,61 @@ export function DepositBehaviour({ help }: { help: string }) {
   );
 }
 
+const MULTIPLIERS = [
+  ['prepayment_when_rates_rise', 'Prepayment when rates rise'],
+  ['prepayment_when_rates_fall', 'Prepayment when rates fall'],
+  ['withdrawal_when_rates_rise', 'Withdrawal when rates rise'],
+  ['withdrawal_when_rates_fall', 'Withdrawal when rates fall'],
+] as const;
+
+/** Loans prepaid and term deposits broken before maturity: it shortens fixed-rate contracts in the
+ * gap, NII and EVE. Closed to start with, as everything is zero until the bank sets it. */
+export function EarlyRepayment() {
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
+  const w = working.behaviour;
+  const b = bank.behaviour;
+  const set = Object.values(w.prepayment_pct).concat(Object.values(w.withdrawal_pct)).some((v) => v > 0);
+  return (
+    <Group
+      title="Prepayment and early withdrawal"
+      help="How much of each fixed-rate product leaves before maturity each year. At zero the contractual schedule is used. It shortens these contracts in the gap, NII and EVE; the liquidity tools stay contractual."
+      open={set}
+      count={Object.keys(w.prepayment_pct).length + Object.keys(w.withdrawal_pct).length}
+    >
+      <div data-testid="early-repayment">
+        <div className="t-medium" style={{ margin: '6px 0 2px', fontSize: 12 }}>
+          Loans prepaid (a year)
+        </div>
+        {Object.entries(w.prepayment_pct).map(([k, v]) => (
+          <Row key={k} label={nice(k)} cover={`behaviour.prepayment_pct.${k}`}>
+            <Pct value={v} base={b.prepayment_pct[k]} max={50} onChange={(x) => edit((p) => void (p.behaviour.prepayment_pct[k] = x))} />
+          </Row>
+        ))}
+        <div className="t-medium" style={{ margin: '8px 0 2px', fontSize: 12 }}>
+          Term deposits broken early (a year)
+        </div>
+        {Object.entries(w.withdrawal_pct).map(([k, v]) => (
+          <Row key={k} label={nice(k)} cover={`behaviour.withdrawal_pct.${k}`}>
+            <Pct value={v} base={b.withdrawal_pct[k]} max={50} onChange={(x) => edit((p) => void (p.behaviour.withdrawal_pct[k] = x))} />
+          </Row>
+        ))}
+        <div className="t-medium" style={{ margin: '8px 0 2px', fontSize: 12 }}>
+          Speed under a rate shock (times the rate above)
+        </div>
+        {MULTIPLIERS.map(([k, label]) => (
+          <Row key={k} label={label}>
+            <Num value={w[k]} base={b[k]} min={0} max={3} step={0.05} decimals={2} suffix="×" onChange={(x) => edit((p) => void (p.behaviour[k] = x))} />
+          </Row>
+        ))}
+      </div>
+      <div className="agroup-help" style={{ marginTop: 6 }}>
+        Borrowers refinance when rates fall and hold on when they rise; depositors break a deposit to earn more when rates rise. The multipliers are Basel's standardised values.
+      </div>
+    </Group>
+  );
+}
+
 function Assumptions() {
   const { working, edit, bank } = useAlm();
   if (!working || !bank) return null;
@@ -55,6 +110,7 @@ function Assumptions() {
     <>
       <AssumptionsHeader />
       <DepositBehaviour help="How deposits with no contractual maturity are assumed to behave, which decides the buckets they reprice in." />
+      <EarlyRepayment />
       <Group title="Cumulative gap limits (% of assets)" help="The largest cumulative gap allowed at each horizon, as a share of total assets." count={keys.length}>
         {keys.map((k) => (
           <Row key={k} label={k}>

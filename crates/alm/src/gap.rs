@@ -1,5 +1,6 @@
 //! Repricing gap: rate-sensitive assets less liabilities per time bucket, by the date each
-//! cohort next reprices (floating at its reset, fixed at each principal date, administered
+//! cohort next reprices (floating at its reset, fixed at each principal date with any prepayment
+//! or early withdrawal set for its product, administered
 //! deposits by their behavioural profile: the non-core share overnight, the core over its life),
 //! with the bank's cumulative limits.
 
@@ -8,13 +9,13 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 use domain::{AlmParams, BsPosition, BsSide, GapBucket, GapCurrency, GapResult, RateScenario, RateType};
 
+use crate::behaviour;
 use crate::bucket::{GAP_BUCKETS, gap_bucket};
 use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
 use crate::hedge::HEDGE_BOOK;
 use crate::lcr::Spots;
 use crate::nii::Curves;
 use crate::nmd;
-use crate::schedule::cash_flows;
 
 /// Balance slotted per bucket for one cohort, in its own currency.
 pub fn slots(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(usize, f64)> {
@@ -25,7 +26,7 @@ pub fn slots(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(usi
             vec![(gap_bucket(days.max(1)), pos.balance)]
         }
         RateType::Fixed => {
-            let flows = cash_flows(pos, as_of);
+            let flows = behaviour::flows(pos, as_of, behaviour::speed(pos, params));
             if flows.is_empty() {
                 return vec![(0, pos.balance)];
             }

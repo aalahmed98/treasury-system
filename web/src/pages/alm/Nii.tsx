@@ -5,6 +5,7 @@ import { Bars } from '../../components/charts';
 import { useAlm, useTool, useUnhedged } from '../../alm/state';
 import { AssumptionsHeader, Group, Headline, HedgeEffect, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { MODE_LABEL, niiView } from '../../alm/views';
+import { EarlyRepayment } from './Gap';
 import { fmtDateLong, fmtMoneyShort, fmtMonth, nice, signed } from '../../lib/fmt';
 
 export function ShockGrid() {
@@ -132,6 +133,7 @@ function Assumptions({ products }: { products: NiiProduct[] }) {
           <Pct value={n.default_beta * 100} base={b.default_beta * 100} onChange={(v) => edit((p) => void (p.nii.default_beta = v / 100))} />
         </Row>
       </Group>
+      <EarlyRepayment />
       <Group title="Rate shocks (bp)" help="The size of each Basel shock per currency: parallel, short end and long end." open={false} count={Object.keys(working.stress.shocks).length}>
         <ShockGrid />
       </Group>

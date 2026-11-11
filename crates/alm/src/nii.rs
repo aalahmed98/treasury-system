@@ -6,7 +6,9 @@
 //! (a liability) is placed or funded at the scenario's one-month rate in its currency, shown as the
 //! BALANCING book; NIM is then on the average earning assets over the horizon. On a dynamic
 //! balance sheet cohorts are replaced as on a constant one and every balance also grows at its
-//! yearly rate, the cash that takes or brings going through the same BALANCING book. Administered
+//! yearly rate, the cash that takes or brings going through the same BALANCING book. Where a
+//! product has a prepayment or early-withdrawal rate, the share that has left early reprices (or,
+//! running off, is released) before the cohort matures. Administered
 //! products move by their beta times the shock at the short end; the betas are ALM assumptions
 //! per product (and segment), not the source data's.
 
@@ -15,6 +17,7 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 use domain::{AlmParams, BalanceSheetMode, BsPosition, BsSide, NiiBreakdown, NiiMonth, NiiModeRow, NiiProduct, NiiResult, RateScenario, RateType};
 
+use crate::behaviour;
 use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
 use crate::hedge::HEDGE_BOOK;
 use crate::lcr::Spots;
@@ -27,17 +30,19 @@ fn curve_for<'a>(curves: &'a Curves, ccy: &str, fallback: &'a Curve) -> &'a Curv
     curves.get(ccy).unwrap_or(fallback)
 }
 
+/// What a fixed cohort is replaced at when it rolls over: the scenario curve at its original term
+/// plus the cohort's margin over today's curve for that term.
+pub fn rolled_rate(pos: &BsPosition, maturity: NaiveDate, base: &Curve, shocked: &Curve) -> f64 {
+    let term_years = pos.origination.map(|o| (maturity - o).num_days().max(30) as f64 / 365.0).unwrap_or(1.0);
+    pos.rate - base.rate(term_years) + shocked.rate(term_years)
+}
+
 /// The rate a cohort earns or pays in the month starting at `start`, under a scenario.
 pub fn rate_in_month(pos: &BsPosition, beta: f64, as_of: NaiveDate, start: NaiveDate, base: &Curve, shocked: &Curve) -> f64 {
     match pos.rate_type {
         RateType::NotSensitive => 0.0,
         RateType::Fixed => match pos.maturity {
-            // Rolled over: the new rate is the scenario curve at the original term plus the
-            // cohort's margin over today's curve for that term.
-            Some(m) if m <= start => {
-                let term_years = pos.origination.map(|o| (m - o).num_days().max(30) as f64 / 365.0).unwrap_or(1.0);
-                pos.rate - base.rate(term_years) + shocked.rate(term_years)
-            }
+            Some(m) if m <= start => rolled_rate(pos, m, base, shocked),
             _ => pos.rate,
         },
         RateType::Float => {
@@ -113,12 +118,30 @@ pub fn compute(
             } else {
                 pos.balance
             };
+            let base = curve_for(curves, &pos.ccy, &fallback);
+            let sh = curve_for(&shocked, &pos.ccy, base);
+            let mut rate = rate_in_month(pos, params.nii.beta_for(&pos.product, &pos.segment), as_of, start, base, sh);
+            // Prepaid loans and broken term deposits: the share that has left early by this month,
+            // at the speed the scenario's move at the cohort's maturity gives it. Running off, it
+            // goes to the balancing book like a maturity; otherwise it is replaced, so it earns
+            // or pays the rolled rate ahead of time.
+            let mut balance = balance;
+            let early = behaviour::speed(pos, params);
+            if let Some(mat) = pos.maturity.filter(|mat| early > 0.0 && *mat > start && *mat > as_of) {
+                let t = (mat - as_of).num_days() as f64 / 365.0;
+                let yearly = early * behaviour::multiplier(pos, params, sh.rate(t) - base.rate(t));
+                let gone = 1.0 - behaviour::surviving(yearly, (start - as_of).num_days() as f64 / 365.0);
+                if run_off {
+                    let sign = if pos.side == BsSide::Asset { 1.0 } else { -1.0 };
+                    *released.entry(pos.ccy.as_str()).or_default() += sign * balance * gone;
+                    balance *= 1.0 - gone;
+                } else {
+                    rate = ((1.0 - gone) * rate + gone * rolled_rate(pos, mat, base, sh)).max(0.0);
+                }
+            }
             if pos.side == BsSide::Asset && pos.book != HEDGE_BOOK && pos.maturity.is_none_or(|mat| mat > as_of) {
                 earning += balance * fx(&pos.ccy);
             }
-            let base = curve_for(curves, &pos.ccy, &fallback);
-            let sh = curve_for(&shocked, &pos.ccy, base);
-            let rate = rate_in_month(pos, params.nii.beta_for(&pos.product, &pos.segment), as_of, start, base, sh);
             let interest = balance * fx(&pos.ccy) * rate / 100.0 * days / pos.day_count.basis();
             let signed = match pos.side {
                 BsSide::Asset => {

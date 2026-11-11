@@ -473,6 +473,18 @@ export interface AlmParams {
   funding: FundingParams;
   liquidity_gap: LiquidityGapParams;
   ewi: EwiParams;
+  behaviour: BehaviourParams;
+}
+/** Loans prepaid and term deposits broken before maturity, for the rates tools. Zero is contractual. */
+export interface BehaviourParams {
+  /** Yearly prepayment per fixed-rate loan product, percent of the outstanding balance. */
+  prepayment_pct: Record<string, number>;
+  /** Yearly early withdrawal per term-deposit product, percent of the outstanding balance. */
+  withdrawal_pct: Record<string, number>;
+  prepayment_when_rates_rise: number;
+  prepayment_when_rates_fall: number;
+  withdrawal_when_rates_rise: number;
+  withdrawal_when_rates_fall: number;
 }
 export interface LiquidityGapParams {
   stable_share_pct: Record<string, number>;

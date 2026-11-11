@@ -118,6 +118,7 @@ pub struct AlmParams {
     pub funding: FundingParams,
     pub liquidity_gap: LiquidityGapParams,
     pub ewi: EwiParams,
+    pub behaviour: BehaviourParams,
 }
 
 impl Default for AlmParams {
@@ -133,6 +134,39 @@ impl Default for AlmParams {
             funding: FundingParams::default(),
             liquidity_gap: LiquidityGapParams::default(),
             ewi: EwiParams::default(),
+            behaviour: BehaviourParams::default(),
+        }
+    }
+}
+
+/// Behaviour that shortens fixed-rate contracts in the rates tools: loans prepaid and term
+/// deposits broken before maturity. Everything is off (zero) until the bank sets it, so the
+/// contractual schedule is the default.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BehaviourParams {
+    /// Yearly prepayment per fixed-rate loan product, percent of the outstanding balance.
+    pub prepayment_pct: BTreeMap<String, f64>,
+    /// Yearly early withdrawal per term-deposit product, percent of the outstanding balance.
+    pub withdrawal_pct: BTreeMap<String, f64>,
+    /// What a rate move does to those speeds, as multipliers. Basel's standardised values: loans
+    /// prepay less when rates rise and more when they fall; deposits are broken more when rates
+    /// rise and less when they fall.
+    pub prepayment_when_rates_rise: f64,
+    pub prepayment_when_rates_fall: f64,
+    pub withdrawal_when_rates_rise: f64,
+    pub withdrawal_when_rates_fall: f64,
+}
+
+impl Default for BehaviourParams {
+    fn default() -> Self {
+        Self {
+            prepayment_pct: map([("MORTGAGE", 0.0), ("PERSONAL", 0.0), ("TERM_LOAN", 0.0)]),
+            withdrawal_pct: map([("TERM_DEPOSIT", 0.0)]),
+            prepayment_when_rates_rise: 0.8,
+            prepayment_when_rates_fall: 1.2,
+            withdrawal_when_rates_rise: 1.2,
+            withdrawal_when_rates_fall: 0.8,
         }
     }
 }

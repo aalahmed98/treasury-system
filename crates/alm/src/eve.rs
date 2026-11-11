@@ -10,19 +10,26 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 use domain::{AlmParams, BsPosition, BsSide, DurationGap, EveBucket, EveCurrency, EveResult, KeyRate, RateScenario, RateType};
 
+use crate::behaviour;
 use crate::bucket::GAP_BUCKETS;
 use crate::curve::{Curve, CustomShock, bucket_of_years, scenario_curve, shock_for, shock_label};
 use crate::lcr::Spots;
 use crate::nii::Curves;
 use crate::nmd;
-use crate::schedule::{add_months, cash_flows};
+use crate::schedule::add_months;
 
-/// (years, amount) flows of a cohort in its own currency.
+/// (years, amount) flows of a cohort in its own currency, as it behaves on today's curve.
 pub fn flows(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(f64, f64)> {
+    flows_at(pos, params, as_of, 1.0)
+}
+
+/// The flows with prepayment and early withdrawal running at `speed` times their usual rate, as a
+/// rate move makes them.
+pub fn flows_at(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate, speed: f64) -> Vec<(f64, f64)> {
     let years = |d: NaiveDate| (d - as_of).num_days().max(0) as f64 / 365.0;
     match pos.rate_type {
         RateType::NotSensitive => Vec::new(),
-        RateType::Fixed => cash_flows(pos, as_of).into_iter().map(|f| (years(f.date), f.total())).collect(),
+        RateType::Fixed => behaviour::flows(pos, as_of, behaviour::speed(pos, params) * speed).into_iter().map(|f| (years(f.date), f.total())).collect(),
         RateType::Float => {
             let reset = pos.next_repricing.or(pos.maturity);
             match reset {
@@ -88,11 +95,26 @@ pub fn compute(
         let sign = if pos.side == BsSide::Asset { 1.0 } else { -1.0 };
         let rate = fx(&pos.ccy);
         let e = per.entry(pos.ccy.clone()).or_insert((0.0, 0.0));
-        for (t, amount) in flows(pos, params, as_of) {
+        // A rate move changes how fast loans prepay and deposits are broken, so the shocked value
+        // is of different flows than today's. The move is read at the cohort's remaining maturity.
+        let base_flows = flows(pos, params, as_of);
+        let speed = match pos.maturity {
+            Some(m) if behaviour::speed(pos, params) > 0.0 => {
+                let t = (m - as_of).num_days().max(0) as f64 / 365.0;
+                behaviour::multiplier(pos, params, sh.rate(t) - base.rate(t))
+            }
+            _ => 1.0,
+        };
+        if (speed - 1.0).abs() > 1e-12 {
+            for (t, amount) in flows_at(pos, params, as_of, speed) {
+                let s = amount * sh.df(t) * rate;
+                e.1 += sign * s;
+                buckets[bucket_of_years(t)].3 += sign * s;
+            }
+        }
+        for (t, amount) in base_flows {
             let b = amount * base.df(t) * rate;
-            let s = amount * sh.df(t) * rate;
             e.0 += sign * b;
-            e.1 += sign * s;
             let slot = &mut buckets[bucket_of_years(t)];
             if pos.side == BsSide::Asset {
                 slot.0 += b;
@@ -104,7 +126,11 @@ pub fn compute(
                 pvt_l += b * t;
             }
             slot.2 += sign * b;
-            slot.3 += sign * s;
+            if (speed - 1.0).abs() <= 1e-12 {
+                let s = amount * sh.df(t) * rate;
+                e.1 += sign * s;
+                slot.3 += sign * s;
+            }
             rate_weight += b.abs() * t * base.rate(t);
             weight += b.abs() * t;
             *dollar_duration.entry(pos.ccy.clone()).or_default() += sign * b * t;

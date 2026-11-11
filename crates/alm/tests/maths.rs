@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use alm::curve::{Curve, CustomShock, shock_bp};
 use alm::funding::DepositorGroup;
 use alm::nii::Curves;
-use alm::{attribution, coverage, eve, funding, gap, hedge, ird, nii, nmd, nsfr, schedule, stress};
+use alm::{attribution, behaviour, coverage, eve, funding, gap, hedge, ird, nii, nmd, nsfr, schedule, stress};
 use chrono::NaiveDate;
 use domain::{AlmParams, Amort, BalanceSheetMode, HedgeKind, TrialHedge, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
 
@@ -777,4 +777,90 @@ fn key_rates_place_the_risk_on_the_curve_and_estimate_any_shape_of_shock() {
     // On a flat curve a parallel move gives the duration formula's answer.
     let par = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
     assert!(close(par.key_rate_estimate.unwrap(), par.duration.estimate.unwrap(), 1e-9));
+}
+
+#[test]
+fn prepayment_and_early_withdrawal_shorten_fixed_contracts_in_the_rates_tools() {
+    let as_of = d(AS_OF);
+    let none = BTreeMap::new();
+    let curves = flat("BHD", 5.0);
+    let mut p = AlmParams::default();
+    let mut loan = pos("loan", BsSide::Asset, "BHD", 1000.0);
+    loan.product = "MORTGAGE".into();
+    loan.maturity = Some(d("2031-11-04"));
+    loan.origination = Some(d("2026-11-04"));
+    loan.pay_months = Some(12);
+    let mut dep = pos("dep", BsSide::Liability, "BHD", 1000.0);
+    dep.product = "TERM_DEPOSIT".into();
+    dep.maturity = Some(d("2028-11-04"));
+
+    // Nothing set: the contractual schedule, flow for flow.
+    assert_eq!(behaviour::speed(&loan, &p), 0.0);
+    assert_eq!(behaviour::flows(&loan, as_of, 0.0), schedule::cash_flows(&loan, as_of));
+    let plain_gap = gap::compute(std::slice::from_ref(&loan), &p, &none, as_of, None);
+    let plain_eve = eve::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Custom, 200.0, None);
+    let plain_nii = nii::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    let plain_base = nii::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+
+    // Ten percent of mortgages a year: speeds by product and side, moved by the direction of rates.
+    p.behaviour.prepayment_pct.insert("MORTGAGE".into(), 10.0);
+    p.behaviour.withdrawal_pct.insert("TERM_DEPOSIT".into(), 5.0);
+    assert!(close(behaviour::speed(&loan, &p), 0.10, 1e-12) && close(behaviour::speed(&dep, &p), 0.05, 1e-12));
+    let mut floater = loan.clone();
+    floater.rate_type = RateType::Float;
+    assert_eq!(behaviour::speed(&floater, &p), 0.0, "only fixed-rate contracts");
+    assert_eq!((behaviour::multiplier(&loan, &p, 1.0), behaviour::multiplier(&loan, &p, -1.0), behaviour::multiplier(&loan, &p, 0.0)), (0.8, 1.2, 1.0));
+    assert_eq!((behaviour::multiplier(&dep, &p, 1.0), behaviour::multiplier(&dep, &p, -1.0)), (1.2, 0.8));
+
+    // The flows: something leaves every month, each contractual payment is cut to what survives,
+    // and the principal still adds up to the balance.
+    let flows = behaviour::flows(&loan, as_of, 0.10);
+    assert!(close(flows.iter().map(|f| f.principal).sum::<f64>(), 1000.0, 1e-9));
+    let first = &flows[0];
+    assert_eq!(first.date, d("2026-12-04"));
+    assert!(close(first.principal, 1000.0 * (1.0 - 0.9f64.powf(30.0 / 365.0)), 1e-9));
+    let last = flows.last().unwrap();
+    let years = (d("2031-11-04") - as_of).num_days() as f64 / 365.0;
+    assert_eq!(last.date, d("2031-11-04"));
+    assert!(close(last.principal, 1000.0 * 0.9f64.powf(years), 1e-9), "what is left at maturity: {}", last.principal);
+    let mut linear = loan.clone();
+    linear.amort = Amort::Linear;
+    linear.pay_months = Some(6);
+    assert!(close(behaviour::flows(&linear, as_of, 0.25).iter().map(|f| f.principal).sum::<f64>(), 1000.0, 1e-9), "an amortising loan too");
+
+    // The gap: principal moves out of the far bucket into the near ones.
+    let g = gap::compute(std::slice::from_ref(&loan), &p, &none, as_of, None);
+    let far = |r: &domain::GapResult| r.buckets.iter().find(|b| b.label == "10Y+").unwrap().assets;
+    let near = |r: &domain::GapResult| r.buckets.iter().filter(|b| ["1M", "3M", "6M", "1Y"].contains(&b.label.as_str())).map(|b| b.assets).sum::<f64>();
+    assert!(close(far(&plain_gap), 1000.0, 1e-9) && near(&plain_gap) == 0.0, "contractually it all sits past five years");
+    assert!(far(&g) < 600.0 && close(near(&g), 1000.0 * (1.0 - 0.9f64.powf(1.0)), 1e-6), "a tenth reprices within the year: {}", near(&g));
+    assert!(close(g.buckets.iter().map(|b| b.assets).sum::<f64>(), 1000.0, 1e-9));
+
+    // EVE: a shorter loan loses less when rates rise, even prepaying a little slower as they do.
+    let e = eve::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Custom, 200.0, None);
+    assert!(plain_eve.delta < 0.0 && e.delta < 0.0 && e.delta.abs() < plain_eve.delta.abs(), "{} against {}", e.delta, plain_eve.delta);
+    assert!(e.duration.d_assets < plain_eve.duration.d_assets);
+    // The direction matters: with no slowdown when rates rise the loan is shorter still.
+    let mut steady = p.clone();
+    steady.behaviour.prepayment_when_rates_rise = 1.0;
+    let e1 = eve::compute(std::slice::from_ref(&loan), &steady, &none, &curves, as_of, RateScenario::Custom, 200.0, None);
+    assert!(e1.delta.abs() < e.delta.abs(), "{} against {}", e1.delta, e.delta);
+
+    // NII on a constant balance sheet: nothing changes on today's curve (what leaves is replaced
+    // like for like), but under a rise the prepaid share already earns the higher rate.
+    let n0 = nii::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    assert!(close(n0.nii, plain_base.nii, 1e-12));
+    let n1 = nii::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(plain_nii.nii, plain_base.nii, 1e-12), "a fixed loan past the horizon ignores the rise");
+    assert!(n1.nii > plain_nii.nii, "{} against {}", n1.nii, plain_nii.nii);
+    // Running off, what is prepaid goes to the balancing book.
+    p.nii.set_mode(BalanceSheetMode::RunOff);
+    let off = nii::compute(std::slice::from_ref(&loan), &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    assert!(off.by_book.iter().any(|b| b.key == "BALANCING" && b.nii > 0.0));
+    assert!(close(off.earning_assets, plain_base.earning_assets, 1e-6), "the cash is still an earning asset");
+
+    // What each lever acts on.
+    let cover = coverage::compute(&[loan, dep], &p, &none, as_of);
+    assert!(close(cover["behaviour.prepayment_pct.MORTGAGE"], 1000.0, 1e-9) && close(cover["behaviour.withdrawal_pct.TERM_DEPOSIT"], 1000.0, 1e-9));
+    assert_eq!(cover["behaviour.prepayment_pct.PERSONAL"], 0.0);
 }

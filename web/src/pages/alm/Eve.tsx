@@ -8,7 +8,7 @@ import { useTool, useUnhedged } from '../../alm/state';
 import { AssumptionsHeader, Headline, HedgeEffect, KV, ResultsHeader, SimpleTable, ToolLayout } from '../../alm/tool';
 import { eveView, whenLine } from '../../alm/views';
 import { fmtMoneyShort, signed } from '../../lib/fmt';
-import { DepositBehaviour } from './Gap';
+import { DepositBehaviour, EarlyRepayment } from './Gap';
 import { RateLimits, ShockSizes } from './Stress';
 
 function Assumptions() {
@@ -17,9 +17,10 @@ function Assumptions() {
       <AssumptionsHeader />
       <RateLimits nii={false} />
       <DepositBehaviour help="How deposits with no contractual maturity are assumed to behave. A longer life or a larger core puts their value further out the curve, where a rate move changes it more." />
+      <EarlyRepayment />
       <ShockSizes />
       <p className="t-small prose" style={{ marginTop: 10 }}>
-        Every rate-sensitive cash flow is discounted on today's curve and again on the shocked one. Fixed cohorts contribute their schedule, floating cohorts their balance and accrued interest at the next reset, deposits with no maturity their behavioural run-off. Equity and other items that do not respond to rates are left out.
+        Every rate-sensitive cash flow is discounted on today's curve and again on the shocked one. Fixed cohorts contribute their schedule (shortened by any prepayment or early withdrawal set below), floating cohorts their balance and accrued interest at the next reset, deposits with no maturity their behavioural run-off. Equity and other items that do not respond to rates are left out.
       </p>
     </>
   );

@@ -158,6 +158,17 @@ pub fn validate(p: &AlmParams) -> Result<(), ApiError> {
             return Err(bad(format!("growth of {k} must be between -50 and 100 percent a year")));
         }
     }
+    for (k, v) in p.behaviour.prepayment_pct.iter().chain(&p.behaviour.withdrawal_pct) {
+        if !v.is_finite() || !(0.0..=50.0).contains(v) {
+            return Err(bad(format!("early repayment of {k} must be 0 to 50 percent a year")));
+        }
+    }
+    let b = &p.behaviour;
+    for v in [b.prepayment_when_rates_rise, b.prepayment_when_rates_fall, b.withdrawal_when_rates_rise, b.withdrawal_when_rates_fall] {
+        if !v.is_finite() || !(0.0..=3.0).contains(&v) {
+            return Err(bad("a behaviour multiplier must be between 0 and 3".into()));
+        }
+    }
     for (k, s) in &p.stress.shocks {
         for v in [s.parallel, s.short, s.long] {
             if !v.is_finite() || v.abs() > 2000.0 {
