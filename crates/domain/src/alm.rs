@@ -569,10 +569,38 @@ pub struct AlmRequest {
     pub custom_shock_bp: Option<f64>,
     /// The gap buckets the custom scenario moves (`3M`, `1Y`); none or empty moves every tenor.
     pub custom_shock_buckets: Option<Vec<String>>,
+    /// Trial hedges for the rates tools: added to the balance sheet for this request only.
+    pub hedges: Option<Vec<TrialHedge>>,
     /// Attribution: against the prior month or the budget.
     pub compare_to: Option<CompareTo>,
     /// Attribution: the later period (first day of the month); defaults to the latest.
     pub period: Option<NaiveDate>,
+}
+
+text_enum! {
+    /// What a trial hedge is. Paying fixed (the swap, or term funding held in short money) lengthens
+    /// liabilities; receiving fixed (the swap, or an investment funded short) lengthens assets.
+    HedgeKind {
+        PayFixedSwap => "PAY_FIXED_SWAP",
+        ReceiveFixedSwap => "RECEIVE_FIXED_SWAP",
+        FixedFunding => "FIXED_FUNDING",
+        FixedInvestment => "FIXED_INVESTMENT",
+    }
+}
+
+/// A hedge tried on the balance sheet to see its effect on the gap, NII and EVE. Never booked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrialHedge {
+    pub kind: HedgeKind,
+    pub ccy: String,
+    pub notional: f64,
+    pub tenor_months: u32,
+    /// The fixed rate in percent; none takes the base curve at the tenor.
+    #[serde(default)]
+    pub rate: Option<f64>,
+    /// A swap's floating reset in months; none is three.
+    #[serde(default)]
+    pub reset_months: Option<u32>,
 }
 
 /// What each lever applies to in the snapshot, in the reporting currency, keyed by the

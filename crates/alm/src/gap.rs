@@ -10,6 +10,7 @@ use domain::{AlmParams, BsPosition, BsSide, GapBucket, GapCurrency, GapResult, R
 
 use crate::bucket::{GAP_BUCKETS, gap_bucket};
 use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
+use crate::hedge::HEDGE_BOOK;
 use crate::lcr::Spots;
 use crate::nii::Curves;
 use crate::nmd;
@@ -79,7 +80,8 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
     let mut total_assets = 0.0;
     for pos in positions {
         let rate = fx(&pos.ccy);
-        if pos.side == BsSide::Asset {
+        // A trial hedge's legs are notionals: they reprice, but they are not assets of the bank.
+        if pos.side == BsSide::Asset && pos.book != HEDGE_BOOK {
             total_assets += pos.balance * rate;
         }
         if pos.side == BsSide::OffBalance {

@@ -124,6 +124,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2i" class="is-done"><span class="num">Phase 2I</span><span class="name">FTP upload log</span><span class="badge done">Done</span></a>
   <a href="#p2j" class="is-done"><span class="num">Phase 2J</span><span class="name">ALM levers that act</span><span class="badge done">Done</span></a>
   <a href="#p2k" class="is-done"><span class="num">Phase 2K</span><span class="name">One rate shock for ALM</span><span class="badge done">Done</span></a>
+  <a href="#p2l" class="is-done"><span class="num">Phase 2L</span><span class="name">Hedge what-if</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
@@ -437,6 +438,21 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </table></div>
   <div class="cols"><div><h4>Progress log</h4><ul id="log2k">
     <li>10 Nov: phase complete. Not included: deposit balances moving with the shock (customers switching to term deposits), and a duration estimate for shocks that are not parallel. 5 new engine tests, the ALM endpoint test extended, 4 Vitest cases and 2 Playwright scenarios; 49 Playwright checks.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2l">
+  <div class="phase-head"><span class="num">Phase 2L</span><h3>Hedge what-if</h3><span class="badge done">Done</span><span class="when">11 November 2026</span></div>
+  <p class="goal">The rates tools showed the exposure; this lets the ALM user try a hedge against it. First of five follow-ups to Phase 2K agreed with the user: hedge what-if, saved and compared scenarios, key rate durations, prepayment and early withdrawal, deposit migration.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Trial hedges in the engine</td><td>Pay-fixed and receive-fixed swaps, fixed-rate funding and fixed-rate investments, each two cohorts in a <code>HEDGE</code> book: a fixed leg at the curve's rate unless one is given, and a floating leg. Notionals stay out of total assets and earning assets.</td><td>Phase 2K</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Request and cache</td><td><code>hedges</code> on the request to Gap, NII, EVE and Stress; validated, added for that request only and never cached. Liquidity tools ignore them.</td><td>Trial hedges in the engine</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Hedges on the shock bar</td><td>A Hedges panel beside the shock: the list and a short form with the market rate shown. Results carry a badge and one line saying what the hedges changed against the unhedged run.</td><td>Request and cache</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2l">
+    <li>11 Nov: phase complete. 1 new engine test, the ALM endpoint test extended, 2 Vitest cases and 1 Playwright scenario; 50 Playwright checks. Next: saved and compared scenarios.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

@@ -16,6 +16,7 @@ use chrono::NaiveDate;
 use domain::{AlmParams, BalanceSheetMode, BsPosition, BsSide, NiiBreakdown, NiiMonth, NiiModeRow, NiiProduct, NiiResult, RateScenario, RateType};
 
 use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
+use crate::hedge::HEDGE_BOOK;
 use crate::lcr::Spots;
 use crate::schedule::add_months;
 
@@ -112,7 +113,7 @@ pub fn compute(
             } else {
                 pos.balance
             };
-            if pos.side == BsSide::Asset && pos.maturity.is_none_or(|mat| mat > as_of) {
+            if pos.side == BsSide::Asset && pos.book != HEDGE_BOOK && pos.maturity.is_none_or(|mat| mat > as_of) {
                 earning += balance * fx(&pos.ccy);
             }
             let base = curve_for(curves, &pos.ccy, &fallback);
@@ -202,7 +203,7 @@ pub fn products(positions: &[BsPosition], params: &AlmParams, spots: &Spots) -> 
     let fx = |ccy: &str| if ccy == params.reporting_ccy { 1.0 } else { spots.get(ccy).copied().unwrap_or(1.0) };
     let mut by: BTreeMap<(bool, String), f64> = BTreeMap::new();
     for pos in positions {
-        if pos.side == BsSide::OffBalance || pos.rate_type == RateType::NotSensitive {
+        if pos.side == BsSide::OffBalance || pos.rate_type == RateType::NotSensitive || pos.book == HEDGE_BOOK {
             continue;
         }
         *by.entry((pos.side == BsSide::Liability, pos.product.clone())).or_default() += pos.balance * fx(&pos.ccy);

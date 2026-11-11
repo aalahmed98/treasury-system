@@ -202,6 +202,32 @@ async fn every_tool_answers_for_alm_users_only(owner: PgPool) {
     assert_eq!(nii.mode, BalanceSheetMode::Constant);
     let (_, stress) = post::<StressResult>(&router, &alm1, "/alm/stress", aimed).await;
     assert_eq!(stress.unwrap().rate_scenarios.last().unwrap().label, "Custom +100 bp at 3M to 1Y");
+
+    // Trial hedges: added for this request only, to the rates tools only, and never cached.
+    let hedge = r#"{"scenario":"CUSTOM","custom_shock_bp":100,"hedges":[{"kind":"PAY_FIXED_SWAP","ccy":"BHD","notional":50000000,"tenor_months":60}]}"#;
+    let (status, hedged) = post::<EveResult>(&router, &alm1, "/alm/eve", hedge).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, plain) = post::<EveResult>(&router, &alm1, "/alm/eve", r#"{"scenario":"CUSTOM","custom_shock_bp":100}"#).await;
+    let (hedged, plain) = (hedged.unwrap(), plain.unwrap());
+    assert!(hedged.delta > plain.delta, "paying fixed gains when rates rise: {} against {}", hedged.delta, plain.delta);
+    let (_, again) = post::<EveResult>(&router, &alm1, "/alm/eve", r#"{"scenario":"CUSTOM","custom_shock_bp":100}"#).await;
+    assert_eq!(again.unwrap().delta, plain.delta, "the hedged run left nothing in the cache");
+    let (_, g) = post::<GapResult>(&router, &alm1, "/alm/gap", hedge).await;
+    let (_, g0) = post::<GapResult>(&router, &alm1, "/alm/gap", r#"{"scenario":"CUSTOM","custom_shock_bp":100}"#).await;
+    let (g, g0) = (g.unwrap(), g0.unwrap());
+    assert_eq!(g.total_assets, g0.total_assets, "notionals are not assets");
+    assert_ne!(g.nii_effect_12m, g0.nii_effect_12m);
+    let (_, l) = post::<LcrResult>(&router, &alm1, "/alm/lcr", hedge).await;
+    let (_, l0) = post::<LcrResult>(&router, &alm1, "/alm/lcr", "{}").await;
+    assert_eq!(l.unwrap().total.ratio, l0.unwrap().total.ratio, "liquidity tools do not see hedges");
+    for (uri, body) in [
+        ("/alm/nii", r#"{"hedges":[{"kind":"PAY_FIXED_SWAP","ccy":"XXX","notional":1000000,"tenor_months":12}]}"#),
+        ("/alm/gap", r#"{"hedges":[{"kind":"FIXED_FUNDING","ccy":"BHD","notional":0,"tenor_months":12}]}"#),
+        ("/alm/stress", r#"{"hedges":[{"kind":"FIXED_INVESTMENT","ccy":"BHD","notional":1000000,"tenor_months":0}]}"#),
+    ] {
+        let (status, _) = post::<serde_json::Value>(&router, &alm1, uri, body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri} {body}");
+    }
     for bad in [r#"{"scenario":"CUSTOM","custom_shock_bp":100,"custom_shock_buckets":["4M"]}"#, r#"{"scenario":"CUSTOM","custom_shock_bp":5000}"#] {
         let (status, _) = post::<serde_json::Value>(&router, &alm1, "/alm/gap", bad).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");

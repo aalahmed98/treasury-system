@@ -8,6 +8,7 @@ import { nice } from '../lib/fmt';
 import { usePref } from '../lib/prefs';
 import { Badge, Chip, useOutsideClose } from '../components/ui';
 import { useAlm, useTool } from './state';
+import { hedgesSummary } from './hedge';
 import type { AlmCoverage } from '../api/types';
 import { fmtMoneyShort } from '../lib/fmt';
 
@@ -331,9 +332,9 @@ export function ComparePicker() {
   );
 }
 
-export function ResultsHeader({ title, loading, error, onRetry, shock }: { title: string; loading: boolean; error?: string | null; onRetry?: () => void; /** The rate shock these figures ran under, in words; it prints with them. */ shock?: string | null }) {
+export function ResultsHeader({ title, loading, error, onRetry, shock, rates }: { title: string; loading: boolean; error?: string | null; onRetry?: () => void; /** The rate shock these figures ran under, in words; it prints with them. */ shock?: string | null; /** A rates tool: trial hedges reach it. */ rates?: boolean }) {
   const { open } = useContext(RailCtx);
-  const { overrides } = useAlm();
+  const { overrides, hedges } = useAlm();
   return (
     <div className="row" style={{ marginBottom: 6 }}>
       <h1 className="t-title">{title}</h1>
@@ -342,6 +343,13 @@ export function ResultsHeader({ title, loading, error, onRetry, shock }: { title
         <span data-testid="shock-badge">
           <Badge tone="warn" title="a simulation: these figures are under the rate shock chosen above">
             shock · {shock}
+          </Badge>
+        </span>
+      )}
+      {rates && hedges.length > 0 && (
+        <span data-testid="hedge-badge">
+          <Badge tone="warn" title="a simulation: these figures include the trial hedges chosen above, which are not booked">
+            with {hedgesSummary(hedges.length)}
           </Badge>
         </span>
       )}
@@ -364,6 +372,15 @@ export function ResultsHeader({ title, loading, error, onRetry, shock }: { title
       <button type="button" className="btn btn-ghost btn-sm noprint" onClick={() => window.print()} title="print this tool's results">
         Print
       </button>
+    </div>
+  );
+}
+
+/** One line under a rates tool's headline saying what the trial hedges changed. */
+export function HedgeEffect({ children }: { children: ReactNode }) {
+  return (
+    <div className="shock-result" data-testid="hedge-effect">
+      {children}
     </div>
   );
 }

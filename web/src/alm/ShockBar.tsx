@@ -1,11 +1,14 @@
 // The rate shock bar under the ALM tool strip: the one place the shock is chosen. It stays in the
 // same spot on every analysis tool, and says so on the tools a rate move does not reach.
 import { useCallback, useMemo, useState } from 'react';
-import type { RateScenario } from '../api/types';
+import { useQuery } from '@tanstack/react-query';
+import { endpoints } from '../api/client';
+import type { HedgeKind, RateScenario } from '../api/types';
 import { SCENARIO_LABEL } from '../lib/alm';
 import { Chip, useOutsideClose } from '../components/ui';
 import { useAlm } from './state';
-import { BASEL, Bp } from './tool';
+import { BASEL, Bp, Num } from './tool';
+import { HEDGE_HELP, HEDGE_KINDS, TENORS, curveRate, hedgeLabel, hedgesSummary } from './hedge';
 import { BUCKETS, SHORTCUTS, customLabel, normaliseBuckets, shapeTitle, shockShape, shockSizes, tenorsLabel, toggleBucket } from './shock';
 
 const OPTIONS: RateScenario[] = ['BASE', ...BASEL, 'CUSTOM'];
@@ -67,13 +70,124 @@ function Tenors() {
   );
 }
 
+/** The trial hedges: the list, and a short form that adds one at the market rate unless told otherwise. */
+function Hedges() {
+  const { hedges, setHedges, working } = useAlm();
+  const market = useQuery({ queryKey: ['market', 'rates'], queryFn: endpoints.marketRates, staleTime: 60_000 });
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useOutsideClose<HTMLDivElement>(open, close);
+  const curves = market.data?.curves ?? [];
+  const ccys = curves.map((c) => c.ccy);
+  const [kind, setKind] = useState<HedgeKind>('PAY_FIXED_SWAP');
+  const [ccyChoice, setCcy] = useState<string | null>(null);
+  const [millions, setMillions] = useState(50);
+  const [tenor, setTenor] = useState(60);
+  const [atMarket, setAtMarket] = useState(true);
+  const [rate, setRate] = useState(5);
+  const ccy = ccyChoice ?? (working && ccys.includes(working.reporting_ccy) ? working.reporting_ccy : (ccys[0] ?? ''));
+  const curve = curves.find((c) => c.ccy === ccy);
+  const marketRate = curve ? curveRate(curve, tenor / 12) : null;
+  const full = hedges.length >= 20;
+  const add = () => {
+    if (!ccy || full) return;
+    setHedges([...hedges, { kind, ccy, notional: millions * 1e6, tenor_months: tenor, rate: atMarket ? null : rate }]);
+  };
+  return (
+    <div className="anchor" ref={ref}>
+      <button type="button" className="btn btn-sm" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog" title="hedges tried on the balance sheet; never booked" data-testid="hedges-button">
+        Hedges: {hedgesSummary(hedges.length)} ▾
+      </button>
+      {open && (
+        <div className="popup hedge-panel" role="dialog" aria-label="Trial hedges" style={{ left: 0, right: 'auto' }}>
+          <div className="t-eyebrow" style={{ marginBottom: 4 }}>
+            Trial hedges
+          </div>
+          <p className="t-small" style={{ margin: '0 0 8px' }}>
+            Tried on the balance sheet to see what they do to Gap, NII, EVE and Stress. Nothing is booked.
+          </p>
+          {hedges.length > 0 && (
+            <div className="hedge-list" data-testid="hedge-list">
+              {hedges.map((h, i) => (
+                <div key={i} className="row" style={{ gap: 6 }}>
+                  <span style={{ flex: 1 }}>{hedgeLabel(h)}</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setHedges(hedges.filter((_, j) => j !== i))} aria-label={`remove ${hedgeLabel(h)}`} title="remove this hedge">
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setHedges([])} style={{ marginTop: 2 }}>
+                Remove all
+              </button>
+            </div>
+          )}
+          <div className="hedge-form">
+            <label>
+              <span className="t-small">Type</span>
+              <select className="input input-sm" value={kind} onChange={(e) => setKind(e.target.value as HedgeKind)} aria-label="Hedge type">
+                {HEDGE_KINDS.map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="t-small">Currency</span>
+              <select className="input input-sm" value={ccy} onChange={(e) => setCcy(e.target.value)} aria-label="Hedge currency">
+                {ccys.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="t-small">Notional (millions)</span>
+              <Num value={millions} onChange={setMillions} min={1} max={100000} step={10} width={90} />
+            </label>
+            <label>
+              <span className="t-small">Tenor</span>
+              <select className="input input-sm" value={tenor} onChange={(e) => setTenor(Number(e.target.value))} aria-label="Hedge tenor">
+                {TENORS.map(([label, m]) => (
+                  <option key={m} value={m}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="wide">
+              <span className="t-small">Fixed rate</span>
+              <span className="row" style={{ gap: 8 }}>
+                <span className="row" style={{ gap: 4 }}>
+                  <input type="checkbox" checked={atMarket} onChange={(e) => setAtMarket(e.target.checked)} aria-label="at the market rate" />
+                  <span>at market{marketRate !== null ? ` (${marketRate.toFixed(2)}%)` : ''}</span>
+                </span>
+                {!atMarket && <Num value={rate} onChange={setRate} min={-5} max={50} step={0.05} decimals={2} suffix="%" width={72} />}
+              </span>
+            </label>
+          </div>
+          <p className="t-small" style={{ margin: '6px 0 8px' }}>
+            {HEDGE_HELP[kind]}
+          </p>
+          <button type="button" className="btn btn-sm btn-primary" onClick={add} disabled={!ccy || full} title={full ? 'twenty hedges at most' : undefined}>
+            Add hedge
+          </button>
+          {market.error && <span className="t-bad t-small"> {market.error.message}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ShockBar({ applies, tool }: { /** Whether the shock changes this tool's figures. */ applies: boolean; /** The tool's name, for the note when it does not. */ tool: string }) {
-  const { scenario, setScenario, customBp, setCustomBp, shockBuckets, clearShock, working } = useAlm();
+  const { scenario, setScenario, customBp, setCustomBp, shockBuckets, clearShock, working, hedges } = useAlm();
   const shape = useMemo(() => shockShape(scenario, customBp, shockBuckets, working), [scenario, customBp, shockBuckets, working]);
   const on = scenario !== 'BASE';
+  const simulating = on || hedges.length > 0;
   const sizes = shockSizes(working);
   return (
-    <div className={`shock-bar noprint${on ? ' on' : ''}`} data-testid="shock-bar" data-on={on ? '1' : undefined}>
+    <div className={`shock-bar noprint${simulating ? ' on' : ''}`} data-testid="shock-bar" data-on={on ? '1' : undefined}>
       <span className="t-eyebrow">Rate shock</span>
       <select className="input input-sm" value={scenario} onChange={(e) => setScenario(e.target.value as RateScenario)} aria-label="Rate shock" title="the rate move every rates tool runs under">
         {OPTIONS.map((s) => (
@@ -100,9 +214,11 @@ export function ShockBar({ applies, tool }: { /** Whether the shock changes this
           Reset
         </button>
       )}
+      <span className="vsep" />
+      <Hedges />
       <span style={{ flex: 1 }} />
       <span className="t-small" data-testid="shock-note">
-        {!applies ? `no effect on ${tool}` : on ? 'simulation, not saved' : 'choose a shock to see Gap, NII, EVE and Stress under it'}
+        {!applies ? `no effect on ${tool}` : simulating ? 'simulation, not saved' : 'choose a shock or try a hedge to see Gap, NII, EVE and Stress under it'}
       </span>
     </div>
   );

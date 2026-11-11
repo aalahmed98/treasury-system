@@ -821,6 +821,38 @@ dialog.ticket::backdrop {
 .shock-bar select.input {
   width: 180px;
 }
+.shock-bar .vsep {
+  width: 1px;
+  height: 18px;
+  background: var(--hairline);
+}
+.hedge-panel {
+  width: 400px;
+}
+.hedge-list {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12px;
+}
+.hedge-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.hedge-form label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+.hedge-form label.wide {
+  grid-column: 1 / -1;
+}
+.hedge-form select.input {
+  width: 100%;
+}
 .shock-shape {
   flex: none;
 }

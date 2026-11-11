@@ -499,6 +499,17 @@ export interface AlmParamsResponse {
   params: AlmParams;
   history: AlmParamsVersion[];
 }
+export type HedgeKind = 'PAY_FIXED_SWAP' | 'RECEIVE_FIXED_SWAP' | 'FIXED_FUNDING' | 'FIXED_INVESTMENT';
+export interface TrialHedge {
+  kind: HedgeKind;
+  ccy: string;
+  notional: number;
+  tenor_months: number;
+  /** The fixed rate in percent; none takes the curve at the tenor. */
+  rate?: number | null;
+  /** A swap's floating reset in months; none is three. */
+  reset_months?: number | null;
+}
 export interface AlmRequest {
   as_of?: string | null;
   params?: AlmParams | null;
@@ -506,6 +517,8 @@ export interface AlmRequest {
   custom_shock_bp?: number | null;
   /** The gap buckets the custom scenario moves; none or empty moves every tenor. */
   custom_shock_buckets?: string[] | null;
+  /** Trial hedges for the rates tools: tried on the balance sheet for this request only. */
+  hedges?: TrialHedge[] | null;
   compare_to?: CompareTo | null;
   period?: string | null;
 }

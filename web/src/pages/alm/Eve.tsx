@@ -4,10 +4,10 @@ import { useMemo } from 'react';
 import type { EveResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars } from '../../components/charts';
-import { useTool } from '../../alm/state';
-import { AssumptionsHeader, Headline, KV, ResultsHeader, SimpleTable, ToolLayout } from '../../alm/tool';
+import { useTool, useUnhedged } from '../../alm/state';
+import { AssumptionsHeader, Headline, HedgeEffect, KV, ResultsHeader, SimpleTable, ToolLayout } from '../../alm/tool';
 import { eveView, whenLine } from '../../alm/views';
-import { fmtMoneyShort } from '../../lib/fmt';
+import { fmtMoneyShort, signed } from '../../lib/fmt';
 import { DepositBehaviour } from './Gap';
 import { RateLimits, ShockSizes } from './Stress';
 
@@ -29,9 +29,10 @@ export function Eve() {
   const q = useTool<EveResult>('eve');
   const v = useMemo(() => (q.data ? eveView(q.data) : null), [q.data]);
   const raw = q.data;
+  const plain = useUnhedged<EveResult>('eve');
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
-      <ResultsHeader title="Economic value of equity (EVE)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} />
+      <ResultsHeader title="Economic value of equity (EVE)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} rates />
       {v && raw && (
         <>
           {v.shocked ? (
@@ -44,6 +45,19 @@ export function Eve() {
             />
           ) : (
             <Headline value={v.headline} standing="comfortable" line1="economic value of equity on today's curve: the present value of assets less liabilities" line2={whenLine(raw.as_of, v.basis, raw.reporting_ccy)} testId="headline" />
+          )}
+          {plain && (
+            <HedgeEffect>
+              {v.shocked ? (
+                <>
+                  Without the trial hedges the change in EVE would be {signed(plain.delta)}; they move it by <span className="t-medium">{signed(raw.delta - plain.delta)}</span>.
+                </>
+              ) : (
+                <>
+                  The trial hedges are worth <span className="t-medium">{signed(raw.base - plain.base)}</span> on today's curve and change the duration gap from {plain.duration.gap_years.toFixed(2)} to <span className="t-medium">{raw.duration.gap_years.toFixed(2)} years</span>.
+                </>
+              )}
+            </HedgeEffect>
           )}
           {!v.shocked && (
             <div className="shock-result">

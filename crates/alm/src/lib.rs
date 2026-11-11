@@ -11,6 +11,7 @@ pub mod ewi;
 pub mod funding;
 pub mod fx;
 pub mod gap;
+pub mod hedge;
 pub mod ird;
 pub mod lcr;
 pub mod liquidity;

@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import type { StressResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars, LineChart } from '../../components/charts';
-import { useAlm, useTool } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { useAlm, useTool, useUnhedged } from '../../alm/state';
+import { AssumptionsHeader, Group, Headline, HedgeEffect, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { stressView } from '../../alm/views';
 import { fmtDateLong, fmtMoneyShort, signed } from '../../lib/fmt';
 import { ShockGrid } from './Nii';
@@ -86,9 +86,11 @@ export function Stress() {
   const v = useMemo(() => (q.data ? stressView(q.data) : null), [q.data]);
   const raw = q.data;
   const mark = raw ? raw.rate_scenarios.findIndex((s) => s.scenario === scenario) : -1;
+  const plain = useUnhedged<StressResult>('stress');
+  const plainWorst = plain ? Math.max(0, ...plain.rate_scenarios.map((s) => s.eve_loss_pct_tier1 ?? 0)) : null;
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
-      <ResultsHeader title="Stress testing" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
+      <ResultsHeader title="Stress testing" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} rates />
       {v && raw && (
         <>
           <Headline
@@ -99,6 +101,11 @@ export function Stress() {
             testId="headline"
           />
           {v.breaches.length > 0 && <div className="t-bad" style={{ marginBottom: 8 }}>outside a limit: {v.breaches.join('; ')}</div>}
+          {plainWorst !== null && (
+            <HedgeEffect>
+              Without the trial hedges the worst EVE loss would be {plainWorst.toFixed(1)}% of Tier 1; with them it is <span className="t-medium">{(v.worst?.eve_loss_pct_tier1 ?? 0).toFixed(1)}%</span>. The rate scenarios below include the hedges; the liquidity and FX stresses are not affected by them.
+            </HedgeEffect>
+          )}
           <Card title="Rate scenarios" width={900}>
             <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1', 'Standing']} rows={v.rows} mark={mark >= 0 ? mark : undefined} testId="rate-scenarios" />
             <div className="t-small" style={{ marginTop: 4 }}>

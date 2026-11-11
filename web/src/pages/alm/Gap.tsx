@@ -2,10 +2,12 @@ import { useMemo } from 'react';
 import type { GapResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars } from '../../components/charts';
-import { useAlm, useTool } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { useAlm, useTool, useUnhedged } from '../../alm/state';
+import { AssumptionsHeader, Group, Headline, HedgeEffect, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { gapView, whenLine } from '../../alm/views';
-import { fmtMoneyShort, nice } from '../../lib/fmt';
+import { fmtMoneyShort, nice, signed } from '../../lib/fmt';
+
+const pct1 = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 
 const BUCKETS = ['ON', '1W', '1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y+'];
 
@@ -68,9 +70,11 @@ export function Gap() {
   const q = useTool<GapResult>('gap');
   const v = useMemo(() => (q.data ? gapView(q.data) : null), [q.data]);
   const raw = q.data;
+  const plain = useUnhedged<GapResult>('gap');
+  const plainY1 = plain?.buckets.find((b) => b.label === '1Y');
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
-      <ResultsHeader title="Repricing gap" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} />
+      <ResultsHeader title="Repricing gap" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} rates />
       {v && raw && (
         <>
           <Headline
@@ -81,6 +85,17 @@ export function Gap() {
             testId="headline"
           />
           {v.breaches.length > 0 && <div className="t-bad" style={{ marginBottom: 8 }}>outside the limit: {v.breaches.join('; ')}</div>}
+          {plain && plainY1 && v.y1 && (
+            <HedgeEffect>
+              With the trial hedges the cumulative gap at one year is <span className="t-medium">{pct1(v.y1.cumulative_pct_assets)}</span> of assets; without them it is {pct1(plainY1.cumulative_pct_assets)}.
+              {raw.nii_effect_12m !== null && plain.nii_effect_12m !== null && (
+                <>
+                  {' '}
+                  The gap estimate of the shock's effect on NII moves from {signed(plain.nii_effect_12m)} to <span className="t-medium">{signed(raw.nii_effect_12m)}</span>.
+                </>
+              )}
+            </HedgeEffect>
+          )}
           <div className="shock-result" data-testid="gap-effect">
             {v.shocked ? (
               <>

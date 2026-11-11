@@ -172,6 +172,14 @@ life in months, a core share (the rest reprices overnight) and a yearly decay of
 runs it off evenly); a product with neither set behaves as before, so saved parameter versions
 give the same figures.
 
+**Trial hedges.** Beside the shock, the bar holds trial hedges: pay-fixed and receive-fixed
+swaps, fixed-rate funding and fixed-rate investments, each with a currency, notional, tenor and a
+fixed rate that defaults to the curve at that tenor. A hedge is two cohorts in a `HEDGE` book (a
+fixed leg and a floating leg, `crates/alm/src/hedge.rs`) added to the balance sheet for that
+request only: nothing is booked, the result is never cached, and the notionals stay out of total
+assets and earning assets. Gap, NII, EVE and Stress show the figures with the hedges and one line
+saying what they changed against the unhedged run; the liquidity tools do not see them.
+
 **Every lever acts.** Each assumption on a tool's rail changes that tool's result (checked one by
 one against the live engine). A lever with nothing in the snapshot to act on, such as a factor for
 a maturity band no balance falls into, is drawn dashed with "nothing in this snapshot"; hovering
@@ -452,16 +460,16 @@ and scenario coverage), 12 pipeline scenarios on a fresh database each (three-wa
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
 anchor and merge, poisoned event, rebuild) and 3 on the synthetic banking book. Domain: 2 on the
-calendar. ALM: 23 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
+calendar. ALM: 24 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
 schedules by amortisation profile, curves and shocks with the floor, NSFR factors and bands, gap
-slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, stress across scenarios with the
+slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, a trial swap starting at par and taking the rate risk it is sized for, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
 reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 5 on the
 ALM endpoints and 1 on the browser hardening headers.
 
-The web client adds 14 Vitest cases (the formatting, chart, IRD and rate-shock helpers, the ports checked against the Rust crate's
-cases) and 49 Playwright checks on the installed Edge, among them NII's betas, default beta, run-off and growth moving the figures, one rate shock chosen once and followed across Gap, EVE, NII and Stress, deposit behaviour moving the gap, idle levers marked, the FTP page and ALM's
+The web client adds 16 Vitest cases (the formatting, chart, IRD, rate-shock and trial-hedge helpers, the ports checked against the Rust crate's
+cases) and 50 Playwright checks on the installed Edge, among them NII's betas, default beta, run-off and growth moving the figures, one rate shock chosen once and followed across Gap, EVE, NII and Stress, deposit behaviour moving the gap, a trial hedge changing every rates tool and no liquidity tool, idle levers marked, the FTP page and ALM's
 template-drop-publish round trip, a second workbook replacing the first with the log naming who replaced whom, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged; buying by ISIN, setting up a
 new bond, selling chosen lots, a repo closed early and a reverse repo), the FX risk page, the limits

@@ -177,3 +177,58 @@ test('deposit behaviour: the core share and its decay move the gap and EVE', asy
   await expect(page.getByTestId('deposit-behaviour').locator('input').nth(1)).toHaveValue('50');
   await expect(page.getByText(/what-if · 2 changes/)).toBeVisible();
 });
+
+test('trial hedges: added once, they change every rates tool and no liquidity tool', async ({ page }) => {
+  await login(page, 'alm1');
+  await page.goto('/app/alm/eve');
+  await ready(page);
+  const bar = page.getByTestId('shock-bar');
+  const strip = page.getByTestId('alm-strip-bar');
+  const hedges = page.getByTestId('hedges-button');
+  const effect = page.getByTestId('hedge-effect');
+  const badge = page.getByTestId('hedge-badge');
+  const open = async (name: string) => {
+    await strip.getByRole('button', { name, exact: true }).click();
+    await ready(page);
+  };
+  await bar.getByLabel('Rate shock').selectOption('PARALLEL_UP');
+  await expect(page.getByTestId('shock-badge')).toContainText('Parallel up');
+  const unhedged = await page.getByTestId('headline').innerText();
+  await expect(hedges).toContainText('none');
+  await expect(effect).toHaveCount(0);
+
+  // The form's defaults are a pay-fixed swap at the market rate: it gains when rates rise.
+  await hedges.click();
+  const panel = page.getByRole('dialog', { name: 'Trial hedges' });
+  await expect(panel).toContainText(/at market \(\d+\.\d\d%\)/);
+  await panel.getByRole('button', { name: 'Add hedge' }).click();
+  await expect(page.getByTestId('hedge-list')).toContainText('Pay-fixed swap');
+  await expect(hedges).toContainText('1 trial hedge');
+  await expect(badge).toContainText('with 1 trial hedge');
+  await expect(effect).toContainText('Without the trial hedges the change in EVE would be');
+  await expect(page.getByTestId('headline')).not.toHaveText(unhedged);
+
+  // The same hedge on the other rates tools, each saying what it changed.
+  await open('Gap');
+  await expect(effect).toContainText('cumulative gap at one year');
+  await expect(badge).toBeVisible();
+  await open('NII / NIM');
+  await expect(effect).toContainText('The trial hedges change NII by');
+  await open('Stress');
+  await expect(effect).toContainText('worst EVE loss');
+
+  // Liquidity tools do not see it.
+  await open('LCR');
+  await expect(badge).toHaveCount(0);
+  await expect(page.getByTestId('shock-note')).toHaveText('no effect on LCR');
+
+  // It survives a reload of the tab and goes when removed.
+  await page.goto('/app/alm/eve');
+  await ready(page);
+  await expect(hedges).toContainText('1 trial hedge');
+  await hedges.click();
+  await page.getByRole('button', { name: 'Remove all' }).click();
+  await expect(hedges).toContainText('none');
+  await expect(effect).toHaveCount(0);
+  await expect(badge).toHaveCount(0);
+});

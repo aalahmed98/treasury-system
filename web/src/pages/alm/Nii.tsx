@@ -2,10 +2,10 @@ import { useMemo } from 'react';
 import type { BalanceSheetMode, NiiProduct, NiiResult } from '../../api/types';
 import { Card, Chip } from '../../components/ui';
 import { Bars } from '../../components/charts';
-import { useAlm, useTool } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { useAlm, useTool, useUnhedged } from '../../alm/state';
+import { AssumptionsHeader, Group, Headline, HedgeEffect, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { MODE_LABEL, niiView } from '../../alm/views';
-import { fmtDateLong, fmtMoneyShort, fmtMonth, nice } from '../../lib/fmt';
+import { fmtDateLong, fmtMoneyShort, fmtMonth, nice, signed } from '../../lib/fmt';
 
 export function ShockGrid() {
   const { working, edit, bank } = useAlm();
@@ -146,12 +146,18 @@ export function Nii() {
   const q = useTool<NiiResult>('nii');
   const v = useMemo(() => (q.data ? niiView(q.data) : null), [q.data]);
   const raw = q.data;
+  const plain = useUnhedged<NiiResult>('nii');
   return (
     <ToolLayout assumptions={<Assumptions products={raw?.products ?? []} />} ready={!!v} busy={q.isFetching && !!v}>
-      <ResultsHeader title="Net interest income (NII)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} />
+      <ResultsHeader title="Net interest income (NII)" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} shock={raw?.shock_label} rates />
       {v && raw && (
         <>
           <Headline value={v.headline} standing="comfortable" line1={`over ${raw.horizon_months} months from ${fmtDateLong(raw.as_of)} · ${v.basis} · in ${raw.reporting_ccy}`} line2={`NIM ${v.nim} on earning assets of ${fmtMoneyShort(raw.earning_assets)}${v.delta ? ` · ${v.delta}` : ''}`} testId="headline" />
+          {plain && (
+            <HedgeEffect>
+              The trial hedges change NII by <span className="t-medium">{signed(raw.nii - plain.nii)}</span> over the {raw.horizon_months} months{raw.shock_label ? ` under ${raw.shock_label}` : " on today's curve"}; without them it is {fmtMoneyShort(plain.nii)}.
+            </HedgeEffect>
+          )}
           <Card title="NII by month" width={720}>
             <Bars
               data={v.monthBars}

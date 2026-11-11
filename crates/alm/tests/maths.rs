@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use alm::curve::{Curve, CustomShock, shock_bp};
 use alm::funding::DepositorGroup;
 use alm::nii::Curves;
-use alm::{attribution, coverage, eve, funding, gap, ird, nii, nmd, nsfr, schedule, stress};
+use alm::{attribution, coverage, eve, funding, gap, hedge, ird, nii, nmd, nsfr, schedule, stress};
 use chrono::NaiveDate;
-use domain::{AlmParams, Amort, BalanceSheetMode, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
+use domain::{AlmParams, Amort, BalanceSheetMode, HedgeKind, TrialHedge, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
 
 fn d(s: &str) -> NaiveDate {
     s.parse().unwrap()
@@ -676,4 +676,58 @@ fn a_dynamic_balance_sheet_grows_and_funds_the_growth() {
     assert!(close(rows[2].base_nii.unwrap(), grown.nii, 1e-12));
     let products = nii::products(std::slice::from_ref(&loan), &p, &BTreeMap::new());
     assert_eq!((products[0].product.as_str(), products[0].side), ("TEST", BsSide::Asset));
+}
+
+#[test]
+fn a_trial_hedge_starts_at_par_and_takes_the_rate_risk_it_is_sized_for() {
+    let as_of = d(AS_OF);
+    let p = AlmParams::default();
+    let curves = flat("BHD", 5.0);
+    let none = BTreeMap::new();
+    let mut bond = pos("bond", BsSide::Asset, "BHD", 1000.0);
+    bond.maturity = Some(d("2031-11-04"));
+    bond.pay_months = Some(12);
+    let mut book = vec![bond];
+
+    let swap = TrialHedge { kind: HedgeKind::PayFixedSwap, ccy: "BHD".into(), notional: 1000.0, tenor_months: 60, rate: None, reset_months: None };
+    assert!(close(hedge::fixed_rate(&swap, &curves), 5.0, 1e-12), "at the curve when no rate is given");
+    let legs = hedge::positions(std::slice::from_ref(&swap), &curves, as_of);
+    assert_eq!(legs.len(), 2);
+    assert_eq!((legs[0].side, legs[0].rate_type, legs[0].maturity), (BsSide::Liability, RateType::Fixed, Some(d("2031-11-04"))));
+    assert_eq!((legs[1].side, legs[1].rate_type, legs[1].next_repricing), (BsSide::Asset, RateType::Float, Some(d("2027-02-04"))));
+    assert!(legs.iter().all(|l| l.book == hedge::HEDGE_BOOK && l.lcr_class.is_none() && l.nsfr_class.is_none() && l.hqla_level.is_none()));
+
+    // Worth about nothing on today's curve: it moves no value until rates do.
+    let unhedged = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    book.extend(legs);
+    let hedged = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!((hedged.base - unhedged.base).abs() < 0.005 * 1000.0, "base {} against {}", hedged.base, unhedged.base);
+    // A five-year pay-fixed swap against a five-year bond takes nearly all of the loss from a rise.
+    assert!(unhedged.delta < -40.0, "the bond alone loses: {}", unhedged.delta);
+    assert!(hedged.delta.abs() < 0.1 * unhedged.delta.abs(), "hedged {} against {}", hedged.delta, unhedged.delta);
+
+    // The gap: the fixed leg sits against the bond (1,826 days out, a day past the 5Y edge), the
+    // floating leg reprices at its first reset (92 days, a day past the 3M edge), and the notionals
+    // stay out of total assets.
+    let g = gap::compute(&book, &p, &none, as_of, None);
+    let b = |label: &str| g.buckets.iter().find(|b| b.label == label).unwrap().clone();
+    assert!(close(g.total_assets, 1000.0, 1e-9));
+    assert!(close(b("10Y+").assets, 1000.0, 1e-9) && close(b("10Y+").gap, 0.0, 1e-9), "{:?}", b("10Y+"));
+    assert!(close(b("6M").gap, 1000.0, 1e-9), "{:?}", b("6M"));
+
+    // NII: on today's curve the swap carries nothing; when rates rise the floating leg earns the move.
+    let n0 = nii::compute(&book[..1], &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    let n1 = nii::compute(&book, &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    assert!((n1.nii - n0.nii).abs() < 1.0, "carry {}", n1.nii - n0.nii);
+    assert!(close(n1.earning_assets, n0.earning_assets, 1e-9), "notionals are not earning assets");
+    let up = nii::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(up.nii - n1.nii > 5.0, "nine months of +100 bp on 1000: {}", up.nii - n1.nii);
+    assert!(up.by_book.iter().any(|b| b.key == hedge::HEDGE_BOOK));
+
+    // Receiving fixed is the mirror image; funding and investments sit against one-month money.
+    let recv = TrialHedge { kind: HedgeKind::ReceiveFixedSwap, rate: Some(4.5), reset_months: Some(6), ..swap.clone() };
+    let legs = hedge::positions(std::slice::from_ref(&recv), &curves, as_of);
+    assert_eq!((legs[0].side, legs[0].rate, legs[1].side, legs[1].reset_months), (BsSide::Asset, 4.5, BsSide::Liability, Some(6)));
+    let funding = TrialHedge { kind: HedgeKind::FixedFunding, ..swap };
+    assert_eq!(hedge::reset_months(&funding), 1);
 }

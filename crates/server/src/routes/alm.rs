@@ -439,10 +439,11 @@ pub async fn nsfr(State(state): State<AppState>, Extension(auth): Extension<Auth
 }
 
 pub async fn gap(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<GapResult>, ApiError> {
-    let (book, version, params) = prepare(&state, &auth, &req).await?;
+    let (mut book, version, params) = prepare(&state, &auth, &req).await?;
+    let hedged = add_hedges(&mut book, &req)?;
     let scenario = req.scenario.unwrap_or(RateScenario::Base);
     let custom = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
-    Ok(Json(official(&state, "gap", &book, version, shock_key(scenario, custom), || {
+    Ok(Json(official(&state, "gap", &book, cache_as(version, hedged), shock_key(scenario, custom), || {
         alm::gap::with_shock(alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, version), &params, &book.curves, scenario, custom)
     })))
 }
@@ -463,6 +464,40 @@ fn custom_shock(req: &AlmRequest) -> Result<Option<CustomShock>, ApiError> {
     CustomShock::from_labels(bp, req.custom_shock_buckets.as_deref().unwrap_or(&[])).map(Some).map_err(ApiError::BadRequest)
 }
 
+/// Add the request's trial hedges to the balance sheet, for the rates tools. True when there are
+/// any: such a result is the user's own simulation and never goes through the cache.
+fn add_hedges(book: &mut Book, req: &AlmRequest) -> Result<bool, ApiError> {
+    let Some(hedges) = req.hedges.as_deref().filter(|h| !h.is_empty()) else { return Ok(false) };
+    let bad = |m: String| ApiError::BadRequest(m);
+    if hedges.len() > 20 {
+        return Err(bad("at most 20 trial hedges".into()));
+    }
+    for h in hedges {
+        if !h.notional.is_finite() || h.notional <= 0.0 || h.notional > 1e12 {
+            return Err(bad("a trial hedge needs a positive notional".into()));
+        }
+        if !(1..=360).contains(&h.tenor_months) {
+            return Err(bad("a trial hedge's tenor must be 1 to 360 months".into()));
+        }
+        if h.rate.is_some_and(|r| !r.is_finite() || !(-5.0..=50.0).contains(&r)) {
+            return Err(bad("a trial hedge's rate must be between -5 and 50 percent".into()));
+        }
+        if h.reset_months.is_some_and(|m| !(1..=12).contains(&m)) {
+            return Err(bad("a swap resets every 1 to 12 months".into()));
+        }
+        if !book.curves.contains_key(&h.ccy) {
+            return Err(bad(format!("no rate curve for {} in this snapshot", h.ccy)));
+        }
+    }
+    book.positions.extend(alm::hedge::positions(hedges, &book.curves, book.as_of));
+    Ok(true)
+}
+
+/// The version to cache under: none for a simulation with trial hedges.
+fn cache_as(version: Option<i32>, hedged: bool) -> Option<i32> {
+    if hedged { None } else { version }
+}
+
 /// The cache key for a scenario: the custom shock's size and buckets matter only to the custom one.
 fn shock_key(scenario: RateScenario, custom: CustomShock) -> String {
     if scenario == RateScenario::Custom { format!("{scenario}:{}", custom.key()) } else { format!("{scenario}:0") }
@@ -480,25 +515,28 @@ fn nii_for(book: &Book, params: &AlmParams, scenario: RateScenario, bp: impl Int
 }
 
 pub async fn nii(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<NiiResult>, ApiError> {
-    let (book, version, params) = prepare(&state, &auth, &req).await?;
+    let (mut book, version, params) = prepare(&state, &auth, &req).await?;
+    let hedged = add_hedges(&mut book, &req)?;
     let scenario = req.scenario.unwrap_or(RateScenario::Base);
     let bp = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
-    Ok(Json(official(&state, "nii", &book, version, shock_key(scenario, bp), || nii_for(&book, &params, scenario, bp, version))))
+    Ok(Json(official(&state, "nii", &book, cache_as(version, hedged), shock_key(scenario, bp), || nii_for(&book, &params, scenario, bp, version))))
 }
 
 pub async fn eve(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<EveResult>, ApiError> {
-    let (book, version, params) = prepare(&state, &auth, &req).await?;
+    let (mut book, version, params) = prepare(&state, &auth, &req).await?;
+    let hedged = add_hedges(&mut book, &req)?;
     let scenario = req.scenario.unwrap_or(RateScenario::ParallelUp);
     let bp = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
-    Ok(Json(official(&state, "eve", &book, version, shock_key(scenario, bp), || {
+    Ok(Json(official(&state, "eve", &book, cache_as(version, hedged), shock_key(scenario, bp), || {
         alm::eve::compute(&book.positions, &params, &book.spots, &book.curves, book.as_of, scenario, bp, version)
     })))
 }
 
 pub async fn stress(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<StressResult>, ApiError> {
-    let (book, version, params) = prepare(&state, &auth, &req).await?;
+    let (mut book, version, params) = prepare(&state, &auth, &req).await?;
+    let hedged = add_hedges(&mut book, &req)?;
     let bp = custom_shock(&req)?;
-    Ok(Json(official(&state, "stress", &book, version, bp.map(|c| c.key()).unwrap_or_else(|| "None".into()), || {
+    Ok(Json(official(&state, "stress", &book, cache_as(version, hedged), bp.map(|c| c.key()).unwrap_or_else(|| "None".into()), || {
         alm::stress::compute(&book.positions, &params, &book.spots, &book.curves, book.as_of, bp, version)
     })))
 }
