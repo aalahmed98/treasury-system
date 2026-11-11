@@ -123,6 +123,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2h" class="is-done"><span class="num">Phase 2H</span><span class="name">PMU booking</span><span class="badge done">Done</span></a>
   <a href="#p2i" class="is-done"><span class="num">Phase 2I</span><span class="name">FTP upload log</span><span class="badge done">Done</span></a>
   <a href="#p2j" class="is-done"><span class="num">Phase 2J</span><span class="name">ALM levers that act</span><span class="badge done">Done</span></a>
+  <a href="#p2k" class="is-done"><span class="num">Phase 2K</span><span class="name">One rate shock for ALM</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
@@ -418,6 +419,24 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </table></div>
   <div class="cols"><div><h4>Progress log</h4><ul id="log2j">
     <li>8 Nov: phase complete. Found working as designed: limits and thresholds move only the breach flags; short and long shocks do nothing under a parallel shock; the rate floor binds only under very large down shocks at NBB's rate levels; ten NSFR factors are for bands that undated items (equity, operational deposits, cash, other assets) or 20-year mortgages can never fall into. 4 new engine tests and 2 Playwright scenarios; 132 Rust tests, 47 Playwright checks.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2k">
+  <div class="phase-head"><span class="num">Phase 2K</span><h3>One rate shock for ALM</h3><span class="badge done">Done</span><span class="when">10 November 2026</span></div>
+  <p class="goal">The user asked for one global variable, a rate move in basis points, that every ALM rates view runs under, so that switching tabs shows the same shock from each side. Decided with the user: entered in basis points; a simulation for the ALM view only, never saved; one shock at a time, which can be aimed at the repricing gap's buckets; the six Basel shapes stay; growth on a dynamic balance sheet by side with a product's own rate where it differs. The layout and navigation were agreed before any page changed.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Tenor-limited shock</td><td>The custom scenario takes a size and the buckets it moves (<code>custom_shock_buckets</code>); fewer than all is a step at each bucket edge on the curve, so a tenor moves in full or not at all. The server validates the size and the bucket names.</td><td>Phase 2C</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Rate shock bar</td><td>One bar under the ALM tool strip replaces the scenario picker on NII and the custom box on Stress: scenario, size, tenors, the shape across the buckets, reset. It lives in the browser session. Results carry the shock in their heading and on printouts; liquidity tools say it does not reach them; the dashboard, ALCO pack, FTP and Setup have no bar.</td><td>Tenor-limited shock</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Gap under the shock</td><td>The balances do not move; the report adds the gap estimate of the effect on twelve-month NII per bucket and currency.</td><td>Rate shock bar</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">EVE tab and duration gap</td><td>A new tab: the full revaluation by bucket and currency, the loss against Tier 1, and the duration gap with the estimate from <code>ΔEVE ≈ −[D_A − (L/A) × D_L] × A × Δy / (1 + y)</code> beside it for a parallel move.</td><td>Rate shock bar</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">NII, static against dynamic</td><td>Constant, run-off and dynamic side by side. Dynamic replaces cohorts and grows balances at a yearly rate by side or product, with the cash growth takes or brings in the balancing book.</td><td>Phase 2J</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Deposit behaviour</td><td>Per non-maturity product: a core share (the rest reprices overnight) and a yearly decay of the core, beside the behavioural life. Unset, a product behaves as before, so saved versions give the same figures. Editable on Gap, EVE and Setup.</td><td>Phase 2C</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2k">
+    <li>10 Nov: phase complete. Not included: deposit balances moving with the shock (customers switching to term deposits), and a duration estimate for shocks that are not parallel. 5 new engine tests, the ALM endpoint test extended, 4 Vitest cases and 2 Playwright scenarios; 49 Playwright checks.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

@@ -3,7 +3,7 @@
 // its standing, key-value rows, tables and scenario chips.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { CompareTo, RateScenario } from '../api/types';
-import { SCENARIO_LABEL, standingLabel, standingTone, type Standing } from '../lib/alm';
+import { standingLabel, standingTone, type Standing } from '../lib/alm';
 import { nice } from '../lib/fmt';
 import { usePref } from '../lib/prefs';
 import { Badge, Chip, useOutsideClose } from '../components/ui';
@@ -39,8 +39,16 @@ export function ToolLayout({ assumptions, children, ready, busy }: { assumptions
   const rail = useMemo<Rail>(() => ({ open, toggle: () => setOpen((o) => !o) }), [open, setOpen]);
   return (
     <RailCtx.Provider value={rail}>
-      <div className={`alm-layout${open ? '' : ' single'}`} data-ready={ready ? '1' : undefined}>
-        {open && <aside className="assumptions">{assumptions}</aside>}
+      <div className={`alm-layout${open ? '' : ' collapsed'}`} data-ready={ready ? '1' : undefined}>
+        {open ? (
+          <aside className="assumptions">{assumptions}</aside>
+        ) : (
+          // Closed, the rail leaves a tab where it stood, so it comes back from the place it went.
+          <button type="button" className="assumptions-tab noprint" onClick={rail.toggle} aria-expanded={false} title="show the assumptions">
+            <span aria-hidden>»</span>
+            <span className="label">Assumptions</span>
+          </button>
+        )}
         <section className="alm-results" data-busy={busy ? '1' : undefined} aria-busy={busy || undefined}>
           {children}
         </section>
@@ -278,7 +286,7 @@ export function KV({ rows, boldLast }: { rows: [string, string][]; boldLast?: bo
 }
 
 /** A striped table: the first column is text, the rest right-aligned figures. */
-export function SimpleTable({ headers, rows, testId }: { headers: string[]; rows: string[][]; testId?: string }) {
+export function SimpleTable({ headers, rows, testId, mark }: { headers: string[]; rows: string[][]; testId?: string; /** The row to pick out, e.g. the scenario the shock bar is on. */ mark?: number }) {
   if (!rows.length) return <div className="t-muted">none</div>;
   return (
     <table className="table" data-testid={testId}>
@@ -293,7 +301,7 @@ export function SimpleTable({ headers, rows, testId }: { headers: string[]; rows
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={i}>
+          <tr key={i} className={i === mark ? 'marked' : undefined} aria-current={i === mark ? 'true' : undefined}>
             {r.map((c, j) => (
               <td key={j} className={j > 0 ? 'num' : ''}>
                 {c}
@@ -303,21 +311,6 @@ export function SimpleTable({ headers, rows, testId }: { headers: string[]; rows
         ))}
       </tbody>
     </table>
-  );
-}
-
-export function ScenarioPicker({ includeBase }: { includeBase: boolean }) {
-  const { scenario, setScenario, customBp, setCustomBp } = useAlm();
-  const all: RateScenario[] = [...(includeBase ? (['BASE'] as RateScenario[]) : []), ...BASEL, 'CUSTOM'];
-  return (
-    <div className="chips" style={{ marginBottom: 4 }}>
-      {all.map((s) => (
-        <Chip key={s} small selected={scenario === s} onClick={() => setScenario(s)}>
-          {SCENARIO_LABEL[s]}
-        </Chip>
-      ))}
-      {scenario === 'CUSTOM' && <Bp value={customBp} onChange={setCustomBp} />}
-    </div>
   );
 }
 
@@ -338,18 +331,20 @@ export function ComparePicker() {
   );
 }
 
-export function ResultsHeader({ title, loading, error, onRetry }: { title: string; loading: boolean; error?: string | null; onRetry?: () => void }) {
-  const { open, toggle } = useContext(RailCtx);
+export function ResultsHeader({ title, loading, error, onRetry, shock }: { title: string; loading: boolean; error?: string | null; onRetry?: () => void; /** The rate shock these figures ran under, in words; it prints with them. */ shock?: string | null }) {
+  const { open } = useContext(RailCtx);
   const { overrides } = useAlm();
   return (
     <div className="row" style={{ marginBottom: 6 }}>
-      {!open && (
-        <button type="button" className="btn btn-sm noprint" onClick={toggle} title="show the assumptions">
-          Assumptions
-        </button>
-      )}
       <h1 className="t-title">{title}</h1>
       {!open && overrides && <Badge tone="warn">what-if</Badge>}
+      {shock && (
+        <span data-testid="shock-badge">
+          <Badge tone="warn" title="a simulation: these figures are under the rate shock chosen above">
+            shock · {shock}
+          </Badge>
+        </span>
+      )}
       {loading && !error && (
         <span className="t-small computing" role="status">
           recomputing, the figures below are about to change…

@@ -144,13 +144,33 @@ rather than a grid of tiles, tools and filters are chips, counts are badges, and
 and gauge comes from the same few components in `web/src/components/` styled by the tokens in
 `web/src/styles/tokens.css`, so both themes are designed rather than inverted.
 
-The **ALM** tab is a tool strip: Dashboard, LCR, NSFR, NII / NIM, Stress, Attribution, IRD, Gap,
+The **ALM** tab is a tool strip: Dashboard, LCR, NSFR, NII / NIM, EVE, Stress, Attribution, IRD, Gap,
 Funding and Setup. Each tool shows the bank's saved assumptions on the left, editable as an unsaved
 what-if, and the result on the right with its thresholds. Setup starts a draft from the active version
 or the current what-if and saves it as a new version with a note; any user on the ALM desk may save,
 the server validates, the database function versions and audits it, and every open client is told
 over the live stream. Version 1 holds Basel III defaults; the CBB LM-11 and LM-12 calibration and the
 bank's own limits are to be confirmed, which is why every factor is a parameter.
+
+**One rate shock for every rates tool.** Under the tool strip sits the rate shock bar, the only
+place a shock is chosen: none, one of the six Basel shapes, or a custom size in basis points aimed
+at any of the repricing gap's nine buckets (all of them is a parallel move; fewer move only the
+rates at those tenors, as a step at each bucket edge). Gap, NII, EVE and Stress all run under it, so
+switching tabs shows the same shock from each side, and each result carries it in its heading and
+on a printout. It is a simulation: it lives in the browser session, is never saved, and the
+dashboard, the ALCO pack and the official figures never see it. The liquidity tools keep the bar in
+place and say it does not reach them. Under a shock the Gap tab adds the classic gap estimate of
+the effect on twelve-month NII (each bucket's gap times the move times the part of the year left
+after it reprices; the balances themselves do not move). The EVE tab shows the full revaluation by
+bucket and currency beside the duration gap and its estimate,
+`ΔEVE ≈ −[D_A − (L/A) × D_L] × A × Δy / (1 + y)`, which is given only for a parallel move because
+that is what the formula assumes. NII shows the projection under three balance-sheet assumptions
+side by side: constant and run-off (the two static views) and dynamic, where cohorts are replaced
+and balances grow at a yearly rate per side or per product, the cash growth takes or brings going
+through the balancing book. Deposits with no maturity take a behavioural profile per product: a
+life in months, a core share (the rest reprices overnight) and a yearly decay of the core (zero
+runs it off evenly); a product with neither set behaves as before, so saved parameter versions
+give the same figures.
 
 **Every lever acts.** Each assumption on a tool's rail changes that tool's result (checked one by
 one against the live engine). A lever with nothing in the snapshot to act on, such as a factor for
@@ -432,16 +452,16 @@ and scenario coverage), 12 pipeline scenarios on a fresh database each (three-wa
 quote within tolerance, mismatch then correction, missing after SLA then late arrival, orphan then
 manual link, ambiguity, duplicates at every layer, amend before new, cancel propagation, internal
 anchor and merge, poisoned event, rebuild) and 3 on the synthetic banking book. Domain: 2 on the
-calendar. ALM: 18 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
+calendar. ALM: 23 hand-worked cases (Basel caps, an LCR, inflow cap and currency conversion,
 schedules by amortisation profile, curves and shocks with the floor, NSFR factors and bands, gap
-slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, stress across scenarios with the
+slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
 reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 5 on the
 ALM endpoints and 1 on the browser hardening headers.
 
-The web client adds 6 Vitest cases (the formatting and IRD ports, checked against the Rust crate's
-cases) and 47 Playwright checks on the installed Edge, among them NII's betas, default beta and run-off moving the figures, idle levers marked, the FTP page and ALM's
+The web client adds 14 Vitest cases (the formatting, chart, IRD and rate-shock helpers, the ports checked against the Rust crate's
+cases) and 49 Playwright checks on the installed Edge, among them NII's betas, default beta, run-off and growth moving the figures, one rate shock chosen once and followed across Gap, EVE, NII and Stress, deposit behaviour moving the gap, idle levers marked, the FTP page and ALM's
 template-drop-publish round trip, a second workbook replacing the first with the log naming who replaced whom, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged; buying by ISIN, setting up a
 new bond, selling chosen lots, a repo closed early and a reverse repo), the FX risk page, the limits

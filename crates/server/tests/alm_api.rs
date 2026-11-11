@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Method, Request, Response, StatusCode, header};
 use chrono::Utc;
-use domain::{ActivityRow, AlmOverview, AlmParams, AlmParamsResponse, AlmSnapshot, AttentionItem, AttentionSeverity, AttentionTarget, AttributionResult, LcrResult, LoginResponse, MarketResponse, NiiResult, PositionsSummaryRow, StressResult, TrendResponse};
+use domain::{ActivityRow, AlmOverview, AlmParams, AlmParamsResponse, AlmSnapshot, AttentionItem, AttentionSeverity, AttentionTarget, AttributionResult, BalanceSheetMode, EveResult, GapResult, LcrResult, LoginResponse, MarketResponse, NiiResult, PositionsSummaryRow, StressResult, TrendResponse};
 use http_body_util::BodyExt;
 use server::config::Config;
 use server::{AppState, seed};
@@ -175,6 +175,37 @@ async fn every_tool_answers_for_alm_users_only(owner: PgPool) {
     assert_eq!(nii.months.len(), 12);
     let (_, stress) = post::<StressResult>(&router, &alm1, "/alm/stress", r#"{"custom_shock_bp": 50}"#).await;
     assert_eq!(stress.unwrap().rate_scenarios.len(), 7);
+
+    // One rate shock, sent the same way to every rates tool: a size and the buckets it moves.
+    let aimed = r#"{"scenario":"CUSTOM","custom_shock_bp":100,"custom_shock_buckets":["3M","6M","1Y"]}"#;
+    let (_, gap) = post::<GapResult>(&router, &alm1, "/alm/gap", aimed).await;
+    let gap = gap.unwrap();
+    assert_eq!(gap.shock_label.as_deref(), Some("Custom +100 bp at 3M to 1Y"));
+    assert!(gap.nii_effect_12m.is_some());
+    let bucket = |l: &str| gap.buckets.iter().find(|b| b.label == l).unwrap();
+    assert!((bucket("3M").shock_bp.unwrap() - 100.0).abs() < 1e-6 && bucket("1M").shock_bp.unwrap().abs() < 1e-6, "only the named buckets move");
+    let (_, plain) = post::<GapResult>(&router, &alm1, "/alm/gap", "{}").await;
+    let plain = plain.unwrap();
+    assert_eq!((plain.shock_label.clone(), plain.nii_effect_12m), (None, None), "no shock, nothing estimated");
+    assert_eq!(plain.buckets.iter().map(|b| b.gap).collect::<Vec<_>>(), gap.buckets.iter().map(|b| b.gap).collect::<Vec<_>>(), "a shock does not move the balances");
+    let (_, eve) = post::<EveResult>(&router, &alm1, "/alm/eve", aimed).await;
+    let eve = eve.unwrap();
+    assert_eq!(eve.shock_label.as_deref(), Some("Custom +100 bp at 3M to 1Y"));
+    assert_eq!(eve.duration.estimate, None, "the duration formula needs a parallel move");
+    assert_eq!(eve.by_bucket.len(), 9);
+    let (_, par) = post::<EveResult>(&router, &alm1, "/alm/eve", r#"{"scenario":"CUSTOM","custom_shock_bp":100}"#).await;
+    assert!(par.unwrap().duration.estimate.is_some());
+    let (_, nii) = post::<NiiResult>(&router, &alm1, "/alm/nii", aimed).await;
+    let nii = nii.unwrap();
+    assert_eq!(nii.shock_label.as_deref(), Some("Custom +100 bp at 3M to 1Y"));
+    assert_eq!(nii.modes.iter().map(|m| m.mode).collect::<Vec<_>>(), [BalanceSheetMode::Constant, BalanceSheetMode::RunOff, BalanceSheetMode::Dynamic]);
+    assert_eq!(nii.mode, BalanceSheetMode::Constant);
+    let (_, stress) = post::<StressResult>(&router, &alm1, "/alm/stress", aimed).await;
+    assert_eq!(stress.unwrap().rate_scenarios.last().unwrap().label, "Custom +100 bp at 3M to 1Y");
+    for bad in [r#"{"scenario":"CUSTOM","custom_shock_bp":100,"custom_shock_buckets":["4M"]}"#, r#"{"scenario":"CUSTOM","custom_shock_bp":5000}"#] {
+        let (status, _) = post::<serde_json::Value>(&router, &alm1, "/alm/gap", bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
 
     let (status, o) = get::<AlmOverview>(&router, &alm1, "/alm/overview").await;
     assert_eq!(status, StatusCode::OK);

@@ -322,6 +322,10 @@ export interface GapBucket {
   cumulative_pct_assets: number;
   limit_pct: number | null;
   breach: boolean;
+  /** Under a rate scenario: the move at this bucket, when every currency moves alike. */
+  shock_bp: number | null;
+  /** Under a rate scenario: the gap's effect on twelve-month NII. */
+  nii_effect: number | null;
 }
 export interface AlmOverview {
   as_of: string;
@@ -397,6 +401,10 @@ export interface NsfrParams {
 }
 export interface GapParams {
   nmd_behavioural_months: Record<string, number>;
+  /** Core share per non-maturity product, percent; a product not listed is all core. */
+  nmd_core_pct: Record<string, number>;
+  /** Yearly decay of the core per product, percent; not listed or zero runs off evenly. */
+  nmd_decay_pct: Record<string, number>;
   cumulative_gap_limit_pct_assets: Record<string, number>;
   eve_limit_pct_tier1: number;
   nii_sensitivity_limit_pct: number;
@@ -425,6 +433,23 @@ export interface NiiParams {
   default_beta: number;
   /** Pass-through by product (`SAVINGS`) or product and segment (`CURRENT_ACCOUNT.RETAIL`), as a fraction. */
   betas: Record<string, number>;
+  /** Cohorts are replaced and balances grow; it takes precedence over `constant_balance_sheet`. */
+  dynamic: boolean;
+  growth_assets_pct: number;
+  growth_liabilities_pct: number;
+  growth_by_product: Record<string, number>;
+}
+export type BalanceSheetMode = 'CONSTANT' | 'RUN_OFF' | 'DYNAMIC';
+export interface NiiModeRow {
+  mode: BalanceSheetMode;
+  nii: number;
+  nim: number | null;
+  base_nii: number | null;
+}
+export interface NiiProduct {
+  product: string;
+  side: 'ASSET' | 'LIABILITY' | 'OFF_BALANCE';
+  balance: number;
 }
 /** What each lever applies to in the snapshot (reporting currency), keyed by its parameter path. */
 export interface AlmCoverage {
@@ -479,6 +504,8 @@ export interface AlmRequest {
   params?: AlmParams | null;
   scenario?: RateScenario | null;
   custom_shock_bp?: number | null;
+  /** The gap buckets the custom scenario moves; none or empty moves every tenor. */
+  custom_shock_buckets?: string[] | null;
   compare_to?: CompareTo | null;
   period?: string | null;
 }
@@ -544,6 +571,51 @@ export interface GapResult {
   total_assets: number;
   buckets: GapBucket[];
   by_ccy: GapCurrency[];
+  scenario: RateScenario;
+  shock_label: string | null;
+  nii_effect_12m: number | null;
+}
+export interface EveCurrency {
+  ccy: string;
+  base: number;
+  shocked: number;
+  delta: number;
+}
+export interface EveBucket {
+  label: string;
+  assets: number;
+  liabilities: number;
+  base: number;
+  shocked: number;
+  delta: number;
+}
+export interface DurationGap {
+  assets: number;
+  liabilities: number;
+  d_assets: number;
+  d_liabilities: number;
+  gap_years: number;
+  yield_pct: number;
+  shock_bp: number | null;
+  estimate: number | null;
+}
+export interface EveResult {
+  as_of: string;
+  params_version: number | null;
+  reporting_ccy: string;
+  scenario: RateScenario;
+  base: number;
+  shocked: number;
+  delta: number;
+  basel_loss: number;
+  by_ccy: EveCurrency[];
+  shock_label: string | null;
+  by_bucket: EveBucket[];
+  duration: DurationGap;
+  tier1_capital: number;
+  loss_pct_tier1: number | null;
+  limit_pct_tier1: number;
+  breach: boolean;
 }
 export interface NiiMonth {
   period: string;
@@ -570,6 +642,10 @@ export interface NiiResult {
   by_book: NiiBreakdown[];
   by_ccy: NiiBreakdown[];
   base_nii: number | null;
+  shock_label: string | null;
+  mode: BalanceSheetMode;
+  modes: NiiModeRow[];
+  products: NiiProduct[];
 }
 export interface StressScenarioRow {
   scenario: RateScenario;

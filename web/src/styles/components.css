@@ -802,6 +802,49 @@ dialog.ticket::backdrop {
   border-bottom: 1px solid var(--hairline);
   flex-wrap: wrap;
 }
+.alm-head {
+  min-width: 0;
+}
+.shock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 3px 16px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
+}
+.shock-bar.on {
+  background: var(--warn-soft);
+}
+.shock-bar select.input {
+  width: 180px;
+}
+.shock-shape {
+  flex: none;
+}
+.shock-shape .axis {
+  stroke: var(--text-3, var(--text-2));
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.shock-shape .up {
+  fill: var(--s1);
+}
+.shock-shape .down {
+  fill: var(--s3);
+}
+.shock-result {
+  margin: 0 0 10px;
+  max-width: 920px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.table tbody tr.marked td {
+  background: var(--warn-soft);
+  font-weight: 500;
+}
 .alm-strip .vsep {
   width: 1px;
   height: 18px;
@@ -819,6 +862,33 @@ dialog.ticket::backdrop {
 }
 .alm-layout.single {
   grid-template-columns: minmax(0, 1fr);
+}
+.alm-layout.collapsed {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+.assumptions-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  background: var(--surface-alt);
+  border: 0;
+  border-right: 1px solid var(--hairline);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.assumptions-tab:hover,
+.assumptions-tab:focus-visible {
+  background: var(--surface);
+  color: var(--text);
+}
+.assumptions-tab .label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.04em;
 }
 .assumptions {
   background: var(--surface-alt);
@@ -1640,10 +1710,10 @@ dialog.ticket::backdrop {
 }
 
 .alm-strip select.input {
-  width: 170px;
+  width: 150px;
 }
 .alm-strip .chip {
-  padding: 0 9px;
+  padding: 0 7px;
 }
 
 /* FTP: the curves table, the status-bar chip, and the workbook drop on the ALM tool */

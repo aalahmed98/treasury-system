@@ -4,16 +4,18 @@
 //! reprice at each reset to the scenario index plus spread. With the balance sheet running off, a
 //! cohort earns or pays nothing after its maturity and the cash it releases (an asset) or takes
 //! (a liability) is placed or funded at the scenario's one-month rate in its currency, shown as the
-//! BALANCING book; NIM is then on the average earning assets over the horizon. Administered
+//! BALANCING book; NIM is then on the average earning assets over the horizon. On a dynamic
+//! balance sheet cohorts are replaced as on a constant one and every balance also grows at its
+//! yearly rate, the cash that takes or brings going through the same BALANCING book. Administered
 //! products move by their beta times the shock at the short end; the betas are ALM assumptions
 //! per product (and segment), not the source data's.
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use domain::{AlmParams, BsPosition, BsSide, NiiBreakdown, NiiMonth, NiiResult, RateScenario, RateType};
+use domain::{AlmParams, BalanceSheetMode, BsPosition, BsSide, NiiBreakdown, NiiMonth, NiiModeRow, NiiProduct, NiiResult, RateScenario, RateType};
 
-use crate::curve::{Curve, scenario_curve};
+use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
 use crate::lcr::Spots;
 use crate::schedule::add_months;
 
@@ -62,9 +64,10 @@ pub fn compute(
     curves: &Curves,
     as_of: NaiveDate,
     scenario: RateScenario,
-    custom_bp: f64,
+    custom_bp: impl Into<CustomShock>,
     params_version: Option<i32>,
 ) -> NiiResult {
+    let custom_bp = custom_bp.into();
     let horizon = params.nii.horizon_months.clamp(1, 60);
     let fx = |ccy: &str| if ccy == params.reporting_ccy { 1.0 } else { spots.get(ccy).copied().unwrap_or(1.0) };
     let fallback = Curve::flat("", 0.0);
@@ -73,7 +76,9 @@ pub fn compute(
     let mut months: Vec<NiiMonth> = Vec::with_capacity(horizon as usize);
     let mut by_book: BTreeMap<String, f64> = BTreeMap::new();
     let mut by_ccy: BTreeMap<String, f64> = BTreeMap::new();
-    let run_off = !params.nii.constant_balance_sheet;
+    let mode = params.nii.mode();
+    let run_off = mode == BalanceSheetMode::RunOff;
+    let dynamic = mode == BalanceSheetMode::Dynamic;
     let mut earning_assets_sum = 0.0;
     for m in 0..horizon as i64 {
         let start = add_months(as_of, m);
@@ -96,13 +101,24 @@ pub fn compute(
                 }
                 continue;
             }
+            // Growing: the cohort's balance compounds at its yearly rate, new volume priced as the
+            // cohort is, and the cash the growth takes (an asset) or brings (a liability) is
+            // funded or placed with the balancing book.
+            let balance = if dynamic {
+                let grown = pos.balance * (1.0 + params.nii.growth_for(&pos.product, pos.side) / 100.0).max(0.0).powf(m as f64 / 12.0);
+                let sign = if pos.side == BsSide::Asset { -1.0 } else { 1.0 };
+                *released.entry(pos.ccy.as_str()).or_default() += sign * (grown - pos.balance);
+                grown
+            } else {
+                pos.balance
+            };
             if pos.side == BsSide::Asset && pos.maturity.is_none_or(|mat| mat > as_of) {
-                earning += pos.balance * fx(&pos.ccy);
+                earning += balance * fx(&pos.ccy);
             }
             let base = curve_for(curves, &pos.ccy, &fallback);
             let sh = curve_for(&shocked, &pos.ccy, base);
             let rate = rate_in_month(pos, params.nii.beta_for(&pos.product, &pos.segment), as_of, start, base, sh);
-            let interest = pos.balance * fx(&pos.ccy) * rate / 100.0 * days / pos.day_count.basis();
+            let interest = balance * fx(&pos.ccy) * rate / 100.0 * days / pos.day_count.basis();
             let signed = match pos.side {
                 BsSide::Asset => {
                     income += interest;
@@ -158,5 +174,40 @@ pub fn compute(
         by_book: by_book.into_iter().map(|(key, nii)| NiiBreakdown { key, nii }).collect(),
         by_ccy: by_ccy.into_iter().map(|(key, nii)| NiiBreakdown { key, nii }).collect(),
         base_nii: None,
+        shock_label: shock_label(scenario, custom_bp),
+        mode,
+        modes: Vec::new(),
+        products: Vec::new(),
     }
+}
+
+/// The projection under each balance-sheet assumption, with the base scenario's beside a shocked one.
+#[allow(clippy::too_many_arguments)]
+pub fn modes(positions: &[BsPosition], params: &AlmParams, spots: &Spots, curves: &Curves, as_of: NaiveDate, scenario: RateScenario, custom: impl Into<CustomShock>, params_version: Option<i32>) -> Vec<NiiModeRow> {
+    let custom = custom.into();
+    BalanceSheetMode::ALL
+        .iter()
+        .map(|&mode| {
+            let mut p = params.clone();
+            p.nii.set_mode(mode);
+            let r = compute(positions, &p, spots, curves, as_of, scenario, custom, params_version);
+            let base_nii = (scenario != RateScenario::Base).then(|| compute(positions, &p, spots, curves, as_of, RateScenario::Base, 0.0, params_version).nii);
+            NiiModeRow { mode, nii: r.nii, nim: r.nim, base_nii }
+        })
+        .collect()
+}
+
+/// The rate-sensitive products on the balance sheet, largest first within each side.
+pub fn products(positions: &[BsPosition], params: &AlmParams, spots: &Spots) -> Vec<NiiProduct> {
+    let fx = |ccy: &str| if ccy == params.reporting_ccy { 1.0 } else { spots.get(ccy).copied().unwrap_or(1.0) };
+    let mut by: BTreeMap<(bool, String), f64> = BTreeMap::new();
+    for pos in positions {
+        if pos.side == BsSide::OffBalance || pos.rate_type == RateType::NotSensitive {
+            continue;
+        }
+        *by.entry((pos.side == BsSide::Liability, pos.product.clone())).or_default() += pos.balance * fx(&pos.ccy);
+    }
+    let mut out: Vec<NiiProduct> = by.into_iter().map(|((liability, product), balance)| NiiProduct { product, side: if liability { BsSide::Liability } else { BsSide::Asset }, balance }).collect();
+    out.sort_by(|a, b| (a.side == BsSide::Liability).cmp(&(b.side == BsSide::Liability)).then(b.balance.partial_cmp(&a.balance).unwrap_or(std::cmp::Ordering::Equal)));
+    out
 }

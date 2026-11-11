@@ -256,6 +256,13 @@ impl Default for NsfrParams {
 pub struct GapParams {
     /// Behavioural life in months per non-maturity product.
     pub nmd_behavioural_months: BTreeMap<String, f64>,
+    /// The core share of each non-maturity product, percent: the part taken to stay over the
+    /// behavioural life. The rest reprices overnight. A product not listed is all core.
+    pub nmd_core_pct: BTreeMap<String, f64>,
+    /// How fast the core balance of each non-maturity product decays, percent a year, with what is
+    /// left at the end of the behavioural life falling due then. A product not listed, or at zero,
+    /// runs off evenly over the life instead.
+    pub nmd_decay_pct: BTreeMap<String, f64>,
     /// Cumulative gap limits per bucket as a percent of total assets.
     pub cumulative_gap_limit_pct_assets: BTreeMap<String, f64>,
     pub eve_limit_pct_tier1: f64,
@@ -266,6 +273,8 @@ impl Default for GapParams {
     fn default() -> Self {
         Self {
             nmd_behavioural_months: map([("CURRENT_ACCOUNT", 36.0), ("SAVINGS", 48.0)]),
+            nmd_core_pct: BTreeMap::new(),
+            nmd_decay_pct: BTreeMap::new(),
             cumulative_gap_limit_pct_assets: map([("1M", 15.0), ("3M", 20.0), ("6M", 25.0), ("1Y", 30.0)]),
             eve_limit_pct_tier1: 15.0,
             nii_sensitivity_limit_pct: 10.0,
@@ -343,6 +352,14 @@ pub struct NiiParams {
     /// product (`SAVINGS`), or by product and segment (`CURRENT_ACCOUNT.RETAIL`), which wins.
     /// An ALM assumption: it replaces the beta the source data carries.
     pub betas: BTreeMap<String, f64>,
+    /// A dynamic balance sheet: maturing cohorts are replaced, as on a constant one, and every
+    /// balance grows at its yearly rate below. It takes precedence over `constant_balance_sheet`.
+    pub dynamic: bool,
+    /// Yearly growth of asset and liability balances on a dynamic balance sheet, percent.
+    pub growth_assets_pct: f64,
+    pub growth_liabilities_pct: f64,
+    /// Yearly growth by product, percent, which beats the side's rate.
+    pub growth_by_product: BTreeMap<String, f64>,
 }
 
 impl Default for NiiParams {
@@ -359,6 +376,10 @@ impl Default for NiiParams {
                 ("OPERATIONAL_DEPOSIT", 0.3),
                 ("OVERDRAFT", 0.8),
             ]),
+            dynamic: false,
+            growth_assets_pct: 0.0,
+            growth_liabilities_pct: 0.0,
+            growth_by_product: BTreeMap::new(),
         }
     }
 }
@@ -368,7 +389,41 @@ impl NiiParams {
     pub fn beta_for(&self, product: &str, segment: &str) -> f64 {
         self.betas.get(&format!("{product}.{segment}")).or_else(|| self.betas.get(product)).copied().unwrap_or(self.default_beta)
     }
+
+    /// The yearly growth a cohort's balance takes on a dynamic balance sheet, percent.
+    pub fn growth_for(&self, product: &str, side: BsSide) -> f64 {
+        self.growth_by_product.get(product).copied().unwrap_or(match side {
+            BsSide::Asset => self.growth_assets_pct,
+            BsSide::Liability => self.growth_liabilities_pct,
+            BsSide::OffBalance => 0.0,
+        })
+    }
+
+    pub fn mode(&self) -> BalanceSheetMode {
+        if self.dynamic {
+            BalanceSheetMode::Dynamic
+        } else if self.constant_balance_sheet {
+            BalanceSheetMode::Constant
+        } else {
+            BalanceSheetMode::RunOff
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: BalanceSheetMode) {
+        self.dynamic = mode == BalanceSheetMode::Dynamic;
+        self.constant_balance_sheet = mode != BalanceSheetMode::RunOff;
+    }
 }
+
+text_enum! {
+    /// What the NII projection takes the balance sheet to do over the horizon.
+    BalanceSheetMode {
+        Constant => "CONSTANT",
+        RunOff => "RUN_OFF",
+        Dynamic => "DYNAMIC",
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -510,8 +565,10 @@ pub struct AlmRequest {
     pub params: Option<AlmParams>,
     /// Rate scenario for the NII and EVE tools.
     pub scenario: Option<RateScenario>,
-    /// Basis points for the custom parallel scenario.
+    /// Basis points for the custom scenario.
     pub custom_shock_bp: Option<f64>,
+    /// The gap buckets the custom scenario moves (`3M`, `1Y`); none or empty moves every tenor.
+    pub custom_shock_buckets: Option<Vec<String>>,
     /// Attribution: against the prior month or the budget.
     pub compare_to: Option<CompareTo>,
     /// Attribution: the later period (first day of the month); defaults to the latest.
@@ -647,7 +704,7 @@ impl RateScenario {
             RateScenario::Flattener => "Flattener",
             RateScenario::ShortUp => "Short rates up",
             RateScenario::ShortDown => "Short rates down",
-            RateScenario::Custom => "Custom parallel",
+            RateScenario::Custom => "Custom",
         }
     }
 }
@@ -717,6 +774,12 @@ pub struct GapBucket {
     pub cumulative_pct_assets: f64,
     pub limit_pct: Option<f64>,
     pub breach: bool,
+    /// Under a rate scenario: the move at this bucket in basis points, when every currency in it
+    /// moves by the same amount.
+    pub shock_bp: Option<f64>,
+    /// Under a rate scenario: the gap's effect on the next twelve months' NII, which is the gap
+    /// times the move times the part of the year left after the bucket reprices. Zero beyond a year.
+    pub nii_effect: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -733,6 +796,11 @@ pub struct GapResult {
     pub total_assets: f64,
     pub buckets: Vec<GapBucket>,
     pub by_ccy: Vec<GapCurrency>,
+    pub scenario: RateScenario,
+    /// The scenario in words (`Custom +100 bp at 3M to 1Y`); none on the base curve.
+    pub shock_label: Option<String>,
+    /// The gap estimate of the scenario's effect on twelve-month NII, summed over the buckets.
+    pub nii_effect_12m: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -767,6 +835,30 @@ pub struct NiiResult {
     pub by_ccy: Vec<NiiBreakdown>,
     /// The base scenario's NII when this is a shocked run.
     pub base_nii: Option<f64>,
+    /// The scenario in words; none on the base curve.
+    pub shock_label: Option<String>,
+    pub mode: BalanceSheetMode,
+    /// The same projection under each balance-sheet assumption, for reading them side by side.
+    pub modes: Vec<NiiModeRow>,
+    /// The rate-sensitive products in the snapshot, for the growth assumptions.
+    pub products: Vec<NiiProduct>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiModeRow {
+    pub mode: BalanceSheetMode,
+    pub nii: f64,
+    pub nim: Option<f64>,
+    /// The base scenario's NII under this assumption, when this is a shocked run.
+    pub base_nii: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NiiProduct {
+    pub product: String,
+    pub side: BsSide,
+    /// In the reporting currency.
+    pub balance: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -790,6 +882,47 @@ pub struct EveResult {
     /// Basel aggregation: losses less half the gains, floored at zero.
     pub basel_loss: f64,
     pub by_ccy: Vec<EveCurrency>,
+    /// The scenario in words; none on the base curve.
+    pub shock_label: Option<String>,
+    /// Present value by the bucket each cash flow falls in, assets less liabilities.
+    pub by_bucket: Vec<EveBucket>,
+    pub duration: DurationGap,
+    pub tier1_capital: f64,
+    pub loss_pct_tier1: Option<f64>,
+    pub limit_pct_tier1: f64,
+    pub breach: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EveBucket {
+    pub label: String,
+    pub assets: f64,
+    pub liabilities: f64,
+    pub base: f64,
+    pub shocked: f64,
+    pub delta: f64,
+}
+
+/// The duration gap and what it predicts: the change in EVE is about
+/// `-(D_A - (L/A) * D_L) * A * dy / (1 + y)`. Present values and durations are on the base curve,
+/// in the reporting currency.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DurationGap {
+    /// Present value of rate-sensitive assets (A) and liabilities (L).
+    pub assets: f64,
+    pub liabilities: f64,
+    /// Macaulay durations in years.
+    pub d_assets: f64,
+    pub d_liabilities: f64,
+    /// `D_A - (L/A) * D_L`, years.
+    pub gap_years: f64,
+    /// The yield the formula divides by, percent: the base rate averaged over the cash flows.
+    pub yield_pct: f64,
+    /// The parallel move in basis points, when the scenario is one and every currency moves alike.
+    pub shock_bp: Option<f64>,
+    /// The formula's estimate of the change in EVE; none unless the scenario is a parallel move,
+    /// which is what the formula assumes.
+    pub estimate: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

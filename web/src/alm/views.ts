@@ -1,11 +1,13 @@
 // Per-tool views: everything a page draws, formatted once from the server's result. Ported from
 // crates/client/src/alm_state.rs so the two clients print the same.
-import type { AttributionResult, FundingResult, GapResult, LcrLine, LcrResult, NiiResult, NsfrLine, NsfrResult, RateScenario, StressResult } from '../api/types';
+import type { AttributionResult, BalanceSheetMode, EveResult, FundingResult, GapResult, LcrLine, LcrResult, NiiResult, NsfrLine, NsfrResult, RateScenario, StressResult } from '../api/types';
 import { fmtDateLong, fmtMonth, fmtMoneyShort, fmtPct, nice, signed } from '../lib/fmt';
 import { SCENARIO_LABEL, pctOrDash, standing, type Standing } from '../lib/alm';
 
 export const basisLabel = (v: number | null) => (v !== null ? `bank parameters v${v}` : 'unsaved what-if');
 const minus = (v: number) => (v > 0.5 ? `-${fmtMoneyShort(v)}` : '0');
+
+export const MODE_LABEL: Record<BalanceSheetMode, string> = { CONSTANT: 'Constant', RUN_OFF: 'Run-off', DYNAMIC: 'Dynamic' };
 
 export const SHORT_LABEL: Record<RateScenario, string> = { BASE: 'Base', PARALLEL_UP: 'Par +', PARALLEL_DOWN: 'Par −', STEEPENER: 'Steep', FLATTENER: 'Flat', SHORT_UP: 'Short +', SHORT_DOWN: 'Short −', CUSTOM: 'Custom' };
 
@@ -51,18 +53,76 @@ export function nsfrView(raw: NsfrResult) {
   };
 }
 
+const bpText = (v: number | null) => (v === null ? 'varies' : `${v > 0 ? '+' : ''}${v.toFixed(0)}`);
+
 export function gapView(raw: GapResult) {
+  const shocked = raw.shock_label !== null;
   return {
     basis: basisLabel(raw.params_version),
-    rows: raw.buckets.map((b) => [b.label, fmtMoneyShort(b.assets), fmtMoneyShort(b.liabilities), signed(b.gap), signed(b.cumulative), b.limit_pct !== null ? `${b.cumulative_pct_assets.toFixed(1)}% of ${b.limit_pct.toFixed(0)}%` : `${b.cumulative_pct_assets.toFixed(1)}%`]),
+    shocked,
+    headers: ['Bucket', 'Assets', 'Liabilities', 'Gap', 'Cumulative', 'Cumulative % (limit)', ...(shocked ? ['Shock (bp)', 'Effect on 12m NII'] : [])],
+    rows: raw.buckets.map((b) => [
+      b.label,
+      fmtMoneyShort(b.assets),
+      fmtMoneyShort(b.liabilities),
+      signed(b.gap),
+      signed(b.cumulative),
+      b.limit_pct !== null ? `${b.cumulative_pct_assets.toFixed(1)}% of ${b.limit_pct.toFixed(0)}%` : `${b.cumulative_pct_assets.toFixed(1)}%`,
+      ...(shocked ? [bpText(b.shock_bp), b.nii_effect === null ? '—' : signed(b.nii_effect)] : []),
+    ]),
     gapBars: raw.buckets.map((b) => [b.label, b.gap] as [string, number]),
     cumulativeBars: raw.buckets.map((b) => [b.label, b.cumulative] as [string, number]),
+    effectBars: raw.buckets.map((b) => [b.label, b.nii_effect ?? 0] as [string, number]),
+    effect: raw.nii_effect_12m === null ? null : signed(raw.nii_effect_12m),
     breaches: raw.buckets.filter((b) => b.breach).map((b) => `${b.label}: ${b.cumulative_pct_assets.toFixed(1)}% against ${(b.limit_pct ?? 0).toFixed(0)}%`),
     ccyRows: raw.by_ccy.map((c) => {
       const y1 = c.buckets.find((b) => b.label === '1Y');
-      return [c.ccy, y1 ? signed(y1.cumulative) : '', y1 ? `${y1.cumulative_pct_assets.toFixed(1)}%` : ''];
+      const effect = c.buckets.reduce((sum, b) => sum + (b.nii_effect ?? 0), 0);
+      return [c.ccy, y1 ? signed(y1.cumulative) : '', y1 ? `${y1.cumulative_pct_assets.toFixed(1)}%` : '', ...(shocked ? [signed(effect)] : [])];
     }),
+    ccyHeaders: ['Currency', 'Cumulative', '% assets', ...(shocked ? ['Effect on 12m NII'] : [])],
     y1: raw.buckets.find((b) => b.label === '1Y') ?? null,
+  };
+}
+
+const years = (v: number) => `${v.toFixed(2)} years`;
+
+export function eveView(raw: EveResult) {
+  const shocked = raw.shock_label !== null;
+  const g = raw.duration;
+  const durationRows: [string, string][] = [
+    ['Assets, present value (A)', fmtMoneyShort(g.assets)],
+    ['Liabilities, present value (L)', fmtMoneyShort(g.liabilities)],
+    ['Asset duration (D_A)', years(g.d_assets)],
+    ['Liability duration (D_L)', years(g.d_liabilities)],
+    ['Duration gap', years(g.gap_years)],
+    ['Yield (y)', `${g.yield_pct.toFixed(2)}%`],
+  ];
+  const estimateRows: [string, string][] =
+    g.estimate === null
+      ? []
+      : [
+          ['Rate move (Δy)', g.shock_bp === null ? 'by currency' : `${bpText(g.shock_bp)} bp`],
+          ['Estimate from the formula', signed(g.estimate)],
+          ['Full revaluation', signed(raw.delta)],
+          ['Difference', signed(raw.delta - g.estimate)],
+        ];
+  return {
+    basis: basisLabel(raw.params_version),
+    shocked,
+    headline: shocked ? signed(raw.delta) : fmtMoneyShort(raw.base),
+    standing: (raw.breach ? 'breach' : 'comfortable') as Standing,
+    lossPct: raw.loss_pct_tier1 === null ? '—' : `${raw.loss_pct_tier1.toFixed(1)}%`,
+    durationRows,
+    estimateRows,
+    /** Why there is no estimate, when there is a shock but none. */
+    noEstimate: shocked && g.estimate === null,
+    deltaBars: raw.by_bucket.map((b) => [b.label, b.delta] as [string, number]),
+    valueBars: raw.by_bucket.map((b) => [b.label, b.base] as [string, number]),
+    ccyRows: raw.by_ccy.map((c) => [c.ccy, fmtMoneyShort(c.base), ...(shocked ? [fmtMoneyShort(c.shocked), signed(c.delta)] : [])]),
+    ccyHeaders: ['Currency', 'EVE today', ...(shocked ? ['Under the shock', 'Change'] : [])],
+    bucketRows: raw.by_bucket.map((b) => [b.label, fmtMoneyShort(b.assets), fmtMoneyShort(b.liabilities), signed(b.base), ...(shocked ? [signed(b.shocked), signed(b.delta)] : [])]),
+    bucketHeaders: ['Bucket', 'Assets', 'Liabilities', 'Net', ...(shocked ? ['Under the shock', 'Change'] : [])],
   };
 }
 
@@ -70,12 +130,16 @@ export function niiView(raw: NiiResult) {
   return {
     headline: fmtMoneyShort(raw.nii),
     nim: raw.nim === null ? '—' : `${raw.nim.toFixed(2)}%`,
-    basis: `${SCENARIO_LABEL[raw.scenario]} · ${basisLabel(raw.params_version)}`,
+    basis: `${raw.shock_label ?? SCENARIO_LABEL[raw.scenario]} · ${basisLabel(raw.params_version)}`,
     delta: raw.base_nii === null ? null : `${signed(raw.nii - raw.base_nii)} against the base (${fmtMoneyShort(raw.base_nii)})`,
     monthBars: raw.months.map((m) => [fmtMonth(m.period), m.nii] as [string, number]),
     rows: raw.months.map((m) => [fmtMonth(m.period, true), fmtMoneyShort(m.income), fmtMoneyShort(m.expense), fmtMoneyShort(m.nii)]),
     byBook: raw.by_book.map((b) => [nice(b.key), signed(b.nii)]),
     byCcy: raw.by_ccy.map((b) => [b.key, signed(b.nii)]),
+    shocked: raw.shock_label !== null,
+    modeHeaders: ['Balance sheet', 'NII', 'NIM', ...(raw.shock_label !== null ? ['On today’s curve', 'Change under the shock'] : [])],
+    modeRows: raw.modes.map((m) => [MODE_LABEL[m.mode], fmtMoneyShort(m.nii), m.nim === null ? '—' : `${m.nim.toFixed(2)}%`, ...(m.base_nii === null ? [] : [fmtMoneyShort(m.base_nii), signed(m.nii - m.base_nii)])]),
+    modeMark: raw.modes.findIndex((m) => m.mode === raw.mode),
   };
 }
 

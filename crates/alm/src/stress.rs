@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 use domain::{AlmParams, BsPosition, BsSide, FxStressRow, LiquidityStressResult, RateScenario, StressResult, StressScenarioRow, SurvivalPoint};
 
+use crate::curve::CustomShock;
 use crate::lcr::Spots;
 use crate::nii::Curves;
 use crate::schedule::cash_flows;
@@ -97,16 +98,16 @@ pub fn compute(
     spots: &Spots,
     curves: &Curves,
     as_of: NaiveDate,
-    custom_bp: Option<f64>,
+    custom: Option<CustomShock>,
     params_version: Option<i32>,
 ) -> StressResult {
     let base_nii = nii::compute(positions, params, spots, curves, as_of, RateScenario::Base, 0.0, params_version);
     let base_eve = eve::compute(positions, params, spots, curves, as_of, RateScenario::Base, 0.0, params_version);
     let mut scenarios: Vec<RateScenario> = RateScenario::BASEL.to_vec();
-    if custom_bp.is_some() {
+    if custom.is_some() {
         scenarios.push(RateScenario::Custom);
     }
-    let bp = custom_bp.unwrap_or(0.0);
+    let bp = custom.unwrap_or(CustomShock::parallel(0.0));
     let tier1 = params.tier1_capital;
     let rows: Vec<StressScenarioRow> = scenarios
         .into_iter()
@@ -118,7 +119,7 @@ pub fn compute(
             let eve_loss_pct_tier1 = (tier1 > 0.0).then(|| e.basel_loss / tier1 * 100.0);
             StressScenarioRow {
                 scenario: s,
-                label: if s == RateScenario::Custom { format!("Custom parallel {bp:+.0} bp") } else { s.label().into() },
+                label: if s == RateScenario::Custom { bp.label() } else { s.label().into() },
                 nii: n.nii,
                 nii_delta,
                 nii_delta_pct,

@@ -15,6 +15,7 @@ pub mod ird;
 pub mod lcr;
 pub mod liquidity;
 pub mod nii;
+pub mod nmd;
 pub mod nsfr;
 pub mod ratios;
 pub mod schedule;

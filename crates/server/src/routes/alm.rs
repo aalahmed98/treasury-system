@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use alm::curve::Curve;
+use alm::curve::{Curve, CustomShock};
 use alm::funding::DepositorGroup;
 use alm::lcr::Spots;
 use alm::nii::Curves;
@@ -143,6 +143,19 @@ fn validate(p: &AlmParams) -> Result<(), ApiError> {
     for (k, v) in &p.gap.nmd_behavioural_months {
         if !v.is_finite() || *v < 1.0 || *v > 240.0 {
             return Err(bad(format!("behavioural life {k} must be 1 to 240 months")));
+        }
+    }
+    for (k, v) in &p.gap.nmd_core_pct {
+        pct(&format!("core share {k}"), *v)?;
+    }
+    for (k, v) in &p.gap.nmd_decay_pct {
+        if !v.is_finite() || !(0.0..=99.0).contains(v) {
+            return Err(bad(format!("decay {k} must be 0 to 99 percent a year")));
+        }
+    }
+    for (k, v) in [("assets", p.nii.growth_assets_pct), ("liabilities", p.nii.growth_liabilities_pct)].into_iter().chain(p.nii.growth_by_product.iter().map(|(k, v)| (k.as_str(), *v))) {
+        if !v.is_finite() || !(-50.0..=100.0).contains(&v) {
+            return Err(bad(format!("growth of {k} must be between -50 and 100 percent a year")));
         }
     }
     for (k, s) in &p.stress.shocks {
@@ -427,7 +440,11 @@ pub async fn nsfr(State(state): State<AppState>, Extension(auth): Extension<Auth
 
 pub async fn gap(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<GapResult>, ApiError> {
     let (book, version, params) = prepare(&state, &auth, &req).await?;
-    Ok(Json(official(&state, "gap", &book, version, String::new(), || alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, version))))
+    let scenario = req.scenario.unwrap_or(RateScenario::Base);
+    let custom = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
+    Ok(Json(official(&state, "gap", &book, version, shock_key(scenario, custom), || {
+        alm::gap::with_shock(alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, version), &params, &book.curves, scenario, custom)
+    })))
 }
 
 pub async fn funding(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<FundingResult>, ApiError> {
@@ -437,34 +454,51 @@ pub async fn funding(State(state): State<AppState>, Extension(auth): Extension<A
     })))
 }
 
-fn nii_for(book: &Book, params: &AlmParams, scenario: RateScenario, bp: f64, version: Option<i32>) -> NiiResult {
+/// The custom scenario a request asks for: its size, aimed at the buckets it names.
+fn custom_shock(req: &AlmRequest) -> Result<Option<CustomShock>, ApiError> {
+    let Some(bp) = req.custom_shock_bp else { return Ok(None) };
+    if !bp.is_finite() || bp.abs() > 2000.0 {
+        return Err(ApiError::BadRequest("the custom shock must be within 2000 basis points".into()));
+    }
+    CustomShock::from_labels(bp, req.custom_shock_buckets.as_deref().unwrap_or(&[])).map(Some).map_err(ApiError::BadRequest)
+}
+
+/// The cache key for a scenario: the custom shock's size and buckets matter only to the custom one.
+fn shock_key(scenario: RateScenario, custom: CustomShock) -> String {
+    if scenario == RateScenario::Custom { format!("{scenario}:{}", custom.key()) } else { format!("{scenario}:0") }
+}
+
+fn nii_for(book: &Book, params: &AlmParams, scenario: RateScenario, bp: impl Into<CustomShock>, version: Option<i32>) -> NiiResult {
+    let bp = bp.into();
     let mut r = alm::nii::compute(&book.positions, params, &book.spots, &book.curves, book.as_of, scenario, bp, version);
     if scenario != RateScenario::Base {
         r.base_nii = Some(alm::nii::compute(&book.positions, params, &book.spots, &book.curves, book.as_of, RateScenario::Base, 0.0, version).nii);
     }
+    r.modes = alm::nii::modes(&book.positions, params, &book.spots, &book.curves, book.as_of, scenario, bp, version);
+    r.products = alm::nii::products(&book.positions, params, &book.spots);
     r
 }
 
 pub async fn nii(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<NiiResult>, ApiError> {
     let (book, version, params) = prepare(&state, &auth, &req).await?;
     let scenario = req.scenario.unwrap_or(RateScenario::Base);
-    let bp = req.custom_shock_bp.unwrap_or(0.0);
-    Ok(Json(official(&state, "nii", &book, version, format!("{scenario}:{bp}"), || nii_for(&book, &params, scenario, bp, version))))
+    let bp = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
+    Ok(Json(official(&state, "nii", &book, version, shock_key(scenario, bp), || nii_for(&book, &params, scenario, bp, version))))
 }
 
 pub async fn eve(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<EveResult>, ApiError> {
     let (book, version, params) = prepare(&state, &auth, &req).await?;
     let scenario = req.scenario.unwrap_or(RateScenario::ParallelUp);
-    let bp = req.custom_shock_bp.unwrap_or(0.0);
-    Ok(Json(official(&state, "eve", &book, version, format!("{scenario}:{bp}"), || {
+    let bp = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
+    Ok(Json(official(&state, "eve", &book, version, shock_key(scenario, bp), || {
         alm::eve::compute(&book.positions, &params, &book.spots, &book.curves, book.as_of, scenario, bp, version)
     })))
 }
 
 pub async fn stress(State(state): State<AppState>, Extension(auth): Extension<AuthUser>, Json(req): Json<AlmRequest>) -> Result<Json<StressResult>, ApiError> {
     let (book, version, params) = prepare(&state, &auth, &req).await?;
-    let bp = req.custom_shock_bp;
-    Ok(Json(official(&state, "stress", &book, version, format!("{bp:?}"), || {
+    let bp = custom_shock(&req)?;
+    Ok(Json(official(&state, "stress", &book, version, bp.map(|c| c.key()).unwrap_or_else(|| "None".into()), || {
         alm::stress::compute(&book.positions, &params, &book.spots, &book.curves, book.as_of, bp, version)
     })))
 }
@@ -635,7 +669,7 @@ pub async fn build_overview(state: &AppState, conn: &mut PgConnection) -> Result
     let v = Some(active.version);
     let lcr = official(state, "lcr", &book, v, String::new(), || alm::lcr(&book.positions, &params, &book.spots, book.as_of, v));
     let nsfr = official(state, "nsfr", &book, v, String::new(), || alm::nsfr::compute(&book.positions, &params, &book.spots, book.as_of, v));
-    let gap = official(state, "gap", &book, v, String::new(), || alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, v));
+    let gap = official(state, "gap", &book, v, "BASE:0".into(), || alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, v));
     let funding = official(state, "funding", &book, v, String::new(), || alm::funding::compute(&book.positions, &book.depositors, &params, &book.spots, book.as_of, v));
     let stress = official(state, "stress", &book, v, "None".into(), || alm::stress::compute(&book.positions, &params, &book.spots, &book.curves, book.as_of, None, v));
     let nii = official(state, "nii", &book, v, "BASE:0".into(), || nii_for(&book, &params, RateScenario::Base, 0.0, v));

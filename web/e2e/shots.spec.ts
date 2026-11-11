@@ -16,6 +16,7 @@ const routes: [string, string][] = [
   ['alm-nsfr', '/app/alm/nsfr'],
   ['alm-gap', '/app/alm/gap'],
   ['alm-nii', '/app/alm/nii'],
+  ['alm-eve', '/app/alm/eve'],
   ['alm-stress', '/app/alm/stress'],
   ['alm-attribution', '/app/alm/attribution'],
   ['alm-ird', '/app/alm/ird'],

@@ -1,14 +1,18 @@
 //! Repricing gap: rate-sensitive assets less liabilities per time bucket, by the date each
 //! cohort next reprices (floating at its reset, fixed at each principal date, administered
-//! deposits over their behavioural life), with the bank's cumulative limits.
+//! deposits by their behavioural profile: the non-core share overnight, the core over its life),
+//! with the bank's cumulative limits.
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use domain::{AlmParams, BsPosition, BsSide, GapBucket, GapCurrency, GapResult, RateType};
+use domain::{AlmParams, BsPosition, BsSide, GapBucket, GapCurrency, GapResult, RateScenario, RateType};
 
 use crate::bucket::{GAP_BUCKETS, gap_bucket};
+use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
 use crate::lcr::Spots;
+use crate::nii::Curves;
+use crate::nmd;
 use crate::schedule::cash_flows;
 
 /// Balance slotted per bucket for one cohort, in its own currency.
@@ -31,19 +35,10 @@ pub fn slots(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(usi
             out.into_iter().collect()
         }
         RateType::Admin => {
-            let months = params
-                .gap
-                .nmd_behavioural_months
-                .get(&pos.product)
-                .copied()
-                .or(pos.behavioural_months.map(|m| m as f64))
-                .unwrap_or(1.0)
-                .max(1.0)
-                .round() as i64;
-            let slice = pos.balance / months as f64;
             let mut out: BTreeMap<usize, f64> = BTreeMap::new();
-            for m in 0..months {
-                *out.entry(gap_bucket(30 * m + 15)).or_default() += slice;
+            for (month, amount) in nmd::profile(pos, params) {
+                let days = month.map(|m| 30 * m + 15).unwrap_or(1);
+                *out.entry(gap_bucket(days)).or_default() += amount;
             }
             out.into_iter().collect()
         }
@@ -70,6 +65,8 @@ fn buckets_from(totals: &[(f64, f64); 9], total_assets: f64, params: &AlmParams)
                 cumulative_pct_assets: pct,
                 limit_pct: limit,
                 breach: limit.is_some_and(|l| pct.abs() > l),
+                shock_bp: None,
+                nii_effect: None,
             }
         })
         .collect()
@@ -111,5 +108,51 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
         total_assets,
         buckets: buckets_from(&total, total_assets, params),
         by_ccy: per_ccy.into_iter().map(|(ccy, t)| GapCurrency { ccy, buckets: buckets_from(&t, total_assets, params) }).collect(),
+        scenario: RateScenario::Base,
+        shock_label: None,
+        nii_effect_12m: None,
     }
+}
+
+/// The middle of each bucket in years: where its balances are taken to reprice.
+pub const BUCKET_MID_YEARS: [f64; 9] = [0.5 / 365.0, 4.0 / 365.0, 18.5 / 365.0, 60.5 / 365.0, 136.5 / 365.0, 273.5 / 365.0, 1.5, 3.5, 7.5];
+
+/// The gap under a rate scenario. The balances do not move; what the scenario adds is the classic
+/// gap estimate of its effect on the next twelve months' NII: per bucket and currency, the gap
+/// times the rate move at that tenor times the part of the year left once the bucket has
+/// repriced. It takes every balance to pass the move on in full, so it overstates what deposits
+/// with a low beta give up; the NII projection is the fuller answer.
+pub fn with_shock(mut r: GapResult, params: &AlmParams, curves: &Curves, scenario: RateScenario, custom: impl Into<CustomShock>) -> GapResult {
+    let custom = custom.into();
+    r.scenario = scenario;
+    r.shock_label = shock_label(scenario, custom);
+    if scenario == RateScenario::Base {
+        return r;
+    }
+    let fallback = Curve::flat("", 0.0);
+    let n = GAP_BUCKETS.len();
+    let mut total = vec![0.0; n];
+    let mut moves: Vec<Vec<f64>> = vec![Vec::new(); n];
+    for c in &mut r.by_ccy {
+        let base = curves.get(&c.ccy).unwrap_or(&fallback);
+        let shocked = scenario_curve(base, params, scenario, custom);
+        for (i, b) in c.buckets.iter_mut().enumerate() {
+            let t = BUCKET_MID_YEARS[i];
+            let bp = (shocked.rate(t) - base.rate(t)) * 100.0;
+            let effect = b.gap * bp / 10_000.0 * (1.0 - t).max(0.0);
+            b.shock_bp = Some(bp);
+            b.nii_effect = Some(effect);
+            total[i] += effect;
+            moves[i].push(bp);
+        }
+    }
+    for (i, b) in r.buckets.iter_mut().enumerate() {
+        b.nii_effect = Some(total[i]);
+        b.shock_bp = match moves[i].split_first() {
+            Some((first, rest)) if rest.iter().all(|x| (x - first).abs() < 0.01) => Some(*first),
+            _ => None,
+        };
+    }
+    r.nii_effect_12m = Some(total.iter().sum());
+    r
 }

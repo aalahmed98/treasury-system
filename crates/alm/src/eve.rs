@@ -1,16 +1,19 @@
 //! Economic value of equity: the present value of every rate-sensitive cash flow on the base and
 //! the shocked curve. Fixed cohorts contribute their schedule, floating cohorts par plus accrued
 //! at the next reset, administered deposits their behavioural run-off; equity and other
-//! non-sensitive items are left out.
+//! non-sensitive items are left out. Beside the full revaluation it reports the duration gap and
+//! what that predicts for a parallel move, so the two can be read against each other.
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use domain::{AlmParams, BsPosition, BsSide, EveCurrency, EveResult, RateScenario, RateType};
+use domain::{AlmParams, BsPosition, BsSide, DurationGap, EveBucket, EveCurrency, EveResult, RateScenario, RateType};
 
-use crate::curve::{Curve, scenario_curve};
+use crate::bucket::GAP_BUCKETS;
+use crate::curve::{Curve, CustomShock, bucket_of_years, scenario_curve, shock_for, shock_label};
 use crate::lcr::Spots;
 use crate::nii::Curves;
+use crate::nmd;
 use crate::schedule::{add_months, cash_flows};
 
 /// (years, amount) flows of a cohort in its own currency.
@@ -29,24 +32,24 @@ pub fn flows(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(f64
                 _ => vec![(0.0, pos.balance)],
             }
         }
-        RateType::Admin => {
-            let months = params
-                .gap
-                .nmd_behavioural_months
-                .get(&pos.product)
-                .copied()
-                .or(pos.behavioural_months.map(|m| m as f64))
-                .unwrap_or(1.0)
-                .max(1.0)
-                .round() as i64;
-            let slice = pos.balance / months as f64;
-            (0..months).map(|m| (years(add_months(as_of, m)) + 0.5 / 12.0, slice)).collect()
-        }
+        RateType::Admin => nmd::profile(pos, params)
+            .into_iter()
+            .map(|(month, amount)| match month {
+                Some(m) => (years(add_months(as_of, m)) + 0.5 / 12.0, amount),
+                None => (1.0 / 365.0, amount),
+            })
+            .collect(),
     }
 }
 
-fn pv(flows: &[(f64, f64)], curve: &Curve) -> f64 {
-    flows.iter().map(|(t, a)| a * curve.df(*t)).sum()
+/// The parallel move a scenario makes in a currency, in basis points; none when it is not parallel.
+fn parallel_bp(params: &AlmParams, ccy: &str, scenario: RateScenario, custom: CustomShock) -> Option<f64> {
+    match scenario {
+        RateScenario::ParallelUp => Some(shock_for(params, ccy).parallel),
+        RateScenario::ParallelDown => Some(-shock_for(params, ccy).parallel),
+        RateScenario::Custom if custom.is_parallel() => Some(custom.bp),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -57,29 +60,73 @@ pub fn compute(
     curves: &Curves,
     as_of: NaiveDate,
     scenario: RateScenario,
-    custom_bp: f64,
+    custom_bp: impl Into<CustomShock>,
     params_version: Option<i32>,
 ) -> EveResult {
+    let custom = custom_bp.into();
     let fx = |ccy: &str| if ccy == params.reporting_ccy { 1.0 } else { spots.get(ccy).copied().unwrap_or(1.0) };
     let fallback = Curve::flat("", 0.0);
     let mut per: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    // Per bucket: assets and liabilities at base, then the net at base and shocked.
+    let mut buckets = vec![(0.0f64, 0.0f64, 0.0f64, 0.0f64); GAP_BUCKETS.len()];
+    // Present value and time-weighted present value per side, on the base curve.
+    let (mut pv_a, mut pvt_a, mut pv_l, mut pvt_l) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    // For the yield: the base rate averaged over the flows, weighted as duration weights them.
+    let (mut rate_weight, mut weight) = (0.0f64, 0.0f64);
+    // Per currency: assets' less liabilities' time-weighted present value.
+    let mut dollar_duration: BTreeMap<String, f64> = BTreeMap::new();
     for pos in positions {
         if pos.side == BsSide::OffBalance {
             continue;
         }
         let base = curves.get(&pos.ccy).unwrap_or(&fallback);
-        let sh = scenario_curve(base, params, scenario, custom_bp);
-        let fl = flows(pos, params, as_of);
+        let sh = scenario_curve(base, params, scenario, custom);
         let sign = if pos.side == BsSide::Asset { 1.0 } else { -1.0 };
+        let rate = fx(&pos.ccy);
         let e = per.entry(pos.ccy.clone()).or_insert((0.0, 0.0));
-        e.0 += sign * pv(&fl, base) * fx(&pos.ccy);
-        e.1 += sign * pv(&fl, &sh) * fx(&pos.ccy);
+        for (t, amount) in flows(pos, params, as_of) {
+            let b = amount * base.df(t) * rate;
+            let s = amount * sh.df(t) * rate;
+            e.0 += sign * b;
+            e.1 += sign * s;
+            let slot = &mut buckets[bucket_of_years(t)];
+            if pos.side == BsSide::Asset {
+                slot.0 += b;
+                pv_a += b;
+                pvt_a += b * t;
+            } else {
+                slot.1 += b;
+                pv_l += b;
+                pvt_l += b * t;
+            }
+            slot.2 += sign * b;
+            slot.3 += sign * s;
+            rate_weight += b.abs() * t * base.rate(t);
+            weight += b.abs() * t;
+            *dollar_duration.entry(pos.ccy.clone()).or_default() += sign * b * t;
+        }
     }
     let by_ccy: Vec<EveCurrency> = per.into_iter().map(|(ccy, (base, shocked))| EveCurrency { ccy, base, shocked, delta: shocked - base }).collect();
     let base: f64 = by_ccy.iter().map(|c| c.base).sum();
     let shocked: f64 = by_ccy.iter().map(|c| c.shocked).sum();
     let losses: f64 = by_ccy.iter().map(|c| (-c.delta).max(0.0)).sum();
     let gains: f64 = by_ccy.iter().map(|c| c.delta.max(0.0)).sum();
+    let basel_loss = (losses - 0.5 * gains).max(0.0);
+
+    let d_assets = if pv_a.abs() > 1e-9 { pvt_a / pv_a } else { 0.0 };
+    let d_liabilities = if pv_l.abs() > 1e-9 { pvt_l / pv_l } else { 0.0 };
+    let gap_years = if pv_a.abs() > 1e-9 { d_assets - pv_l / pv_a * d_liabilities } else { 0.0 };
+    let yield_pct = if weight > 1e-9 { rate_weight / weight } else { 0.0 };
+    let moves: Vec<(f64, f64)> = dollar_duration.iter().filter_map(|(ccy, dd)| parallel_bp(params, ccy, scenario, custom).map(|bp| (*dd, bp))).collect();
+    let parallel = !moves.is_empty() && moves.len() == dollar_duration.len();
+    let estimate = parallel.then(|| -moves.iter().map(|(dd, bp)| dd * bp / 10_000.0).sum::<f64>() / (1.0 + yield_pct / 100.0));
+    let shock_bp = match moves.split_first() {
+        Some(((_, first), rest)) if parallel && rest.iter().all(|(_, bp)| (bp - first).abs() < 1e-9) => Some(*first),
+        _ => None,
+    };
+
+    let tier1 = params.tier1_capital;
+    let loss_pct_tier1 = (tier1 > 0.0).then(|| basel_loss / tier1 * 100.0);
     EveResult {
         as_of,
         params_version,
@@ -88,7 +135,18 @@ pub fn compute(
         base,
         shocked,
         delta: shocked - base,
-        basel_loss: (losses - 0.5 * gains).max(0.0),
+        basel_loss,
         by_ccy,
+        shock_label: shock_label(scenario, custom),
+        by_bucket: GAP_BUCKETS
+            .iter()
+            .zip(buckets)
+            .map(|((label, _), (assets, liabilities, base, shocked))| EveBucket { label: (*label).into(), assets, liabilities, base, shocked, delta: shocked - base })
+            .collect(),
+        duration: DurationGap { assets: pv_a, liabilities: pv_l, d_assets, d_liabilities, gap_years, yield_pct, shock_bp, estimate },
+        tier1_capital: tier1,
+        loss_pct_tier1,
+        limit_pct_tier1: params.gap.eve_limit_pct_tier1,
+        breach: loss_pct_tier1.is_some_and(|p| p > params.gap.eve_limit_pct_tier1),
     }
 }

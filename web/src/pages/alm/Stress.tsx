@@ -3,42 +3,21 @@ import type { StressResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars, LineChart } from '../../components/charts';
 import { useAlm, useTool } from '../../alm/state';
-import { AssumptionsHeader, Bp, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { AssumptionsHeader, Group, Headline, KV, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { stressView } from '../../alm/views';
 import { fmtDateLong, fmtMoneyShort, signed } from '../../lib/fmt';
 import { ShockGrid } from './Nii';
 
 function Assumptions() {
-  const { working, edit, bank, customBp, setCustomBp } = useAlm();
+  const { working, edit, bank } = useAlm();
   if (!working || !bank) return null;
   const s = working.stress;
   const b = bank.stress;
   return (
     <>
       <AssumptionsHeader />
-      <Group title="Limits" help="How much economic value (EVE) and income (NII) the bank is prepared to lose under the worst scenario.">
-        <Row label="EVE loss (% of Tier 1)">
-          <Pct value={working.gap.eve_limit_pct_tier1} base={bank.gap.eve_limit_pct_tier1} onChange={(v) => edit((p) => void (p.gap.eve_limit_pct_tier1 = v))} />
-        </Row>
-        <Row label="NII sensitivity (%)">
-          <Pct value={working.gap.nii_sensitivity_limit_pct} base={bank.gap.nii_sensitivity_limit_pct} onChange={(v) => edit((p) => void (p.gap.nii_sensitivity_limit_pct = v))} />
-        </Row>
-        <Row label="Tier 1 capital">
-          <Num value={working.tier1_capital} base={bank.tier1_capital} min={1} max={1e12} step={1e6} width={120} onChange={(v) => edit((p) => void (p.tier1_capital = v))} />
-        </Row>
-        <Row label="Custom parallel shock">
-          <Bp value={customBp} onChange={setCustomBp} />
-        </Row>
-      </Group>
-      <Group title="Rate shocks (bp)" help="The size of each Basel shock per currency, and the floor rates cannot fall below after a shock." open={false} count={Object.keys(s.shocks).length + 2}>
-        <ShockGrid />
-        <Row label="Post-shock floor (bp)">
-          <Num value={s.floor_bp} base={b.floor_bp} min={-500} max={0} step={5} onChange={(v) => edit((p) => void (p.stress.floor_bp = v))} />
-        </Row>
-        <Row label="Floor rises per year (bp)">
-          <Num value={s.floor_slope_bp_per_year} base={b.floor_slope_bp_per_year} min={0} max={50} step={1} onChange={(v) => edit((p) => void (p.stress.floor_slope_bp_per_year = v))} />
-        </Row>
-      </Group>
+      <RateLimits />
+      <ShockSizes />
       <Group title="Liquidity stress" help="A harsher run-off, a deeper haircut on liquid assets and fewer inflows than the LCR assumes.">
         <Row label="Run-off multiplier">
           <Num value={s.liquidity.outflow_multiplier} base={b.liquidity.outflow_multiplier} min={1} max={5} step={0.05} decimals={2} onChange={(v) => edit((p) => void (p.stress.liquidity.outflow_multiplier = v))} />
@@ -61,13 +40,55 @@ function Assumptions() {
   );
 }
 
+/** The floor rates cannot fall below after a shock: shared with the EVE tab. */
+export function ShockSizes() {
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
+  const s = working.stress;
+  const b = bank.stress;
+  return (
+    <Group title="Rate shocks (bp)" help="The size of each Basel shock per currency, and the floor rates cannot fall below after a shock." open={false} count={Object.keys(s.shocks).length + 2}>
+      <ShockGrid />
+      <Row label="Post-shock floor (bp)">
+        <Num value={s.floor_bp} base={b.floor_bp} min={-500} max={0} step={5} onChange={(v) => edit((p) => void (p.stress.floor_bp = v))} />
+      </Row>
+      <Row label="Floor rises per year (bp)">
+        <Num value={s.floor_slope_bp_per_year} base={b.floor_slope_bp_per_year} min={0} max={50} step={1} onChange={(v) => edit((p) => void (p.stress.floor_slope_bp_per_year = v))} />
+      </Row>
+    </Group>
+  );
+}
+
+/** The EVE and NII limits and the capital they are measured against: shared with the EVE tab. */
+export function RateLimits({ nii = true }: { nii?: boolean }) {
+  const { working, edit, bank } = useAlm();
+  if (!working || !bank) return null;
+  return (
+    <Group title="Limits" help="How much economic value (EVE) and income (NII) the bank is prepared to lose under the worst scenario.">
+      <Row label="EVE loss (% of Tier 1)">
+        <Pct value={working.gap.eve_limit_pct_tier1} base={bank.gap.eve_limit_pct_tier1} onChange={(v) => edit((p) => void (p.gap.eve_limit_pct_tier1 = v))} />
+      </Row>
+      {nii && (
+        <Row label="NII sensitivity (%)">
+          <Pct value={working.gap.nii_sensitivity_limit_pct} base={bank.gap.nii_sensitivity_limit_pct} onChange={(v) => edit((p) => void (p.gap.nii_sensitivity_limit_pct = v))} />
+        </Row>
+      )}
+      <Row label="Tier 1 capital">
+        <Num value={working.tier1_capital} base={bank.tier1_capital} min={1} max={1e12} step={1e6} width={120} onChange={(v) => edit((p) => void (p.tier1_capital = v))} />
+      </Row>
+    </Group>
+  );
+}
+
 export function Stress() {
+  const { scenario } = useAlm();
   const q = useTool<StressResult>('stress');
   const v = useMemo(() => (q.data ? stressView(q.data) : null), [q.data]);
   const raw = q.data;
+  const mark = raw ? raw.rate_scenarios.findIndex((s) => s.scenario === scenario) : -1;
   return (
     <ToolLayout assumptions={<Assumptions />} ready={!!v} busy={q.isFetching && !!v}>
-      <ResultsHeader title="Stress testing and EVE" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
+      <ResultsHeader title="Stress testing" loading={q.isFetching} error={q.error?.message} onRetry={() => void q.refetch()} />
       {v && raw && (
         <>
           <Headline
@@ -79,7 +100,10 @@ export function Stress() {
           />
           {v.breaches.length > 0 && <div className="t-bad" style={{ marginBottom: 8 }}>outside a limit: {v.breaches.join('; ')}</div>}
           <Card title="Rate scenarios" width={900}>
-            <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1', 'Standing']} rows={v.rows} />
+            <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1', 'Standing']} rows={v.rows} mark={mark >= 0 ? mark : undefined} testId="rate-scenarios" />
+            <div className="t-small" style={{ marginTop: 4 }}>
+              {mark >= 0 ? 'The highlighted row is the rate shock chosen above; the Gap, NII and EVE tabs show it in full.' : 'Every Basel scenario side by side. Choose a rate shock above to pick one out, or a custom one to add it as a row.'}
+            </div>
           </Card>
           {raw.uniform_200.length > 0 && (
             <Card title="Annual-report test: every curve ±200 bp" width={900} style={{ marginTop: 10 }}>

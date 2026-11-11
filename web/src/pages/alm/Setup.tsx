@@ -232,9 +232,17 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
           <Pct value={d.gap.nii_sensitivity_limit_pct} base={b.gap.nii_sensitivity_limit_pct} onChange={(v) => onChange((p) => void (p.gap.nii_sensitivity_limit_pct = v))} />
         </Row>
         {Object.entries(d.gap.nmd_behavioural_months).map(([k, v]) => (
-          <Row key={k} label={`${nice(k)} behavioural months`}>
-            <Num value={v} base={b.gap.nmd_behavioural_months[k]} min={1} max={240} step={1} onChange={(x) => onChange((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
-          </Row>
+          <div key={k} style={{ display: 'contents' }}>
+            <Row label={`${nice(k)} behavioural months`}>
+              <Num value={v} base={b.gap.nmd_behavioural_months[k]} min={1} max={240} step={1} onChange={(x) => onChange((p) => void (p.gap.nmd_behavioural_months[k] = x))} />
+            </Row>
+            <Row label={`${nice(k)} core share`}>
+              <Pct value={d.gap.nmd_core_pct[k] ?? 100} base={b.gap.nmd_core_pct[k] ?? 100} onChange={(x) => onChange((p) => void (p.gap.nmd_core_pct[k] = x))} />
+            </Row>
+            <Row label={`${nice(k)} core decay (% a year)`}>
+              <Num value={d.gap.nmd_decay_pct[k] ?? 0} base={b.gap.nmd_decay_pct[k] ?? 0} min={0} max={99} step={1} onChange={(x) => onChange((p) => void (p.gap.nmd_decay_pct[k] = x))} />
+            </Row>
+          </div>
         ))}
         <Group title="Stress shocks (bp)" />
         <div className="t-small" style={{ marginBottom: 4 }}>

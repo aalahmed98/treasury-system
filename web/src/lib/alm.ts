@@ -25,7 +25,7 @@ export const SCENARIO_LABEL: Record<RateScenario, string> = {
   FLATTENER: 'Flattener',
   SHORT_UP: 'Short rates up',
   SHORT_DOWN: 'Short rates down',
-  CUSTOM: 'Custom parallel',
+  CUSTOM: 'Custom',
 };
 
 export const pctOrDash = (v: number | null) => (v === null ? '—' : fmtPct(v, 1));

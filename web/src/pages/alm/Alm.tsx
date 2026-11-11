@@ -1,14 +1,18 @@
-// The ALM workbench tab: a tool strip grouped by purpose, the snapshot in use, and one tool at a
-// time with its assumptions on the left and its results on the right.
+// The ALM workbench tab: a tool strip grouped by purpose, the snapshot in use, the rate shock the
+// rates tools run under, and one tool at a time with its assumptions on the left and its results
+// on the right.
 import { useNavigate, useParams } from 'react-router';
 import { Chip } from '../../components/ui';
 import { AlmBlock } from '../Overview';
 import { useAlm } from '../../alm/state';
+import { ShockBar } from '../../alm/ShockBar';
+import { RATE_TOOLS } from '../../alm/shock';
 import { fmtDateLong } from '../../lib/fmt';
 import { Lcr } from './Lcr';
 import { Nsfr } from './Nsfr';
 import { Gap } from './Gap';
 import { Nii } from './Nii';
+import { Eve } from './Eve';
 import { Stress } from './Stress';
 import { Attribution } from './Attribution';
 import { IrdPage } from './Ird';
@@ -19,7 +23,7 @@ import { Ewi } from './Ewi';
 import { Pack } from './Pack';
 import { FtpPublish } from './FtpPublish';
 
-type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'ladder' | 'ewi' | 'funding' | 'gap' | 'nii' | 'stress' | 'ird' | 'attribution' | 'pack' | 'ftp' | 'setup';
+type Tool = 'dashboard' | 'lcr' | 'nsfr' | 'ladder' | 'ewi' | 'funding' | 'gap' | 'nii' | 'eve' | 'stress' | 'ird' | 'attribution' | 'pack' | 'ftp' | 'setup';
 const LABEL: Record<Tool, string> = {
   dashboard: 'Dashboard',
   lcr: 'LCR',
@@ -29,6 +33,7 @@ const LABEL: Record<Tool, string> = {
   funding: 'Funding',
   gap: 'Gap',
   nii: 'NII / NIM',
+  eve: 'EVE',
   stress: 'Stress',
   ird: 'IRD',
   attribution: 'Attribution',
@@ -39,9 +44,11 @@ const LABEL: Record<Tool, string> = {
 const GROUPS: [string, Tool[]][] = [
   ['', ['dashboard']],
   ['Liquidity', ['lcr', 'nsfr', 'ladder', 'ewi', 'funding']],
-  ['Rates', ['gap', 'nii', 'stress', 'ird']],
+  ['Rates', ['gap', 'nii', 'eve', 'stress', 'ird']],
   ['Income', ['attribution']],
 ];
+/** The pages that show official figures or settings: the shock bar stays off them. */
+const NO_SHOCK_BAR = new Set<Tool>(['dashboard', 'pack', 'ftp', 'setup']);
 
 export function Alm() {
   const { tool: raw } = useParams();
@@ -51,6 +58,7 @@ export function Alm() {
   const go = (t: Tool) => navigate(t === 'dashboard' ? '/alm' : `/alm/${t}`);
   return (
     <div className="alm-page">
+      <div className="alm-head">
       <div className="alm-strip" data-testid="alm-strip-bar">
         {GROUPS.map(([name, tools], gi) => (
           <div key={name || 'first'} className="row" style={{ gap: 3 }}>
@@ -85,6 +93,8 @@ export function Alm() {
           Setup
         </Chip>
       </div>
+      {bank && !NO_SHOCK_BAR.has(tool) && <ShockBar applies={RATE_TOOLS.has(tool)} tool={LABEL[tool]} />}
+      </div>
       {!bank ? (
         <div className="alm-results">
           <p className="t-muted">{params.error ? params.error.message : "loading the bank's parameters…"}</p>
@@ -108,6 +118,8 @@ function ToolBody({ tool }: { tool: Tool }) {
       return <Gap />;
     case 'nii':
       return <Nii />;
+    case 'eve':
+      return <Eve />;
     case 'stress':
       return <Stress />;
     case 'ird':

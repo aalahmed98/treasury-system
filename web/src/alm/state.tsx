@@ -5,6 +5,34 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { endpoints } from '../api/client';
 import type { AlmParams, AlmParamsResponse, AlmRequest, AlmSnapshot, CompareTo, RateScenario } from '../api/types';
+import { RATE_TOOLS, normaliseBuckets } from './shock';
+
+/** The rate shock is a simulation for this sitting: it survives a reload of the tab and nothing
+ * else. A blocked or cleared store simply means it starts from the base curve. */
+interface StoredShock {
+  scenario: RateScenario;
+  customBp: number;
+  buckets: string[];
+}
+const SHOCK_KEY = 'nbb-alm-shock';
+const NO_SHOCK: StoredShock = { scenario: 'BASE', customBp: 100, buckets: [] };
+function readShock(): StoredShock {
+  try {
+    const raw = sessionStorage.getItem(SHOCK_KEY);
+    if (!raw) return NO_SHOCK;
+    const v = JSON.parse(raw) as Partial<StoredShock>;
+    return { scenario: v.scenario ?? 'BASE', customBp: Number.isFinite(v.customBp) ? (v.customBp as number) : 100, buckets: Array.isArray(v.buckets) ? normaliseBuckets(v.buckets) : [] };
+  } catch {
+    return NO_SHOCK;
+  }
+}
+function writeShock(v: StoredShock) {
+  try {
+    sessionStorage.setItem(SHOCK_KEY, JSON.stringify(v));
+  } catch {
+    // storage unavailable: the shock lives for this page only
+  }
+}
 
 export function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -33,6 +61,11 @@ export interface AlmState {
   setScenario: (s: RateScenario) => void;
   customBp: number;
   setCustomBp: (bp: number) => void;
+  /** The gap buckets the custom shock moves; empty means every tenor. */
+  shockBuckets: string[];
+  setShockBuckets: (b: string[]) => void;
+  /** Back to the base curve. */
+  clearShock: () => void;
   compareTo: CompareTo;
   setCompareTo: (c: CompareTo) => void;
   period: string | null;
@@ -53,8 +86,14 @@ export function AlmProvider({ children }: { children: ReactNode }) {
   const [overrides, setOverrides] = useState<AlmParams | null>(null);
   const overridesFrom = useRef<number | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
-  const [scenario, setScenario] = useState<RateScenario>('BASE');
-  const [customBp, setCustomBp] = useState(0);
+  const [stored] = useState(readShock);
+  const [scenario, setScenario] = useState<RateScenario>(stored.scenario);
+  const [customBp, setCustomBp] = useState(stored.customBp);
+  const [shockBuckets, setBuckets] = useState<string[]>(stored.buckets);
+  const setShockBuckets = useCallback((b: string[]) => setBuckets(normaliseBuckets(b)), []);
+  const clearShock = useCallback(() => setScenario('BASE'), []);
+  useEffect(() => writeShock({ scenario, customBp, buckets: shockBuckets }), [scenario, customBp, shockBuckets]);
+  const debouncedBp = useDebounced(customBp, 300);
   const [compareTo, setCompareTo] = useState<CompareTo>('PRIOR');
   const [period, setPeriod] = useState<string | null>(null);
   const [draft, setDraft] = useState<AlmParams | null>(null);
@@ -88,17 +127,19 @@ export function AlmProvider({ children }: { children: ReactNode }) {
       as_of: asOf,
       params: debounced,
       scenario,
-      custom_shock_bp: customBp,
+      // The custom size and its buckets travel only with the custom scenario.
+      custom_shock_bp: scenario === 'CUSTOM' ? debouncedBp : null,
+      custom_shock_buckets: scenario === 'CUSTOM' && shockBuckets.length ? shockBuckets : null,
       compare_to: compareTo,
       period,
       ...extra,
     }),
-    [asOf, debounced, scenario, customBp, compareTo, period],
+    [asOf, debounced, scenario, debouncedBp, shockBuckets, compareTo, period],
   );
 
   const value = useMemo<AlmState>(
-    () => ({ params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, setAsOf, scenario, setScenario, customBp, setCustomBp, compareTo, setCompareTo, period, setPeriod, request, draft, setDraft, note, setNote }),
-    [params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, scenario, customBp, compareTo, period, request, draft, note],
+    () => ({ params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, setAsOf, scenario, setScenario, customBp, setCustomBp, shockBuckets, setShockBuckets, clearShock, compareTo, setCompareTo, period, setPeriod, request, draft, setDraft, note, setNote }),
+    [params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, scenario, customBp, shockBuckets, setShockBuckets, clearShock, compareTo, period, request, draft, note],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -112,6 +153,9 @@ export function useAlm(): AlmState {
 /** One tool's result for the current inputs; the previous result stays on screen while the next computes. */
 export function useTool<T>(tool: string, extra: Partial<AlmRequest> = {}) {
   const { request, bank } = useAlm();
-  const req = request(extra);
+  // A tool the shock does not reach asks without it, so changing the shock never refetches it. The
+  // stress table runs every scenario itself and takes only the custom one from the shock.
+  const quiet: Partial<AlmRequest> = RATE_TOOLS.has(tool) ? (tool === 'stress' ? { scenario: null } : {}) : { scenario: null, custom_shock_bp: null, custom_shock_buckets: null };
+  const req = request({ ...quiet, ...extra });
   return useQuery({ queryKey: ['alm', 'tool', tool, req], queryFn: () => endpoints.almTool<T>(tool, req), enabled: bank !== null, placeholderData: keepPreviousData, staleTime: 10_000 });
 }

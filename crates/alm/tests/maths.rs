@@ -2,12 +2,12 @@
 
 use std::collections::BTreeMap;
 
-use alm::curve::{Curve, shock_bp};
+use alm::curve::{Curve, CustomShock, shock_bp};
 use alm::funding::DepositorGroup;
 use alm::nii::Curves;
-use alm::{attribution, coverage, eve, funding, gap, ird, nii, nsfr, schedule, stress};
+use alm::{attribution, coverage, eve, funding, gap, ird, nii, nmd, nsfr, schedule, stress};
 use chrono::NaiveDate;
-use domain::{AlmParams, Amort, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
+use domain::{AlmParams, Amort, BalanceSheetMode, BsPosition, BsSide, CompareTo, DayCount, HqlaLevel, PeriodKind, PeriodLine, RateScenario, RateShock, RateType};
 
 fn d(s: &str) -> NaiveDate {
     s.parse().unwrap()
@@ -348,7 +348,7 @@ fn stress_runs_every_scenario_and_the_liquidity_horizon() {
     eur.rate_type = RateType::NotSensitive;
     let spots: BTreeMap<String, f64> = [("EUR".to_string(), 0.41)].into_iter().collect();
 
-    let r = stress::compute(&[asset, cash, nmd, eur], &p, &spots, &curves, as_of, Some(-50.0), Some(1));
+    let r = stress::compute(&[asset, cash, nmd, eur], &p, &spots, &curves, as_of, Some((-50.0).into()), Some(1));
     assert_eq!(r.rate_scenarios.len(), 7);
     let up = r.rate_scenarios.iter().find(|s| s.scenario == RateScenario::ParallelUp).unwrap();
     assert!(up.eve_loss > 0.0 && up.eve_breach, "the bond loses 18.7 and the deposit gains 3.9 in the same currency: 14.8 on 90 of Tier 1 breaches the 15% limit: {up:?}");
@@ -469,4 +469,211 @@ fn funding_concentration_and_wholesale_share() {
     params.funding.wholesale_share_limit_pct = 30.0;
     let r = funding::compute(&positions, &groups, &params, &spots, as_of, None);
     assert_eq!(r.breaches.len(), 2, "{:?}", r.breaches);
+}
+
+#[test]
+fn a_custom_shock_moves_only_the_buckets_it_names() {
+    let all = CustomShock::from_labels(100.0, &[]).unwrap();
+    assert!(all.is_parallel());
+    assert_eq!(all.label(), "Custom parallel +100 bp");
+    let some = CustomShock::from_labels(100.0, &["3M".to_string(), "6M".to_string()]).unwrap();
+    assert!(!some.is_parallel());
+    assert_eq!(some.label(), "Custom +100 bp at 3M to 6M");
+    assert_eq!(CustomShock::from_labels(-25.0, &["ON".to_string(), "1Y".to_string()]).unwrap().label(), "Custom -25 bp at ON, 1Y");
+    assert!(CustomShock::from_labels(100.0, &["4M".to_string()]).is_err());
+    assert_eq!(some.bp_at(1.0 / 12.0), 0.0, "the one-month index sits in the 1M bucket");
+    assert_eq!(some.bp_at(0.25), 100.0, "the three-month index sits in the 3M bucket");
+    assert_eq!(some.bp_at(0.5), 100.0);
+    assert_eq!(some.bp_at(0.75), 0.0);
+
+    // On the curve: a step at each bucket edge, whole days landing where the gap report slots them.
+    let c = Curve::flat("BHD", 5.0).bucket_shocked(some, -100.0, 5.0);
+    assert!(close(c.rate(30.0 / 365.0), 5.0, 1e-9), "day 30 is the last of 1M");
+    assert!(close(c.rate(31.0 / 365.0), 6.0, 1e-9), "day 31 is the first of 3M");
+    assert!(close(c.rate(182.0 / 365.0), 6.0, 1e-9));
+    assert!(close(c.rate(183.0 / 365.0), 5.0, 1e-9));
+    assert!(close(c.rate(3.0), 5.0, 1e-9));
+    let floored = Curve::flat("BHD", 5.0).bucket_shocked(CustomShock::from_labels(-700.0, &["3M".to_string()]).unwrap(), -100.0, 5.0);
+    assert!(close(floored.rate(0.25), (-100.0 + 5.0 * 0.25) / 100.0, 1e-9), "held above the floor");
+
+    // Through the engines: a one-year bond feels a shock aimed at 1Y exactly as a parallel one,
+    // and one aimed at 3M not at all.
+    let as_of = d(AS_OF);
+    let p = AlmParams::default();
+    let curves = flat("BHD", 5.0);
+    let mut bond = pos("a", BsSide::Asset, "BHD", 1000.0);
+    bond.maturity = Some(d("2027-11-04"));
+    let at_1y = CustomShock::from_labels(200.0, &["1Y".to_string()]).unwrap();
+    let hit = eve::compute(&[bond.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, at_1y, None);
+    assert!(close(hit.shocked, 1050.0 / 1.07, 1e-9));
+    assert_eq!(hit.shock_label.as_deref(), Some("Custom +200 bp at 1Y"));
+    let at_3m = CustomShock::from_labels(200.0, &["3M".to_string()]).unwrap();
+    let miss = eve::compute(&[bond.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, at_3m, None);
+    assert!(close(miss.delta, 0.0, 1e-9));
+
+    // A floater resetting to the three-month index earns the shock only when 3M moves.
+    let mut float = pos("f", BsSide::Asset, "BHD", 1200.0);
+    float.rate_type = RateType::Float;
+    float.reset_months = Some(3);
+    float.day_count = DayCount::Act360;
+    let base = nii::compute(&[float.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None).nii;
+    let moved = nii::compute(&[float.clone()], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, at_3m, None).nii;
+    let unmoved = nii::compute(&[float], &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, at_1y, None).nii;
+    assert!(close(moved - base, 1200.0 * 0.02 * 365.0 / 360.0, 1e-9), "{}", moved - base);
+    assert!(close(unmoved, base, 1e-9));
+}
+
+#[test]
+fn the_gap_estimates_what_a_shock_does_to_income() {
+    let as_of = d(AS_OF);
+    let p = AlmParams::default();
+    let curves = flat("BHD", 5.0);
+    let mut float = pos("float", BsSide::Asset, "BHD", 1000.0);
+    float.rate_type = RateType::Float;
+    float.next_repricing = Some(as_of + chrono::Duration::days(45));
+    let mut bullet = pos("bullet", BsSide::Asset, "BHD", 500.0);
+    bullet.maturity = Some(as_of + chrono::Duration::days(400));
+    let mut dep = pos("dep", BsSide::Liability, "BHD", 400.0);
+    dep.maturity = Some(as_of + chrono::Duration::days(20));
+    let book = [float, bullet, dep];
+    let plain = gap::compute(&book, &p, &BTreeMap::new(), as_of, None);
+    assert_eq!(plain.nii_effect_12m, None);
+    assert_eq!(plain.buckets[0].nii_effect, None);
+
+    let base = gap::with_shock(plain.clone(), &p, &curves, RateScenario::Base, 100.0);
+    assert_eq!((base.shock_label, base.nii_effect_12m), (None, None), "nothing to estimate on the base curve");
+
+    let up = gap::with_shock(plain.clone(), &p, &curves, RateScenario::Custom, 100.0);
+    let b = |r: &domain::GapResult, label: &str| r.buckets.iter().find(|b| b.label == label).unwrap().clone();
+    let m3 = 1000.0 * 0.01 * (1.0 - 60.5 / 365.0);
+    let m1 = -400.0 * 0.01 * (1.0 - 18.5 / 365.0);
+    assert!(close(b(&up, "3M").nii_effect.unwrap(), m3, 1e-9));
+    assert!(close(b(&up, "1M").nii_effect.unwrap(), m1, 1e-9), "a liability gap costs income when rates rise");
+    assert!(close(b(&up, "2Y").nii_effect.unwrap(), 0.0, 1e-12), "nothing reprices within the year");
+    assert!(close(b(&up, "2Y").shock_bp.unwrap(), 100.0, 1e-9));
+    assert!(close(up.nii_effect_12m.unwrap(), m3 + m1, 1e-9));
+    assert!(close(b(&up, "3M").gap, b(&plain, "3M").gap, 1e-12), "the balances do not move");
+
+    let aimed = gap::with_shock(plain, &p, &curves, RateScenario::Custom, CustomShock::from_labels(100.0, &["1M".to_string()]).unwrap());
+    assert!(close(aimed.nii_effect_12m.unwrap(), m1, 1e-9), "only the bucket the shock is aimed at");
+    assert!(close(b(&aimed, "3M").shock_bp.unwrap(), 0.0, 1e-9));
+}
+
+#[test]
+fn the_duration_gap_predicts_the_revaluation_for_a_parallel_move() {
+    let as_of = d(AS_OF);
+    let mut p = AlmParams::default();
+    p.tier1_capital = 100.0;
+    let curves = flat("BHD", 5.0);
+    let mut asset = pos("a", BsSide::Asset, "BHD", 1000.0);
+    asset.maturity = Some(d("2028-11-04"));
+    let mut liab = pos("l", BsSide::Liability, "BHD", 500.0);
+    liab.maturity = Some(d("2027-11-04"));
+    let book = [asset, liab];
+    let r = eve::compute(&book, &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, 100.0, None);
+    let g = &r.duration;
+    assert!(g.assets > 990.0 && g.assets < 1000.0 && close(g.liabilities, 500.0, 1e-9), "simple interest paid at two years is worth a little under par: {g:?}");
+    assert!(close(g.d_liabilities, 1.0, 1e-9), "one flow at one year");
+    assert!(close(g.d_assets, 731.0 / 365.0, 1e-9), "a two-year bond paying at maturity: {}", g.d_assets);
+    assert!(close(g.gap_years, g.d_assets - g.liabilities / g.assets * g.d_liabilities, 1e-9));
+    assert!(close(g.yield_pct, 5.0, 1e-9));
+    assert_eq!(g.shock_bp, Some(100.0));
+    let estimate = g.estimate.unwrap();
+    assert!(close(estimate, -g.gap_years * g.assets * 0.01 / 1.05, 1e-9), "the formula as written");
+    assert!(r.delta < 0.0 && (estimate - r.delta).abs() < 0.03 * r.delta.abs(), "close to the full revaluation: {estimate} against {}", r.delta);
+    assert!(close(r.by_bucket.iter().map(|b| b.delta).sum::<f64>(), r.delta, 1e-9));
+    assert!(close(r.loss_pct_tier1.unwrap(), r.basel_loss, 1e-9), "Tier 1 is 100");
+
+    let steep = eve::compute(&book, &p, &BTreeMap::new(), &curves, as_of, RateScenario::Steepener, 0.0, None);
+    assert_eq!(steep.duration.estimate, None, "the formula assumes a parallel move");
+    let aimed = eve::compute(&book, &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, CustomShock::from_labels(100.0, &["1Y".to_string()]).unwrap(), None);
+    assert_eq!(aimed.duration.estimate, None);
+    assert!(aimed.delta > 0.0, "only the liability is discounted harder");
+}
+
+#[test]
+fn deposits_split_into_a_core_that_decays_and_a_rest_that_reprices_overnight() {
+    let as_of = d(AS_OF);
+    let mut p = AlmParams::default();
+    let mut ca = pos("ca", BsSide::Liability, "BHD", 3600.0);
+    ca.rate_type = RateType::Admin;
+    ca.product = "CURRENT_ACCOUNT".into(); // 36 behavioural months by parameter
+
+    // Nothing set: all core, evenly over the life, as it has always been slotted.
+    let even = nmd::profile(&ca, &p);
+    assert_eq!(even.len(), 36);
+    assert!(even.iter().all(|(m, a)| m.is_some() && close(*a, 100.0, 1e-9)));
+
+    // Half core: the other half sits overnight, in the gap and in EVE.
+    p.gap.nmd_core_pct.insert("CURRENT_ACCOUNT".into(), 50.0);
+    let half = nmd::profile(&ca, &p);
+    assert_eq!(half[0], (None, 1800.0));
+    assert!(close(half.iter().map(|x| x.1).sum::<f64>(), 3600.0, 1e-9));
+    let g = gap::compute(std::slice::from_ref(&ca), &p, &BTreeMap::new(), as_of, None);
+    let b = |label: &str| g.buckets.iter().find(|b| b.label == label).unwrap().liabilities;
+    assert!(close(b("ON"), 1800.0, 1e-9));
+    assert!(close(b("1M"), 50.0, 1e-9) && close(b("3M"), 100.0, 1e-9));
+    let flows = eve::flows(&ca, &p, as_of);
+    assert!(close(flows[0].0, 1.0 / 365.0, 1e-12) && close(flows[0].1, 1800.0, 1e-9));
+
+    // A yearly decay front-loads the core: a fifth in the first year, the remainder at the end of the life.
+    p.gap.nmd_decay_pct.insert("CURRENT_ACCOUNT".into(), 20.0);
+    let decayed = nmd::profile(&ca, &p);
+    let core: Vec<f64> = decayed.iter().filter(|x| x.0.is_some()).map(|x| x.1).collect();
+    assert!(close(core.iter().sum::<f64>(), 1800.0, 1e-9), "the amounts still add up to the balance");
+    assert!(close(core[..12].iter().sum::<f64>(), 1800.0 * 0.2, 1e-9));
+    assert!(close(core[35], 1800.0 * 0.8f64.powf(35.0 / 12.0), 1e-9));
+    assert!(core[0] > core[1] && core[1] > core[34]);
+
+    // No core at all: everything overnight.
+    p.gap.nmd_core_pct.insert("CURRENT_ACCOUNT".into(), 0.0);
+    assert_eq!(nmd::profile(&ca, &p), vec![(None, 3600.0)]);
+
+    // A shorter repricing profile holds less value at risk: EVE gains less from a rise when the
+    // deposit is treated as overnight money.
+    let curves = flat("BHD", 5.0);
+    let short = eve::compute(std::slice::from_ref(&ca), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, 100.0, None).delta;
+    let long = eve::compute(std::slice::from_ref(&ca), &AlmParams::default(), &BTreeMap::new(), &curves, as_of, RateScenario::Custom, 100.0, None).delta;
+    assert!(long > short && short >= 0.0, "long {long} short {short}");
+}
+
+#[test]
+fn a_dynamic_balance_sheet_grows_and_funds_the_growth() {
+    let as_of = d(AS_OF);
+    let mut p = AlmParams::default();
+    let curves = flat("BHD", 4.0);
+    let loan = pos("loan", BsSide::Asset, "BHD", 1200.0);
+    let constant = nii::compute(std::slice::from_ref(&loan), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    assert_eq!(constant.mode, BalanceSheetMode::Constant);
+
+    p.nii.set_mode(BalanceSheetMode::Dynamic);
+    let flat_growth = nii::compute(std::slice::from_ref(&loan), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    assert!(close(flat_growth.nii, constant.nii, 1e-12), "no growth set: the constant balance sheet");
+
+    p.nii.growth_assets_pct = 12.0;
+    let grown = nii::compute(std::slice::from_ref(&loan), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    assert_eq!(grown.mode, BalanceSheetMode::Dynamic);
+    assert!(grown.income > constant.income, "more loans earn more");
+    assert!(grown.expense > 0.0, "the growth is funded at the one-month rate");
+    assert!(grown.nii > constant.nii, "5% loans funded at 4% add income");
+    let balancing = grown.by_book.iter().find(|b| b.key == "BALANCING").unwrap();
+    assert!(balancing.nii < 0.0);
+    // Month eleven: the loan book is 1200 * 1.12^(11/12).
+    let last = &grown.months[11];
+    let days = (alm::schedule::add_months(as_of, 12) - alm::schedule::add_months(as_of, 11)).num_days() as f64;
+    assert!(close(last.income, 1200.0 * 1.12f64.powf(11.0 / 12.0) * 0.05 * days / 365.0, 1e-9));
+
+    // A product's own rate beats the side's.
+    p.nii.growth_by_product.insert("TEST".into(), 0.0);
+    let held = nii::compute(std::slice::from_ref(&loan), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Base, 0.0, None);
+    assert!(close(held.nii, constant.nii, 1e-12));
+    p.nii.growth_by_product.clear();
+
+    // Side by side: three assumptions, whichever one the parameters select.
+    let rows = nii::modes(std::slice::from_ref(&loan), &p, &BTreeMap::new(), &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert_eq!(rows.iter().map(|r| r.mode).collect::<Vec<_>>(), [BalanceSheetMode::Constant, BalanceSheetMode::RunOff, BalanceSheetMode::Dynamic]);
+    assert!(close(rows[0].base_nii.unwrap(), constant.nii, 1e-12));
+    assert!(close(rows[2].base_nii.unwrap(), grown.nii, 1e-12));
+    let products = nii::products(std::slice::from_ref(&loan), &p, &BTreeMap::new());
+    assert_eq!((products[0].product.as_str(), products[0].side), ("TEST", BsSide::Asset));
 }
