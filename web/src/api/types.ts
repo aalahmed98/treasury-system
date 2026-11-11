@@ -510,6 +510,39 @@ export interface TrialHedge {
   /** A swap's floating reset in months; none is three. */
   reset_months?: number | null;
 }
+export interface ParamChange {
+  path: string[];
+  /** The leaf's new value; null removes it. */
+  value: unknown;
+}
+/** What a saved scenario holds: the shock, the what-if as changes against the bank's parameters, and the trial hedges. */
+export interface ScenarioBody {
+  scenario: RateScenario;
+  custom_shock_bp: number | null;
+  custom_shock_buckets: string[];
+  hedges: TrialHedge[];
+  changes: ParamChange[];
+}
+export interface AlmScenario {
+  id: string;
+  name: string;
+  owner_name: string;
+  mine: boolean;
+  shared: boolean;
+  in_pack: boolean;
+  body: ScenarioBody;
+  updated_at: string;
+}
+export interface CompareRow {
+  /** Null for the current unsaved simulation. */
+  id: string | null;
+  name: string;
+  author: string | null;
+  summary: string;
+  row: StressScenarioRow | null;
+  gap_nii_effect: number | null;
+  error: string | null;
+}
 export interface AlmRequest {
   as_of?: string | null;
   params?: AlmParams | null;

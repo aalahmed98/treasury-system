@@ -14,7 +14,8 @@ import { SkeletonLines, useToast } from '../../components/feedback';
 import { useTool } from '../../alm/state';
 import { ewiTone } from './Ewi';
 
-const OFFICIAL = { params: null };
+// The pack shows the bank's own figures: no what-if, no rate shock from the bar, no trial hedges.
+const OFFICIAL = { params: null, scenario: null, custom_shock_bp: null, custom_shock_buckets: null, hedges: null };
 
 function Note({ pack, section }: { pack: AlcoPack; section: string }) {
   const qc = useQueryClient();
@@ -61,6 +62,7 @@ export function Pack() {
   const ladder = useTool<LiquidityGapResult>('liquidity-gap', OFFICIAL);
   const ewi = useTool<EwiResult>('ewi', OFFICIAL);
   const stress = useTool<StressResult>('stress', OFFICIAL);
+  const scenarios = useQuery({ queryKey: ['alm', 'compare', 'pack'], queryFn: () => endpoints.almCompare({ pack: true }), staleTime: 30_000 });
   const funding = useTool<FundingResult>('funding', OFFICIAL);
   const fx = useFxRisk(canSeeRisk);
   const p = pack.data;
@@ -206,6 +208,38 @@ export function Pack() {
                 ))}
               </tbody>
             </table>
+          )}
+          {(scenarios.data?.length ?? 0) > 0 && (
+            <div data-testid="pack-scenarios" style={{ marginTop: 10 }}>
+              <div className="t-small" style={{ marginBottom: 4 }}>
+                Simulations the desk has put in the pack. They are not official figures: each is a saved scenario with its own shock, assumptions and trial hedges, run on today's balance sheet.
+              </div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Simulation</th>
+                    <th>What it is</th>
+                    <th className="num">ΔNII 12m</th>
+                    <th className="num">ΔEVE</th>
+                    <th className="num">EVE loss, % Tier 1</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scenarios.data!.map((r) => (
+                    <tr key={r.id ?? r.name}>
+                      <td>
+                        {r.name}
+                        <span className="t-small"> · {r.author}</span>
+                      </td>
+                      <td>{r.row ? r.summary : (r.error ?? 'could not be run')}</td>
+                      <td className={`num ${r.row && r.row.nii_delta < 0 ? 't-bad' : ''}`}>{r.row ? signed(r.row.nii_delta) : ''}</td>
+                      <td className={`num ${r.row && r.row.eve_delta < 0 ? 't-bad' : ''}`}>{r.row ? signed(r.row.eve_delta) : ''}</td>
+                      <td className={`num ${r.row?.eve_breach ? 't-bad t-medium' : ''}`}>{r.row && r.row.eve_loss_pct_tier1 !== null ? `${r.row.eve_loss_pct_tier1.toFixed(1)}%` : r.row ? '—' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <Note pack={p} section="rates" />
         </PackSection>

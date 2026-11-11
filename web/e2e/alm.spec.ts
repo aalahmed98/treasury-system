@@ -232,3 +232,82 @@ test('trial hedges: added once, they change every rates tool and no liquidity to
   await expect(effect).toHaveCount(0);
   await expect(badge).toHaveCount(0);
 });
+
+test('scenarios: kept privately, opened again, shared with the desk, compared on Stress and listed in the ALCO pack', async ({ page, browser }) => {
+  const name = `E2E rise hedged ${Date.now()}`;
+  await login(page, 'alm1');
+  await page.goto('/app/alm/eve');
+  await ready(page);
+  const bar = page.getByTestId('shock-bar');
+  const strip = page.getByTestId('alm-strip-bar');
+  const menu = page.getByTestId('scenarios-button');
+  const panel = page.getByRole('dialog', { name: 'Saved scenarios' });
+
+  // A simulation with all three parts: a shock, a hedge and a changed assumption.
+  await bar.getByLabel('Rate shock').selectOption('PARALLEL_UP');
+  await page.getByTestId('hedges-button').click();
+  await page.getByRole('button', { name: 'Add hedge' }).click();
+  await page.keyboard.press('Escape');
+  await page.locator('.assumptions input[type=number]').first().fill('12');
+  await expect(page.getByText(/what-if · 1 change/)).toBeVisible();
+
+  // Kept under a name: the bar shows which scenario is on screen.
+  await menu.click();
+  await expect(page.getByTestId('scenario-current')).toHaveText('Parallel up · 1 trial hedge · 1 assumption changed');
+  await panel.getByLabel('Scenario name').fill(name);
+  await panel.getByRole('button', { name: 'Save as new' }).click();
+  await expect(menu).toContainText(`Scenario: ${name}`);
+  await expect(page.getByTestId('scenarios-mine')).toContainText(name);
+
+  // Cleared, the page is back on the bank's figures; opened again, all three parts return.
+  await panel.getByRole('button', { name: 'Clear the simulation' }).click();
+  await expect(page.getByTestId('shock-badge')).toHaveCount(0);
+  await expect(page.getByTestId('hedge-badge')).toHaveCount(0);
+  await expect(page.getByText(/bank v\d+/)).toBeVisible();
+  await page.getByTestId('scenarios-mine').getByRole('button', { name: new RegExp(name) }).first().click();
+  await expect(page.getByTestId('shock-badge')).toContainText('Parallel up');
+  await expect(page.getByTestId('hedge-badge')).toContainText('with 1 trial hedge');
+  await expect(page.getByText(/what-if · 1 change/)).toBeVisible();
+  await expect(menu).toContainText(`Scenario: ${name}`);
+  await expect(menu).not.toContainText('(edited)');
+
+  // Side by side on Stress, with the open scenario picked out.
+  await strip.getByRole('button', { name: 'Stress', exact: true }).click();
+  await ready(page);
+  const table = page.getByTestId('saved-scenarios');
+  await expect(table).toContainText('Current simulation');
+  await expect(table.locator('tr.marked')).toContainText(name);
+  await expect(table.locator('tr.marked')).toContainText('Parallel up, 1 trial hedge, 1 assumption changed');
+
+  // Shared and put in the pack: the treasury head finds it in both places.
+  await menu.click();
+  await panel.getByLabel(`share ${name}`).click();
+  await expect(panel.getByLabel(`share ${name}`)).toBeChecked();
+  await panel.getByLabel(`${name} in the ALCO pack`).click();
+  await expect(panel.getByLabel(`${name} in the ALCO pack`)).toBeChecked();
+  const other = await browser.newContext();
+  const head = await other.newPage();
+  await login(head, 'head1');
+  await head.goto('/app/alm/stress');
+  await ready(head);
+  await head.getByTestId('scenarios-button').click();
+  await expect(head.getByTestId('scenarios-shared')).toContainText(name);
+  await head.goto('/app/alm/pack');
+  await expect(head.getByTestId('pack-scenarios')).toContainText(name);
+  await other.close();
+
+  // The pack's own stress table stays official whatever is on the bar: no custom row, no hedges.
+  await bar.getByLabel('Rate shock').selectOption('CUSTOM');
+  await page.goto('/app/alm/pack');
+  await expect(page.getByTestId('pack-scenarios')).toContainText(name);
+  const official = page.locator('table.table', { hasText: 'Short rates down' }).first();
+  await expect(official).toContainText('Parallel up');
+  await expect(official).not.toContainText('Custom');
+
+  // Deleted by its owner, it is gone from the list.
+  await page.goto('/app/alm/stress');
+  await ready(page);
+  await menu.click();
+  await panel.getByLabel(`delete ${name}`).click();
+  await expect(page.getByTestId('scenarios-mine')).not.toContainText(name);
+});

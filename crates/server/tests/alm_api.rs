@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Method, Request, Response, StatusCode, header};
 use chrono::Utc;
-use domain::{ActivityRow, AlmOverview, AlmParams, AlmParamsResponse, AlmSnapshot, AttentionItem, AttentionSeverity, AttentionTarget, AttributionResult, BalanceSheetMode, EveResult, GapResult, LcrResult, LoginResponse, MarketResponse, NiiResult, PositionsSummaryRow, StressResult, TrendResponse};
+use domain::{ActivityRow, AlmOverview, AlmParams, AlmParamsResponse, AlmScenario, AlmSnapshot, CompareRow, AttentionItem, AttentionSeverity, AttentionTarget, AttributionResult, BalanceSheetMode, EveResult, GapResult, LcrResult, LoginResponse, MarketResponse, NiiResult, PositionsSummaryRow, StressResult, TrendResponse};
 use http_body_util::BodyExt;
 use server::config::Config;
 use server::{AppState, seed};
@@ -343,4 +343,86 @@ async fn saving_parameters_shows_in_attention_and_activity(owner: PgPool) {
 
     let (audited,): (i64,) = sqlx::query_as("SELECT count(*) FROM audit_log WHERE action = 'alm_params_save'").fetch_one(&owner).await.unwrap();
     assert_eq!(audited, 1);
+}
+
+#[sqlx::test(migrations = "../../db/migrations")]
+async fn scenarios_are_private_until_shared_and_reach_the_pack_only_when_shared(owner: PgPool) {
+    let router = fixture(&owner).await;
+    let fx1 = token(&router, "fx1").await;
+    let alm1 = token(&router, "alm1").await;
+    let head1 = token(&router, "head1").await;
+    let status_of = |method: Method, uri: String, tok: String, body: Option<&'static str>| {
+        let router = router.clone();
+        async move { router.oneshot(req(method, &uri, Some(&tok), body.map(Into::into))).await.unwrap().status() }
+    };
+    let body = r#"{"name":" Rise with a swap ","body":{"scenario":"CUSTOM","custom_shock_bp":100,"custom_shock_buckets":["3M","6M"],
+        "hedges":[{"kind":"PAY_FIXED_SWAP","ccy":"BHD","notional":100,"tenor_months":12}],
+        "changes":[{"path":["nii","default_beta"],"value":0.9}]}}"#;
+
+    // Saved by alm1: theirs alone.
+    let (status, saved) = post::<AlmScenario>(&router, &alm1, "/alm/scenarios", body).await;
+    assert_eq!(status, StatusCode::OK);
+    let saved = saved.unwrap();
+    assert_eq!((saved.name.as_str(), saved.mine, saved.shared, saved.in_pack), ("Rise with a swap", true, false, false));
+    assert_eq!(saved.body.hedges.len(), 1);
+    let id = saved.id;
+    let (status, _) = post::<serde_json::Value>(&router, &alm1, "/alm/scenarios", body).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "the same name twice");
+    let (_, list) = get::<Vec<AlmScenario>>(&router, &head1, "/alm/scenarios").await;
+    assert!(list.unwrap().is_empty(), "nobody else sees a private scenario");
+    let (_, rows) = post::<Vec<CompareRow>>(&router, &head1, "/alm/compare", "{}").await;
+    assert!(rows.unwrap().is_empty());
+    assert_eq!(status_of(Method::GET, "/alm/scenarios".into(), fx1.clone(), None).await, StatusCode::NOT_FOUND, "a dealer has no scenarios");
+    assert_eq!(status_of(Method::POST, "/alm/scenarios".into(), fx1.clone(), Some(body)).await, StatusCode::NOT_FOUND);
+
+    // Only the owner shares; only a shared one goes in the pack.
+    assert_eq!(status_of(Method::POST, format!("/alm/scenarios/{id}/pack"), alm1.clone(), Some(r#"{"on":true}"#)).await, StatusCode::BAD_REQUEST, "not shared yet");
+    assert_eq!(status_of(Method::POST, format!("/alm/scenarios/{id}/share"), head1.clone(), Some(r#"{"on":true}"#)).await, StatusCode::NOT_FOUND, "not the head's to share");
+    assert_eq!(status_of(Method::POST, format!("/alm/scenarios/{id}/share"), alm1.clone(), Some(r#"{"on":true}"#)).await, StatusCode::NO_CONTENT);
+    let (_, list) = get::<Vec<AlmScenario>>(&router, &head1, "/alm/scenarios").await;
+    let list = list.unwrap();
+    assert_eq!((list.len(), list[0].mine, list[0].shared), (1, false, true));
+    assert!(!list[0].owner_name.is_empty());
+    assert_eq!(status_of(Method::POST, format!("/alm/scenarios/{id}/pack"), head1.clone(), Some(r#"{"on":true}"#)).await, StatusCode::NO_CONTENT, "anyone on the desk may put a shared one in the pack");
+
+    // Compared: the pack lists what is in it; the workbench puts the current simulation first.
+    let (_, pack) = post::<Vec<CompareRow>>(&router, &head1, "/alm/compare", r#"{"pack":true,"current":{"scenario":"PARALLEL_UP"}}"#).await;
+    let pack = pack.unwrap();
+    assert_eq!(pack.len(), 1, "the pack never carries someone's unsaved simulation");
+    assert_eq!(pack[0].summary, "Custom +100 bp at 3M to 6M, 1 trial hedge, 1 assumption changed");
+    assert!(pack[0].row.is_some() && pack[0].error.is_none() && pack[0].gap_nii_effect.is_some());
+    let (_, rows) = post::<Vec<CompareRow>>(&router, &alm1, "/alm/compare", r#"{"current":{"scenario":"PARALLEL_UP"}}"#).await;
+    let rows = rows.unwrap();
+    assert_eq!(rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Current simulation", "Rise with a swap"]);
+    assert_eq!((rows[0].id, rows[0].summary.as_str()), (None, "Parallel up"));
+    // The saved beta of 0.9 costs more when rates rise than the bank's own: the changes were applied.
+    let (_, plain) = post::<StressResult>(&router, &alm1, "/alm/stress", r#"{"custom_shock_bp":100,"custom_shock_buckets":["3M","6M"],"hedges":[{"kind":"PAY_FIXED_SWAP","ccy":"BHD","notional":100,"tenor_months":12}]}"#).await;
+    let plain = plain.unwrap().rate_scenarios.last().unwrap().clone();
+    assert_eq!(rows[1].row.as_ref().unwrap().eve_delta, plain.eve_delta, "the same shock and hedge");
+
+    // What cannot be run cannot be saved.
+    for bad in [
+        r#"{"name":"x","body":{"changes":[{"path":["nii","horizon_months"],"value":999}]}}"#,
+        r#"{"name":"x","body":{"hedges":[{"kind":"FIXED_FUNDING","ccy":"BHD","notional":0,"tenor_months":12}]}}"#,
+        r#"{"name":"x","body":{"scenario":"CUSTOM","custom_shock_bp":100,"custom_shock_buckets":["4M"]}}"#,
+        r#"{"name":"  ","body":{}}"#,
+    ] {
+        assert_eq!(status_of(Method::POST, "/alm/scenarios".into(), alm1.clone(), Some(bad)).await, StatusCode::BAD_REQUEST, "{bad}");
+    }
+
+    // Replaced under its id; taken back, it leaves the pack and the desk's list; deleted by its owner only.
+    let update: &'static str = Box::leak(format!(r#"{{"id":"{id}","name":"Rise, renamed","body":{{"scenario":"PARALLEL_UP"}}}}"#).into_boxed_str());
+    let (_, renamed) = post::<AlmScenario>(&router, &alm1, "/alm/scenarios", update).await;
+    let renamed = renamed.unwrap();
+    assert_eq!((renamed.id, renamed.name.as_str(), renamed.in_pack, renamed.body.hedges.len()), (id, "Rise, renamed", true, 0));
+    assert_eq!(status_of(Method::POST, "/alm/scenarios".into(), head1.clone(), Some(update)).await, StatusCode::NOT_FOUND, "not the head's to replace");
+    assert_eq!(status_of(Method::POST, format!("/alm/scenarios/{id}/share"), alm1.clone(), Some(r#"{"on":false}"#)).await, StatusCode::NO_CONTENT);
+    let (_, list) = get::<Vec<AlmScenario>>(&router, &alm1, "/alm/scenarios").await;
+    assert_eq!((list.as_ref().unwrap()[0].shared, list.unwrap()[0].in_pack), (false, false));
+    let (_, list) = get::<Vec<AlmScenario>>(&router, &head1, "/alm/scenarios").await;
+    assert!(list.unwrap().is_empty());
+    assert_eq!(status_of(Method::DELETE, format!("/alm/scenarios/{id}"), head1.clone(), None).await, StatusCode::NOT_FOUND);
+    assert_eq!(status_of(Method::DELETE, format!("/alm/scenarios/{id}"), alm1.clone(), None).await, StatusCode::NO_CONTENT);
+    let (_, list) = get::<Vec<AlmScenario>>(&router, &alm1, "/alm/scenarios").await;
+    assert!(list.unwrap().is_empty());
 }

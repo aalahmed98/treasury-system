@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
-import type { StressResult } from '../../api/types';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { endpoints } from '../../api/client';
+import type { CompareRow, StressResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars, LineChart } from '../../components/charts';
 import { useAlm, useTool, useUnhedged } from '../../alm/state';
@@ -37,6 +39,53 @@ function Assumptions() {
         ))}
       </Group>
     </>
+  );
+}
+
+const pctSigned = (v: number | null) => (v === null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`);
+
+/** The current simulation and every saved scenario the user can see, each run on this snapshot:
+ * the rate effect under the scenario's own assumptions and hedges, as the table above gives it. */
+function SavedScenarios() {
+  const { request, simulating, asOf, loaded } = useAlm();
+  const req = request();
+  const q = useQuery({
+    queryKey: ['alm', 'compare', simulating ? req : asOf],
+    queryFn: () => endpoints.almCompare({ as_of: asOf, current: simulating ? req : null }),
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  });
+  const rows = q.data ?? [];
+  const cells = (r: CompareRow): string[] => {
+    const who = r.id === null ? '' : (r.author ?? '');
+    if (!r.row) return [r.name, who, r.error ?? 'could not be run', '', '', '', '', ''];
+    const s = r.row;
+    return [
+      r.name,
+      who,
+      r.summary,
+      `${signed(s.nii_delta)} (${pctSigned(s.nii_delta_pct)})`,
+      signed(s.eve_delta),
+      s.eve_loss_pct_tier1 === null ? '—' : `${s.eve_loss_pct_tier1.toFixed(1)}%`,
+      r.gap_nii_effect === null ? '—' : signed(r.gap_nii_effect),
+      s.nii_breach && s.eve_breach ? 'outside NII and EVE limits' : s.nii_breach ? 'outside NII limit' : s.eve_breach ? 'outside EVE limit' : 'within limits',
+    ];
+  };
+  const mark = loaded ? rows.findIndex((r) => r.id === loaded.id) : -1;
+  return (
+    <Card title="Saved scenarios, side by side" width={1000} style={{ marginTop: 10 }}>
+      {rows.length > 0 ? (
+        <SimpleTable headers={['Scenario', 'By', 'What it is', 'ΔNII 12m', 'ΔEVE', '% Tier 1', 'Gap NII est.', 'Standing']} rows={rows.map(cells)} mark={mark >= 0 ? mark : undefined} text={3} testId="saved-scenarios" />
+      ) : (
+        <div className="t-muted" data-testid="saved-scenarios-empty">
+          {q.isLoading ? 'loading…' : 'No saved scenarios yet. Choose a shock, try a hedge or change an assumption, then use Scenarios on the bar above to keep it.'}
+        </div>
+      )}
+      {q.error && <div className="t-bad t-small">{q.error.message}</div>}
+      <div className="t-small" style={{ marginTop: 4 }}>
+        Each row is the change the scenario's shock makes under its own assumptions and hedges, on this snapshot. Open one from Scenarios on the bar to see it on every tab.
+      </div>
+    </Card>
   );
 }
 
@@ -112,6 +161,7 @@ export function Stress() {
               {mark >= 0 ? 'The highlighted row is the rate shock chosen above; the Gap, NII and EVE tabs show it in full.' : 'Every Basel scenario side by side. Choose a rate shock above to pick one out, or a custom one to add it as a row.'}
             </div>
           </Card>
+          <SavedScenarios />
           {raw.uniform_200.length > 0 && (
             <Card title="Annual-report test: every curve ±200 bp" width={900} style={{ marginTop: 10 }}>
               <SimpleTable headers={['Scenario', 'ΔNII 12m', 'ΔNII %', 'ΔEVE', 'EVE loss', '% Tier 1']} rows={raw.uniform_200.map((s) => [s.label, signed(s.nii_delta), s.nii_delta_pct === null ? '—' : `${s.nii_delta_pct >= 0 ? '+' : ''}${s.nii_delta_pct.toFixed(1)}%`, signed(s.eve_delta), fmtMoneyShort(s.eve_loss), s.eve_loss_pct_tier1 === null ? '—' : `${s.eve_loss_pct_tier1.toFixed(1)}%`])} testId="uniform-200" />

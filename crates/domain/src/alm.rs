@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 text_enum! {
     /// Which side of the balance sheet a cohort sits on.
@@ -601,6 +602,80 @@ pub struct TrialHedge {
     /// A swap's floating reset in months; none is three.
     #[serde(default)]
     pub reset_months: Option<u32>,
+}
+
+/// One assumption a saved scenario changes against the bank's parameters: the path to a leaf of
+/// the parameter document (`["nii", "betas", "SAVINGS"]`) and its value; null removes the leaf.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParamChange {
+    pub path: Vec<String>,
+    pub value: serde_json::Value,
+}
+
+/// What a saved scenario holds: the rate shock, the what-if assumptions as changes against the
+/// bank's parameters (so it applies to whichever version is active when it is opened), and the
+/// trial hedges.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScenarioBody {
+    pub scenario: RateScenario,
+    pub custom_shock_bp: Option<f64>,
+    pub custom_shock_buckets: Vec<String>,
+    pub hedges: Vec<TrialHedge>,
+    pub changes: Vec<ParamChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlmScenario {
+    pub id: Uuid,
+    pub name: String,
+    pub owner_name: String,
+    /// The caller saved it: they may rename, replace, share and delete it.
+    pub mine: bool,
+    pub shared: bool,
+    pub in_pack: bool,
+    pub body: ScenarioBody,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveScenarioRequest {
+    /// None saves a new scenario; an id replaces one of the caller's own.
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub name: String,
+    pub body: ScenarioBody,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ScenarioFlag {
+    pub on: bool,
+}
+
+/// Saved scenarios side by side: every one the caller can see with the current unsaved
+/// simulation first, or (for the ALCO pack) only the ones put in the pack.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompareRequest {
+    pub as_of: Option<NaiveDate>,
+    pub current: Option<AlmRequest>,
+    pub pack: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompareRow {
+    /// None for the current unsaved simulation.
+    pub id: Option<Uuid>,
+    pub name: String,
+    pub author: Option<String>,
+    /// The shock, the hedges and the changed assumptions in a line.
+    pub summary: String,
+    /// The rate effect under the scenario's own assumptions and hedges, as the stress table gives it.
+    pub row: Option<StressScenarioRow>,
+    /// The gap estimate of the shock's effect on twelve-month NII.
+    pub gap_nii_effect: Option<f64>,
+    /// Why it could not be run, e.g. an assumption the current parameters no longer accept.
+    pub error: Option<String>,
 }
 
 /// What each lever applies to in the snapshot, in the reporting currency, keyed by the

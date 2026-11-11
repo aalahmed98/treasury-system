@@ -4,7 +4,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { endpoints } from '../api/client';
-import type { AlmParams, AlmParamsResponse, AlmRequest, AlmSnapshot, CompareTo, RateScenario, TrialHedge } from '../api/types';
+import type { AlmParams, AlmParamsResponse, AlmRequest, AlmScenario, AlmSnapshot, CompareTo, RateScenario, ScenarioBody, TrialHedge } from '../api/types';
+import { applyChanges, toParamChanges } from './diff';
 import { RATE_TOOLS, normaliseBuckets } from './shock';
 
 /** The rate shock and the trial hedges are a simulation for this sitting: they survive a reload of
@@ -71,6 +72,17 @@ export interface AlmState {
   /** Hedges tried on the balance sheet for the rates tools; never booked or saved. */
   hedges: TrialHedge[];
   setHedges: (h: TrialHedge[]) => void;
+  /** Whether anything is being simulated: a shock, a hedge or an unsaved assumption. */
+  simulating: boolean;
+  /** The simulation as a saved scenario would hold it. */
+  currentBody: () => ScenarioBody;
+  /** Replace the simulation with a saved scenario's: its shock, its assumptions on top of the bank's set, its hedges. */
+  loadScenario: (s: AlmScenario) => void;
+  /** The saved scenario the simulation was opened from or saved as, until it is cleared. */
+  loaded: { id: string; name: string } | null;
+  setLoaded: (l: { id: string; name: string } | null) => void;
+  /** Back to the bank's figures: no shock, no hedges, no what-if. */
+  clearSimulation: () => void;
   compareTo: CompareTo;
   setCompareTo: (c: CompareTo) => void;
   period: string | null;
@@ -126,6 +138,46 @@ export function AlmProvider({ children }: { children: ReactNode }) {
     setOverrides(null);
     overridesFrom.current = null;
   }, []);
+  const [loaded, setLoaded] = useState<{ id: string; name: string } | null>(null);
+  const simulating = scenario !== 'BASE' || hedges.length > 0 || overrides !== null;
+  const currentBody = useCallback(
+    (): ScenarioBody => ({
+      scenario,
+      custom_shock_bp: scenario === 'CUSTOM' ? customBp : null,
+      custom_shock_buckets: scenario === 'CUSTOM' ? shockBuckets : [],
+      hedges,
+      changes: bank && overrides ? toParamChanges(bank, overrides) : [],
+    }),
+    [scenario, customBp, shockBuckets, hedges, bank, overrides],
+  );
+  const loadScenario = useCallback(
+    (s: AlmScenario) => {
+      if (!bank) return;
+      const b = s.body;
+      if (b.changes.length) {
+        const next = structuredClone(bank);
+        applyChanges(next, b.changes);
+        setOverrides(next);
+        overridesFrom.current = bankVersion;
+      } else {
+        setOverrides(null);
+        overridesFrom.current = null;
+      }
+      setScenario(b.scenario);
+      if (b.custom_shock_bp !== null && b.custom_shock_bp !== undefined) setCustomBp(b.custom_shock_bp);
+      setBuckets(normaliseBuckets(b.custom_shock_buckets ?? []));
+      setHedges(b.hedges ?? []);
+      setLoaded({ id: s.id, name: s.name });
+    },
+    [bank, bankVersion],
+  );
+  const clearSimulation = useCallback(() => {
+    setOverrides(null);
+    overridesFrom.current = null;
+    setScenario('BASE');
+    setHedges([]);
+    setLoaded(null);
+  }, []);
   const bankChanged = overrides !== null && overridesFrom.current !== null && bankVersion !== null && overridesFrom.current !== bankVersion;
 
   const request = useCallback(
@@ -145,8 +197,8 @@ export function AlmProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AlmState>(
-    () => ({ params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, setAsOf, scenario, setScenario, customBp, setCustomBp, shockBuckets, setShockBuckets, clearShock, hedges, setHedges, compareTo, setCompareTo, period, setPeriod, request, draft, setDraft, note, setNote }),
-    [params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, scenario, customBp, shockBuckets, setShockBuckets, clearShock, hedges, compareTo, period, request, draft, note],
+    () => ({ params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, setAsOf, scenario, setScenario, customBp, setCustomBp, shockBuckets, setShockBuckets, clearShock, hedges, setHedges, simulating, currentBody, loadScenario, loaded, setLoaded, clearSimulation, compareTo, setCompareTo, period, setPeriod, request, draft, setDraft, note, setNote }),
+    [params, snapshots, bank, bankVersion, overrides, working, edit, reset, bankChanged, asOf, scenario, customBp, shockBuckets, setShockBuckets, clearShock, hedges, simulating, currentBody, loadScenario, loaded, clearSimulation, compareTo, period, request, draft, note],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

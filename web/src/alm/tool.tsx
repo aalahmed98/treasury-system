@@ -58,50 +58,8 @@ export function ToolLayout({ assumptions, children, ready, busy }: { assumptions
   );
 }
 
-type Leaf = string | number | boolean | null;
-export interface Change {
-  path: string[];
-  bank: Leaf;
-  now: Leaf;
-}
-
-function leaves(v: unknown, path: string[], out: Map<string, { path: string[]; value: Leaf }>) {
-  if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) leaves(x, [...path, k], out);
-  } else {
-    const value: Leaf = Array.isArray(v) ? JSON.stringify(v) : (v as Leaf);
-    out.set(path.join('\u0000'), { path, value });
-  }
-}
-
-/** Every leaf where the what-if differs from the bank's set. */
-/** Every leaf that differs between two versions of a document: changed, added (bank null) or
- * removed (now null). Works on any plain JSON document: ALM parameters, FX limits. */
-export function diffParams(bank: object, working: object): Change[] {
-  const a = new Map<string, { path: string[]; value: Leaf }>();
-  const b = new Map<string, { path: string[]; value: Leaf }>();
-  leaves(bank, [], a);
-  leaves(working, [], b);
-  const out: Change[] = [];
-  for (const [k, w] of b) {
-    const base = a.get(k);
-    if (!base || base.value !== w.value) out.push({ path: w.path, bank: base?.value ?? null, now: w.value });
-  }
-  for (const [k, base] of a) if (!b.has(k)) out.push({ path: base.path, bank: base.value, now: null });
-  return out;
-}
-
-function setPath(obj: unknown, path: string[], value: Leaf) {
-  let cur = obj as Record<string, unknown>;
-  for (const k of path.slice(0, -1)) {
-    if (cur[k] === undefined || cur[k] === null) cur[k] = {};
-    cur = cur[k] as Record<string, unknown>;
-  }
-  const last = path[path.length - 1];
-  // Reverting something the bank's version does not have removes it.
-  if (value === null) delete cur[last];
-  else cur[last] = typeof value === 'string' && value.startsWith('[') ? JSON.parse(value) : value;
-}
+import { diffParams, setPath, type Change, type Leaf } from './diff';
+export { diffParams, type Change } from './diff';
 
 const fmtLeaf = (v: Leaf) => (v === null ? '—' : typeof v === 'number' ? String(Number(v.toFixed(4))) : String(v));
 
@@ -287,14 +245,14 @@ export function KV({ rows, boldLast }: { rows: [string, string][]; boldLast?: bo
 }
 
 /** A striped table: the first column is text, the rest right-aligned figures. */
-export function SimpleTable({ headers, rows, testId, mark }: { headers: string[]; rows: string[][]; testId?: string; /** The row to pick out, e.g. the scenario the shock bar is on. */ mark?: number }) {
+export function SimpleTable({ headers, rows, testId, mark, text = 1 }: { headers: string[]; rows: string[][]; testId?: string; /** The row to pick out, e.g. the scenario the shock bar is on. */ mark?: number; /** How many leading columns are text; the rest are right-aligned figures. */ text?: number }) {
   if (!rows.length) return <div className="t-muted">none</div>;
   return (
     <table className="table" data-testid={testId}>
       <thead>
         <tr>
           {headers.map((h, i) => (
-            <th key={h} className={i > 0 ? 'num' : ''}>
+            <th key={h} className={i >= text ? 'num' : ''}>
               {h}
             </th>
           ))}
@@ -304,7 +262,7 @@ export function SimpleTable({ headers, rows, testId, mark }: { headers: string[]
         {rows.map((r, i) => (
           <tr key={i} className={i === mark ? 'marked' : undefined} aria-current={i === mark ? 'true' : undefined}>
             {r.map((c, j) => (
-              <td key={j} className={j > 0 ? 'num' : ''}>
+              <td key={j} className={j >= text ? 'num' : ''}>
                 {c}
               </td>
             ))}

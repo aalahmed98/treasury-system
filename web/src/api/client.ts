@@ -2,7 +2,7 @@
 // `{error}` body as the message, and a 401 that ends the session. Same contract as the native
 // client's net layer.
 import type { Booked, BondSearchHit, BondTerms, RepoPreview, RepoRequest, TicketPreview, TicketRequest, PmuBondDetail, PmuForecast, PmuFunding, PmuIncome, PmuOverview, PmuPositions, PmuRisk, FtpCurrent, FtpHistory, FtpPreview,
-  FtpLog, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
+  FtpLog, FtpPublication, FtpCurve, AlcoPack, Breach, FxDealValue, FxRiskResult, RiskLimits, RiskLimitsResponse, RiskLimitsVersion, AlmParamsResponse, AlmParamsVersion, AlmRequest, AlmScenario, CompareRow, ScenarioBody, AmendDeal, AttentionItem, ActivityRow, AlmOverview, AlmParams, AlmSnapshot, BreakDetail, BreakView, CashFlow, Deal, DealsResponse, DeskAccess, FeedsResponse, HistoryEntry, LadderResponse, LoginResponse, MarketResponse, MeResponse, NewDeal, NostroMovement, Position, ProvenanceResponse, ResolveRequest, UserInfo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -164,6 +164,12 @@ export const endpoints = {
   almSnapshots: () => api<AlmSnapshot[]>('/alm/snapshots', { passive: true }),
   almTool: <T>(tool: string, req: AlmRequest) => api<T>(`/alm/${tool}`, { method: 'POST', body: req, passive: true }),
   almParams: () => api<AlmParamsResponse>('/alm/params', { passive: true }),
+  almScenarios: () => api<AlmScenario[]>('/alm/scenarios', { passive: true }),
+  almScenarioSave: (name: string, body: ScenarioBody, id?: string) => api<AlmScenario>('/alm/scenarios', { method: 'POST', body: { id: id ?? null, name, body } }),
+  almScenarioShare: (id: string, on: boolean) => api<void>(`/alm/scenarios/${id}/share`, { method: 'POST', body: { on } }),
+  almScenarioPack: (id: string, on: boolean) => api<void>(`/alm/scenarios/${id}/pack`, { method: 'POST', body: { on } }),
+  almScenarioDelete: (id: string) => api<void>(`/alm/scenarios/${id}`, { method: 'DELETE' }),
+  almCompare: (req: { as_of?: string | null; current?: AlmRequest | null; pack?: boolean }) => api<CompareRow[]>('/alm/compare', { method: 'POST', body: req, passive: true }),
   almSave: (params: AlmParams, note: string) => api<AlmParamsVersion>('/alm/params', { method: 'POST', body: { params, note } }),
   marketRates: () => api<MarketResponse>('/market/rates', { passive: true }),
   fxRisk: () => api<FxRiskResult>('/risk/fx', { passive: true }),

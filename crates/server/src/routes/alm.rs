@@ -19,7 +19,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use domain::{
     AlmOverview, AlmParams, AlmParamsResponse, OverviewPrevious, AlmParamsVersion, AlmRequest, AlmSnapshot, AsOfQuery, AttributionResult, BsPosition, CompareTo, CurvePoint,
     EveResult, FundingResult, GapResult, LcrResult, LimitRow, NiiPeriodRow, NiiResult, NsfrResult, PeriodKind, PeriodLine, PositionsSummaryRow, RateCurve,
-    RateScenario, SaveParamsRequest, StressResult, TrendPoint, TrendQuery, TrendResponse,
+    RateScenario, SaveParamsRequest, StressResult, TrendPoint, TrendQuery, TrendResponse, TrialHedge,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -102,7 +102,7 @@ pub async fn params(State(state): State<AppState>, Extension(auth): Extension<Au
 // Saving a new parameter version
 // ---------------------------------------------------------------------------------------------
 
-fn validate(p: &AlmParams) -> Result<(), ApiError> {
+pub fn validate(p: &AlmParams) -> Result<(), ApiError> {
     let bad = |m: String| ApiError::BadRequest(m);
     let pct = |name: &str, v: f64| -> Result<(), ApiError> {
         if !v.is_finite() || !(0.0..=100.0).contains(&v) { Err(bad(format!("{name} must be between 0 and 100"))) } else { Ok(()) }
@@ -456,18 +456,21 @@ pub async fn funding(State(state): State<AppState>, Extension(auth): Extension<A
 }
 
 /// The custom scenario a request asks for: its size, aimed at the buckets it names.
-fn custom_shock(req: &AlmRequest) -> Result<Option<CustomShock>, ApiError> {
-    let Some(bp) = req.custom_shock_bp else { return Ok(None) };
+pub fn custom_shock(req: &AlmRequest) -> Result<Option<CustomShock>, ApiError> {
+    custom_from(req.custom_shock_bp, req.custom_shock_buckets.as_deref().unwrap_or(&[]))
+}
+
+/// A custom shock from its size and the buckets it names; none without a size.
+pub fn custom_from(bp: Option<f64>, buckets: &[String]) -> Result<Option<CustomShock>, ApiError> {
+    let Some(bp) = bp else { return Ok(None) };
     if !bp.is_finite() || bp.abs() > 2000.0 {
         return Err(ApiError::BadRequest("the custom shock must be within 2000 basis points".into()));
     }
-    CustomShock::from_labels(bp, req.custom_shock_buckets.as_deref().unwrap_or(&[])).map(Some).map_err(ApiError::BadRequest)
+    CustomShock::from_labels(bp, buckets).map(Some).map_err(ApiError::BadRequest)
 }
 
-/// Add the request's trial hedges to the balance sheet, for the rates tools. True when there are
-/// any: such a result is the user's own simulation and never goes through the cache.
-fn add_hedges(book: &mut Book, req: &AlmRequest) -> Result<bool, ApiError> {
-    let Some(hedges) = req.hedges.as_deref().filter(|h| !h.is_empty()) else { return Ok(false) };
+/// What a trial hedge may be, whatever snapshot it is tried on.
+pub fn check_hedges(hedges: &[TrialHedge]) -> Result<(), ApiError> {
     let bad = |m: String| ApiError::BadRequest(m);
     if hedges.len() > 20 {
         return Err(bad("at most 20 trial hedges".into()));
@@ -485,11 +488,29 @@ fn add_hedges(book: &mut Book, req: &AlmRequest) -> Result<bool, ApiError> {
         if h.reset_months.is_some_and(|m| !(1..=12).contains(&m)) {
             return Err(bad("a swap resets every 1 to 12 months".into()));
         }
-        if !book.curves.contains_key(&h.ccy) {
-            return Err(bad(format!("no rate curve for {} in this snapshot", h.ccy)));
+        if h.ccy.len() != 3 {
+            return Err(bad("a trial hedge needs a currency".into()));
         }
     }
-    book.positions.extend(alm::hedge::positions(hedges, &book.curves, book.as_of));
+    Ok(())
+}
+
+/// The balance sheet with trial hedges tried on it: each needs a curve in this snapshot.
+pub fn hedged_positions(book: &Book, hedges: &[TrialHedge]) -> Result<Vec<BsPosition>, ApiError> {
+    check_hedges(hedges)?;
+    if let Some(h) = hedges.iter().find(|h| !book.curves.contains_key(&h.ccy)) {
+        return Err(ApiError::BadRequest(format!("no rate curve for {} in this snapshot", h.ccy)));
+    }
+    let mut positions = book.positions.clone();
+    positions.extend(alm::hedge::positions(hedges, &book.curves, book.as_of));
+    Ok(positions)
+}
+
+/// Add the request's trial hedges to the balance sheet, for the rates tools. True when there are
+/// any: such a result is the user's own simulation and never goes through the cache.
+fn add_hedges(book: &mut Book, req: &AlmRequest) -> Result<bool, ApiError> {
+    let Some(hedges) = req.hedges.as_deref().filter(|h| !h.is_empty()) else { return Ok(false) };
+    book.positions = hedged_positions(book, hedges)?;
     Ok(true)
 }
 

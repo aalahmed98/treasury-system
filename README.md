@@ -180,6 +180,17 @@ request only: nothing is booked, the result is never cached, and the notionals s
 assets and earning assets. Gap, NII, EVE and Stress show the figures with the hedges and one line
 saying what they changed against the unhedged run; the liquidity tools do not see them.
 
+**Saved scenarios.** The simulation on screen (the shock, the what-if assumptions and the trial
+hedges) can be kept under a name from Scenarios on the bar and opened again. The assumptions are
+stored as changes against the bank's parameters, so a scenario applies to whichever version is
+active when it is opened. A scenario is its owner's alone until they share it with the desk
+(`alm_scenarios`, migration 0011: row-level security shows a user their own and the shared ones,
+and every write goes through a definer function); a shared one may be put in the ALCO pack, where
+it is listed under Interest rate risk and marked as a simulation. The Stress tab lays the current
+simulation and every visible saved scenario side by side (`POST /alm/compare`), each recomputed on
+the snapshot in use. The pack's own tables always ask for the bank's figures: no shock from the
+bar, no hedges.
+
 **Every lever acts.** Each assumption on a tool's rail changes that tool's result (checked one by
 one against the live engine). A lever with nothing in the snapshot to act on, such as a factor for
 a maturity band no balance falls into, is drawn dashed with "nothing in this snapshot"; hovering
@@ -465,11 +476,11 @@ schedules by amortisation profile, curves and shocks with the floor, NSFR factor
 slotting and limits, NII by cohort type, deposit betas by product and segment, NII on a balance sheet running off, cash needing no stable funding, what each lever acts on, EVE on the shocked curve, a custom shock aimed at chosen buckets through the curve, EVE and NII, the gap's income estimate, the duration gap against the full revaluation, deposits split into a decaying core and an overnight rest, a dynamic balance sheet funding its growth, a trial swap starting at par and taking the rate risk it is sized for, stress across scenarios with the
 survival horizon and FX, attribution adding up exactly, covered interest parity, funding
 concentration). Server: 14 phase-1 tests, 7 on the reconciliation privilege boundary, 3 on the
-reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 5 on the
+reconciliation endpoints, 4 on the liquidity endpoints, 4 on the ALM privilege boundary, 6 on the
 ALM endpoints and 1 on the browser hardening headers.
 
-The web client adds 16 Vitest cases (the formatting, chart, IRD, rate-shock and trial-hedge helpers, the ports checked against the Rust crate's
-cases) and 50 Playwright checks on the installed Edge, among them NII's betas, default beta, run-off and growth moving the figures, one rate shock chosen once and followed across Gap, EVE, NII and Stress, deposit behaviour moving the gap, a trial hedge changing every rates tool and no liquidity tool, idle levers marked, the FTP page and ALM's
+The web client adds 19 Vitest cases (the formatting, chart, IRD, rate-shock, trial-hedge and saved-scenario helpers, the ports checked against the Rust crate's
+cases) and 51 Playwright checks on the installed Edge, among them NII's betas, default beta, run-off and growth moving the figures, one rate shock chosen once and followed across Gap, EVE, NII and Stress, deposit behaviour moving the gap, a trial hedge changing every rates tool and no liquidity tool, a scenario saved, reopened, shared with the head and listed in the pack, idle levers marked, the FTP page and ALM's
 template-drop-publish round trip, a second workbook replacing the first with the log naming who replaced whom, the five PMU pages (the tree's expand and filters, the period in
 the address, a bond's detail, the forecast switch, old quotes flagged; buying by ISIN, setting up a
 new bond, selling chosen lots, a repo closed early and a reverse repo), the FX risk page, the limits

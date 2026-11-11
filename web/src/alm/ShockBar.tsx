@@ -7,6 +7,7 @@ import type { HedgeKind, RateScenario } from '../api/types';
 import { SCENARIO_LABEL } from '../lib/alm';
 import { Chip, useOutsideClose } from '../components/ui';
 import { useAlm } from './state';
+import { ScenarioMenu } from './ScenarioMenu';
 import { BASEL, Bp, Num } from './tool';
 import { HEDGE_HELP, HEDGE_KINDS, TENORS, curveRate, hedgeLabel, hedgesSummary } from './hedge';
 import { BUCKETS, SHORTCUTS, customLabel, normaliseBuckets, shapeTitle, shockShape, shockSizes, tenorsLabel, toggleBucket } from './shock';
@@ -181,10 +182,9 @@ function Hedges() {
 }
 
 export function ShockBar({ applies, tool }: { /** Whether the shock changes this tool's figures. */ applies: boolean; /** The tool's name, for the note when it does not. */ tool: string }) {
-  const { scenario, setScenario, customBp, setCustomBp, shockBuckets, clearShock, working, hedges } = useAlm();
+  const { scenario, setScenario, customBp, setCustomBp, shockBuckets, clearShock, working, simulating } = useAlm();
   const shape = useMemo(() => shockShape(scenario, customBp, shockBuckets, working), [scenario, customBp, shockBuckets, working]);
   const on = scenario !== 'BASE';
-  const simulating = on || hedges.length > 0;
   const sizes = shockSizes(working);
   return (
     <div className={`shock-bar noprint${simulating ? ' on' : ''}`} data-testid="shock-bar" data-on={on ? '1' : undefined}>
@@ -216,9 +216,10 @@ export function ShockBar({ applies, tool }: { /** Whether the shock changes this
       )}
       <span className="vsep" />
       <Hedges />
+      <ScenarioMenu />
       <span style={{ flex: 1 }} />
       <span className="t-small" data-testid="shock-note">
-        {!applies ? `no effect on ${tool}` : simulating ? 'simulation, not saved' : 'choose a shock or try a hedge to see Gap, NII, EVE and Stress under it'}
+        {!applies ? `no effect on ${tool}` : simulating ? 'simulation, not saved' : 'choose a shock, try a hedge or open a scenario to see Gap, NII, EVE and Stress under it'}
       </span>
     </div>
   );

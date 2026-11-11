@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod alm;
 pub mod alm_ext;
+pub mod alm_scenarios;
 pub mod audit;
 pub mod auth;
 pub mod deals;
@@ -85,6 +86,11 @@ pub fn router(state: AppState) -> Router {
         .route("/alm/funding", post(alm::funding))
         .route("/alm/liquidity-gap", post(alm_ext::liquidity_gap))
         .route("/alm/ewi", post(alm_ext::ewi))
+        .route("/alm/scenarios", get(alm_scenarios::list).post(alm_scenarios::save))
+        .route("/alm/scenarios/{id}", axum::routing::delete(alm_scenarios::delete))
+        .route("/alm/scenarios/{id}/share", post(alm_scenarios::share))
+        .route("/alm/scenarios/{id}/pack", post(alm_scenarios::pack))
+        .route("/alm/compare", post(alm_scenarios::compare))
         .route("/alm/pack", get(alm_ext::pack))
         .route("/alm/pack/note", post(alm_ext::pack_note))
         .route("/alm/pack/sign", post(alm_ext::pack_sign))

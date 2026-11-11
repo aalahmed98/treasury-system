@@ -91,6 +91,31 @@ pub fn survival(positions: &[BsPosition], params: &AlmParams, stressed: &AlmPara
     (survival, horizon)
 }
 
+/// One rate scenario through the NII and EVE engines against the base on the same balance sheet
+/// and assumptions: what a row of the stress table, or a saved scenario, reports.
+#[allow(clippy::too_many_arguments)]
+pub fn single(positions: &[BsPosition], params: &AlmParams, spots: &Spots, curves: &Curves, as_of: NaiveDate, scenario: RateScenario, custom: CustomShock, params_version: Option<i32>) -> StressScenarioRow {
+    let base_nii = nii::compute(positions, params, spots, curves, as_of, RateScenario::Base, 0.0, params_version).nii;
+    let n = nii::compute(positions, params, spots, curves, as_of, scenario, custom, params_version);
+    let e = eve::compute(positions, params, spots, curves, as_of, scenario, custom, params_version);
+    let tier1 = params.tier1_capital;
+    let nii_delta = n.nii - base_nii;
+    let nii_delta_pct = (base_nii.abs() > 1e-9).then(|| nii_delta / base_nii.abs() * 100.0);
+    let eve_loss_pct_tier1 = (tier1 > 0.0).then(|| e.basel_loss / tier1 * 100.0);
+    StressScenarioRow {
+        scenario,
+        label: if scenario == RateScenario::Custom { custom.label() } else { scenario.label().into() },
+        nii: n.nii,
+        nii_delta,
+        nii_delta_pct,
+        eve_delta: e.delta,
+        eve_loss: e.basel_loss,
+        eve_loss_pct_tier1,
+        nii_breach: nii_delta_pct.is_some_and(|p| p < -params.gap.nii_sensitivity_limit_pct),
+        eve_breach: eve_loss_pct_tier1.is_some_and(|p| p > params.gap.eve_limit_pct_tier1),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn compute(
     positions: &[BsPosition],
