@@ -104,7 +104,7 @@ fn summary(scenario: RateScenario, custom: CustomShock, hedges: usize, changes: 
 /// One simulation on a balance sheet: the stress row and the gap's estimate of the effect on NII.
 fn run(book: &Book, positions: &[BsPosition], params: &AlmParams, scenario: RateScenario, custom: CustomShock) -> (domain::StressScenarioRow, Option<f64>) {
     let row = alm::stress::single(positions, params, &book.spots, &book.curves, book.as_of, scenario, custom, None);
-    let gap = alm::gap::with_shock(alm::gap::compute(positions, params, &book.spots, book.as_of, None), params, &book.curves, scenario, custom);
+    let gap = alm::gap::under(positions, params, &book.spots, &book.curves, book.as_of, scenario, custom, None);
     (row, gap.nii_effect_12m)
 }
 

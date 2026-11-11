@@ -3,7 +3,7 @@ import type { BalanceSheetMode, NiiProduct, NiiResult } from '../../api/types';
 import { Card, Chip } from '../../components/ui';
 import { Bars } from '../../components/charts';
 import { useAlm, useTool, useUnhedged } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, HedgeEffect, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { AssumptionsHeader, Group, Headline, HedgeEffect, MigrationNote, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { MODE_LABEL, niiView } from '../../alm/views';
 import { EarlyRepayment } from './Gap';
 import { fmtDateLong, fmtMoneyShort, fmtMonth, nice, signed } from '../../lib/fmt';
@@ -160,6 +160,7 @@ export function Nii() {
               The trial hedges change NII by <span className="t-medium">{signed(raw.nii - plain.nii)}</span> over the {raw.horizon_months} months{raw.shock_label ? ` under ${raw.shock_label}` : " on today's curve"}; without them it is {fmtMoneyShort(plain.nii)}.
             </HedgeEffect>
           )}
+          <MigrationNote amount={raw.migrated}>It pays the shocked rate for the term in place of the account's rate, which is where the extra expense comes from.</MigrationNote>
           <Card title="NII by month" width={720}>
             <Bars
               data={v.monthBars}

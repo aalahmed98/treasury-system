@@ -864,3 +864,67 @@ fn prepayment_and_early_withdrawal_shorten_fixed_contracts_in_the_rates_tools() 
     assert!(close(cover["behaviour.prepayment_pct.MORTGAGE"], 1000.0, 1e-9) && close(cover["behaviour.withdrawal_pct.TERM_DEPOSIT"], 1000.0, 1e-9));
     assert_eq!(cover["behaviour.prepayment_pct.PERSONAL"], 0.0);
 }
+
+#[test]
+fn a_rise_in_short_rates_moves_deposits_into_term_deposits() {
+    let as_of = d(AS_OF);
+    let none = BTreeMap::new();
+    let curves = flat("BHD", 5.0);
+    let mut p = AlmParams::default();
+    let mut ca = pos("ca", BsSide::Liability, "BHD", 3600.0);
+    ca.rate_type = RateType::Admin;
+    ca.product = "CURRENT_ACCOUNT".into(); // 36 behavioural months, a beta of 0.2
+    ca.rate = 0.0;
+    let book = [ca.clone()];
+    let plain_gap = gap::under(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    let plain_eve = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    let plain_nii = nii::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert_eq!((plain_gap.migrated, plain_eve.migrated, plain_nii.migrated), (None, None, None), "nothing set, nothing moves");
+
+    // A tenth of current accounts per 100 bp, at most 30%, into twelve-month deposits.
+    p.behaviour.migration_pct_per_100bp.insert("CURRENT_ACCOUNT".into(), 10.0);
+    assert!(close(nmd::migrated_share(&ca, &p, 1.0), 0.10, 1e-12));
+    assert!(close(nmd::migrated_share(&ca, &p, 4.0), 0.30, 1e-12), "capped");
+    assert_eq!(nmd::migrated_share(&ca, &p, -1.0), 0.0, "a fall moves nothing");
+    let mut overdraft = ca.clone();
+    overdraft.side = BsSide::Asset;
+    assert_eq!(nmd::migrated_share(&overdraft, &p, 1.0), 0.0, "deposits only");
+    let mut savings = ca.clone();
+    savings.product = "SAVINGS".into();
+    assert_eq!(nmd::migrated_share(&savings, &p, 1.0), 0.0, "no rate set for the product");
+
+    // The gap: on today's curve nothing moves; under a rise 360 leaves the behavioural profile
+    // for the one-year bucket, and the balance is all still there.
+    let today = gap::under(&book, &p, &none, &curves, as_of, RateScenario::Base, 0.0, None);
+    assert_eq!(today.migrated, None);
+    assert_eq!(today.buckets, gap::compute(&book, &p, &none, as_of, None).buckets);
+    let g = gap::under(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(g.migrated.unwrap(), 360.0, 1e-9));
+    let liab = |r: &domain::GapResult, label: &str| r.buckets.iter().find(|b| b.label == label).unwrap().liabilities;
+    assert!(close(liab(&plain_gap, "1Y"), 600.0, 1e-9));
+    assert!(close(liab(&g, "1Y"), 600.0 * 0.9 + 360.0, 1e-9), "{}", liab(&g, "1Y"));
+    assert!(close(liab(&g, "5Y"), liab(&plain_gap, "5Y") * 0.9, 1e-9));
+    assert!(close(g.buckets.iter().map(|b| b.liabilities).sum::<f64>(), 3600.0, 1e-9));
+    assert!(g.nii_effect_12m.unwrap() < plain_gap.nii_effect_12m.unwrap(), "more reprices within the year, so a rise costs more");
+
+    // EVE: the moved share is a new term deposit at the shocked rate, worth par, so the bank
+    // keeps the cheap funding on nine tenths only.
+    let e = eve::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(e.migrated.unwrap(), 360.0, 1e-9));
+    assert!(close(e.base, plain_eve.base, 1e-9), "today's value is not touched");
+    assert!(close(e.shocked, 0.9 * plain_eve.shocked - 360.0, 1e-6), "{} against {}", e.shocked, plain_eve.shocked);
+    assert!(plain_eve.delta > 0.0 && e.delta < plain_eve.delta, "the rise gains less: {} against {}", e.delta, plain_eve.delta);
+
+    // NII: nine tenths pay the account's rate (0.2% after its beta), a tenth the 6% term rate.
+    let n = nii::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(n.migrated.unwrap(), 360.0, 1e-9));
+    assert!(close(plain_nii.expense, 3600.0 * 0.002, 1e-9));
+    assert!(close(n.expense, 3600.0 * (0.9 * 0.002 + 0.1 * 0.06), 1e-9), "{}", n.expense);
+    let down = nii::compute(&book, &p, &none, &curves, as_of, RateScenario::Custom, -100.0, None);
+    assert_eq!(down.migrated, None);
+
+    // A different term: the moved share goes to that bucket.
+    p.behaviour.migration_term_months = 24;
+    let g2 = gap::under(&book, &p, &none, &curves, as_of, RateScenario::Custom, 100.0, None);
+    assert!(close(liab(&g2, "2Y"), liab(&plain_gap, "2Y") * 0.9 + 360.0, 1e-9));
+}

@@ -342,3 +342,15 @@ export function HedgeEffect({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/** One line saying how much of the deposits a rate rise has moved into term deposits, when any has. */
+export function MigrationNote({ amount, children }: { amount: number | null; children: ReactNode }) {
+  const { working } = useAlm();
+  if (amount === null || !working) return null;
+  const months = working.behaviour.migration_term_months;
+  return (
+    <div className="shock-result" data-testid="migration-note">
+      <span className="t-medium">{fmtMoneyShort(amount)}</span> of deposits moves into {months}-month term deposits under this shock. {children}
+    </div>
+  );
+}

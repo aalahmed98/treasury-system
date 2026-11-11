@@ -242,8 +242,17 @@ function DraftEditor({ d, bank: b, onChange }: { d: AlmParams; bank: AlmParams; 
             <Row label={`${nice(k)} core decay (% a year)`}>
               <Num value={d.gap.nmd_decay_pct[k] ?? 0} base={b.gap.nmd_decay_pct[k] ?? 0} min={0} max={99} step={1} onChange={(x) => onChange((p) => void (p.gap.nmd_decay_pct[k] = x))} />
             </Row>
+            <Row label={`${nice(k)} moves to term per +100 bp`}>
+              <Pct value={d.behaviour.migration_pct_per_100bp[k] ?? 0} base={b.behaviour.migration_pct_per_100bp[k] ?? 0} onChange={(x) => onChange((p) => void (p.behaviour.migration_pct_per_100bp[k] = x))} />
+            </Row>
           </div>
         ))}
+        <Row label="Deposit migration, most that can move">
+          <Pct value={d.behaviour.migration_cap_pct} base={b.behaviour.migration_cap_pct} onChange={(x) => onChange((p) => void (p.behaviour.migration_cap_pct = x))} />
+        </Row>
+        <Row label="Deposit migration, term (months)">
+          <Num value={d.behaviour.migration_term_months} base={b.behaviour.migration_term_months} min={1} max={120} step={1} onChange={(x) => onChange((p) => void (p.behaviour.migration_term_months = Math.round(x)))} />
+        </Row>
         <Group title="Prepayment and early withdrawal (% a year)" />
         {Object.entries(d.behaviour.prepayment_pct).map(([k, v]) => (
           <Row key={k} label={`${nice(k)} prepaid`}>

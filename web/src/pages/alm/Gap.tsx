@@ -3,7 +3,7 @@ import type { GapResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars } from '../../components/charts';
 import { useAlm, useTool, useUnhedged } from '../../alm/state';
-import { AssumptionsHeader, Group, Headline, HedgeEffect, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
+import { AssumptionsHeader, Group, Headline, HedgeEffect, MigrationNote, Num, Pct, ResultsHeader, Row, SimpleTable, ToolLayout } from '../../alm/tool';
 import { gapView, whenLine } from '../../alm/views';
 import { fmtMoneyShort, nice, signed } from '../../lib/fmt';
 
@@ -18,6 +18,8 @@ export function DepositBehaviour({ help }: { help: string }) {
   if (!working || !bank) return null;
   const g = working.gap;
   const b = bank.gap;
+  const m = working.behaviour;
+  const bm = bank.behaviour;
   return (
     <Group title="Deposit behaviour" help={help} count={Object.keys(g.nmd_behavioural_months).length}>
       <div data-testid="deposit-behaviour">
@@ -35,11 +37,23 @@ export function DepositBehaviour({ help }: { help: string }) {
             <Row label="Core decay (a year)">
               <Pct value={g.nmd_decay_pct[k] ?? 0} base={b.nmd_decay_pct[k] ?? 0} max={99} onChange={(x) => edit((p) => void (p.gap.nmd_decay_pct[k] = x))} />
             </Row>
+            <Row label="To term, per +100 bp">
+              <Pct value={m.migration_pct_per_100bp[k] ?? 0} base={bm.migration_pct_per_100bp[k] ?? 0} onChange={(x) => edit((p) => void (p.behaviour.migration_pct_per_100bp[k] = x))} />
+            </Row>
           </div>
         ))}
+        <div className="t-medium" style={{ margin: '8px 0 2px', fontSize: 12 }}>
+          Migration into term deposits
+        </div>
+        <Row label="Most that can move">
+          <Pct value={m.migration_cap_pct} base={bm.migration_cap_pct} onChange={(x) => edit((p) => void (p.behaviour.migration_cap_pct = x))} />
+        </Row>
+        <Row label="Term it moves to (months)">
+          <Num value={m.migration_term_months} base={bm.migration_term_months} min={1} max={120} step={1} onChange={(x) => edit((p) => void (p.behaviour.migration_term_months = Math.round(x)))} />
+        </Row>
       </div>
       <div className="agroup-help" style={{ marginTop: 6 }}>
-        The non-core share sits in the overnight bucket. The core runs off over its life: evenly at zero decay, otherwise front-loaded, with whatever is left at the end of the life falling due then.
+        The non-core share sits in the overnight bucket. The core runs off over its life: evenly at zero decay, otherwise front-loaded, with whatever is left at the end of the life falling due then. Migration applies only when a shock raises short rates: that share of the balance becomes term deposits paying the shocked rate for the term.
       </div>
     </Group>
   );
@@ -158,9 +172,10 @@ export function Gap() {
                 <span className="t-medium">{v.effect}</span> on the next twelve months' NII under {raw.shock_label}, by the gap estimate: each bucket's gap times the rate move times the part of the year left after it reprices.
               </>
             ) : (
-              <span className="t-muted">A rate shock does not move these balances. Choose one above to see what the gap does to income.</span>
+              <span className="t-muted">A rate shock leaves these balances where they are, unless deposit migration is set. Choose one above to see what the gap does to income.</span>
             )}
           </div>
+          <MigrationNote amount={raw.migrated}>That share has left the buckets its behavioural life gave it and sits in the term's bucket below.</MigrationNote>
           <div className="row-wrap">
             <Card title="Gap per bucket (assets less liabilities)" width={460}>
               <Bars data={v.gapBars} color="var(--s1)" height={170} fmt={fmtMoneyShort} />

@@ -350,3 +350,34 @@ test('prepayment and early withdrawal: zero is contractual, a rate moves Gap, EV
   await page.getByTestId('early-repayment').locator('.arow', { hasText: /^mortgage/i }).locator('input').fill('0');
   expect(await results(page)).not.toBe(nii);
 });
+
+test('deposit migration: a rise moves deposits into term deposits on Gap, NII and EVE; a fall moves nothing', async ({ page }) => {
+  await login(page, 'alm1');
+  await page.goto('/app/alm/gap');
+  await ready(page);
+  const bar = page.getByTestId('shock-bar');
+  const strip = page.getByTestId('alm-strip-bar');
+  const note = page.getByTestId('migration-note');
+  await bar.getByLabel('Rate shock').selectOption('PARALLEL_UP');
+  const before = await results(page);
+  await expect(note).toHaveCount(0);
+  // Current accounts: a tenth moves for each 100 bp the short end rises.
+  await page.getByTestId('deposit-behaviour').locator('.arow', { hasText: 'To term, per +100 bp' }).first().locator('input').fill('10');
+  const moved = await results(page);
+  expect(moved).not.toBe(before);
+  await expect(note).toContainText('of deposits moves into 12-month term deposits');
+  // A longer term is a different bucket and a different rate.
+  await page.getByTestId('deposit-behaviour').locator('.arow', { hasText: 'Term it moves to (months)' }).locator('input').fill('24');
+  await expect(note).toContainText('24-month term deposits');
+  expect(await results(page)).not.toBe(moved);
+
+  for (const tab of ['NII / NIM', 'EVE']) {
+    await strip.getByRole('button', { name: tab, exact: true }).click();
+    await ready(page);
+    await expect(note).toContainText('24-month term deposits');
+  }
+  // When rates fall nothing moves.
+  await bar.getByLabel('Rate shock').selectOption('PARALLEL_DOWN');
+  await expect(page.getByTestId('shock-badge')).toContainText('Parallel down');
+  await expect(note).toHaveCount(0);
+});

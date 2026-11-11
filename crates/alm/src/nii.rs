@@ -20,6 +20,7 @@ use domain::{AlmParams, BalanceSheetMode, BsPosition, BsSide, NiiBreakdown, NiiM
 use crate::behaviour;
 use crate::curve::{Curve, CustomShock, scenario_curve, shock_label};
 use crate::hedge::HEDGE_BOOK;
+use crate::nmd;
 use crate::lcr::Spots;
 use crate::schedule::add_months;
 
@@ -86,6 +87,7 @@ pub fn compute(
     let run_off = mode == BalanceSheetMode::RunOff;
     let dynamic = mode == BalanceSheetMode::Dynamic;
     let mut earning_assets_sum = 0.0;
+    let mut migrated = 0.0f64;
     for m in 0..horizon as i64 {
         let start = add_months(as_of, m);
         let end = add_months(as_of, m + 1);
@@ -137,6 +139,15 @@ pub fn compute(
                     balance *= 1.0 - gone;
                 } else {
                     rate = ((1.0 - gone) * rate + gone * rolled_rate(pos, mat, base, sh)).max(0.0);
+                }
+            }
+            // Deposit migration: the share of a non-maturity deposit that a rise in short rates
+            // moves into term deposits pays the scenario's rate for the term, not the account's.
+            let moved = nmd::migrated_share(pos, params, sh.rate(nmd::SHORT_YEARS) - base.rate(nmd::SHORT_YEARS));
+            if moved > 0.0 {
+                rate = (1.0 - moved) * rate + moved * sh.rate(nmd::migration_term_years(params)).max(0.0);
+                if m == 0 {
+                    migrated += pos.balance * fx(&pos.ccy) * moved;
                 }
             }
             if pos.side == BsSide::Asset && pos.book != HEDGE_BOOK && pos.maturity.is_none_or(|mat| mat > as_of) {
@@ -199,6 +210,7 @@ pub fn compute(
         by_ccy: by_ccy.into_iter().map(|(key, nii)| NiiBreakdown { key, nii }).collect(),
         base_nii: None,
         shock_label: shock_label(scenario, custom_bp),
+        migrated: (migrated > 0.0).then_some(migrated),
         mode,
         modes: Vec::new(),
         products: Vec::new(),

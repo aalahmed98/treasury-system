@@ -86,6 +86,8 @@ pub fn compute(
     // Per bucket: the first-order change in value for one basis point there, assets then
     // liabilities (as it reaches EVE), and the scenario's first-order effect.
     let mut key = vec![(0.0f64, 0.0f64, 0.0f64); GAP_BUCKETS.len()];
+    // Deposits the scenario moves into term deposits, in the reporting currency.
+    let mut migrated = 0.0f64;
     for pos in positions {
         if pos.side == BsSide::OffBalance {
             continue;
@@ -105,11 +107,25 @@ pub fn compute(
             }
             _ => 1.0,
         };
-        if (speed - 1.0).abs() > 1e-12 {
-            for (t, amount) in flows_at(pos, params, as_of, speed) {
-                let s = amount * sh.df(t) * rate;
+        // Deposit migration: when short rates rise, part of a non-maturity deposit becomes a term
+        // deposit at the scenario's rate for the term, which is worth par on the shocked curve.
+        let moved = nmd::migrated_share(pos, params, sh.rate(nmd::SHORT_YEARS) - base.rate(nmd::SHORT_YEARS));
+        let shocked_flows: Option<Vec<(f64, f64)>> = if moved > 0.0 {
+            let term = nmd::migration_term_years(params);
+            let mut fl: Vec<(f64, f64)> = base_flows.iter().map(|(t, a)| (*t, a * (1.0 - moved))).collect();
+            fl.push((term, pos.balance * moved * (1.0 + sh.rate(term) / 100.0).powf(term)));
+            migrated += pos.balance * moved * rate;
+            Some(fl)
+        } else if (speed - 1.0).abs() > 1e-12 {
+            Some(flows_at(pos, params, as_of, speed))
+        } else {
+            None
+        };
+        if let Some(fl) = &shocked_flows {
+            for (t, amount) in fl {
+                let s = amount * sh.df(*t) * rate;
                 e.1 += sign * s;
-                buckets[bucket_of_years(t)].3 += sign * s;
+                buckets[bucket_of_years(*t)].3 += sign * s;
             }
         }
         for (t, amount) in base_flows {
@@ -126,7 +142,7 @@ pub fn compute(
                 pvt_l += b * t;
             }
             slot.2 += sign * b;
-            if (speed - 1.0).abs() <= 1e-12 {
+            if shocked_flows.is_none() {
                 let s = amount * sh.df(t) * rate;
                 e.1 += sign * s;
                 slot.3 += sign * s;
@@ -193,6 +209,7 @@ pub fn compute(
         duration: DurationGap { assets: pv_a, liabilities: pv_l, d_assets, d_liabilities, gap_years, yield_pct, shock_bp, estimate },
         key_rates,
         key_rate_estimate,
+        migrated: (migrated > 0.0).then_some(migrated),
         tier1_capital: tier1,
         loss_pct_tier1,
         limit_pct_tier1: params.gap.eve_limit_pct_tier1,

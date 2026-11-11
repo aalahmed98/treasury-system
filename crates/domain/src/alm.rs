@@ -156,6 +156,15 @@ pub struct BehaviourParams {
     pub prepayment_when_rates_fall: f64,
     pub withdrawal_when_rates_rise: f64,
     pub withdrawal_when_rates_fall: f64,
+    /// Deposit migration: per non-maturity product, the share of the balance that moves into
+    /// term deposits for each 100 basis points the short end rises, percent. A product not
+    /// listed does not move, and nothing moves when rates fall.
+    pub migration_pct_per_100bp: BTreeMap<String, f64>,
+    /// The most of a product's balance that can move, percent.
+    pub migration_cap_pct: f64,
+    /// The term the moved balance is placed for, in months; it pays the scenario curve's rate
+    /// at that term.
+    pub migration_term_months: u32,
 }
 
 impl Default for BehaviourParams {
@@ -167,6 +176,9 @@ impl Default for BehaviourParams {
             prepayment_when_rates_fall: 1.2,
             withdrawal_when_rates_rise: 1.2,
             withdrawal_when_rates_fall: 0.8,
+            migration_pct_per_100bp: BTreeMap::new(),
+            migration_cap_pct: 30.0,
+            migration_term_months: 12,
         }
     }
 }
@@ -938,6 +950,9 @@ pub struct GapResult {
     pub shock_label: Option<String>,
     /// The gap estimate of the scenario's effect on twelve-month NII, summed over the buckets.
     pub nii_effect_12m: Option<f64>,
+    /// Deposits the scenario moves into term deposits, in the reporting currency; none when
+    /// nothing moves.
+    pub migrated: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -974,6 +989,9 @@ pub struct NiiResult {
     pub base_nii: Option<f64>,
     /// The scenario in words; none on the base curve.
     pub shock_label: Option<String>,
+    /// Deposits the scenario moves into term deposits, in the reporting currency; none when
+    /// nothing moves.
+    pub migrated: Option<f64>,
     pub mode: BalanceSheetMode,
     /// The same projection under each balance-sheet assumption, for reading them side by side.
     pub modes: Vec<NiiModeRow>,
@@ -1031,6 +1049,9 @@ pub struct EveResult {
     /// sensitivity times the move at its own tenor. Unlike the duration gap it holds for shocks
     /// that are not parallel. None on the base curve.
     pub key_rate_estimate: Option<f64>,
+    /// Deposits the scenario moves into term deposits, in the reporting currency; none when
+    /// nothing moves.
+    pub migrated: Option<f64>,
     pub tier1_capital: f64,
     pub loss_pct_tier1: Option<f64>,
     pub limit_pct_tier1: f64,

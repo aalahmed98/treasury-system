@@ -3,8 +3,11 @@
 //! stays, running off over the product's behavioural life, evenly or by a yearly decay with
 //! whatever is left at the end of the life falling due then. With no core share and no decay set
 //! the whole balance runs off evenly, which is how the gap and EVE have always slotted it.
+//!
+//! Under a rate rise part of the balance may also migrate into term deposits: that share stops
+//! behaving like an account and becomes a fixed deposit at the migration term.
 
-use domain::{AlmParams, BsPosition};
+use domain::{AlmParams, BsPosition, BsSide, RateType};
 
 /// The behavioural life of a cohort in months: the assumption for its product, else the cohort's
 /// own, else one month.
@@ -37,4 +40,23 @@ pub fn profile(pos: &BsPosition, params: &AlmParams) -> Vec<(Option<i64>, f64)> 
         out.push((Some(m), amount));
     }
     out
+}
+
+/// The tenor in years at which a move in short rates is read, for betas and for migration.
+pub const SHORT_YEARS: f64 = 1.0 / 12.0;
+
+/// Deposit migration: the share of a non-maturity deposit that moves into term deposits when the
+/// short end rises by `short_move_pct` percent. So much per 100 basis points for its product, up
+/// to the cap; nothing for a fall, for assets, or for a product with no rate set.
+pub fn migrated_share(pos: &BsPosition, params: &AlmParams, short_move_pct: f64) -> f64 {
+    if pos.rate_type != RateType::Admin || pos.side != BsSide::Liability || short_move_pct <= 0.0 {
+        return 0.0;
+    }
+    let per_100bp = params.behaviour.migration_pct_per_100bp.get(&pos.product).copied().unwrap_or(0.0) / 100.0;
+    (per_100bp * short_move_pct).clamp(0.0, params.behaviour.migration_cap_pct.clamp(0.0, 100.0) / 100.0)
+}
+
+/// The term the moved balance is placed for, in years.
+pub fn migration_term_years(params: &AlmParams) -> f64 {
+    params.behaviour.migration_term_months.clamp(1, 120) as f64 / 12.0
 }

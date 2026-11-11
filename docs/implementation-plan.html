@@ -128,6 +128,7 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   <a href="#p2m" class="is-done"><span class="num">Phase 2M</span><span class="name">Saved scenarios</span><span class="badge done">Done</span></a>
   <a href="#p2n" class="is-done"><span class="num">Phase 2N</span><span class="name">Key rate durations</span><span class="badge done">Done</span></a>
   <a href="#p2o" class="is-done"><span class="num">Phase 2O</span><span class="name">Prepayment and early withdrawal</span><span class="badge done">Done</span></a>
+  <a href="#p2p" class="is-done"><span class="num">Phase 2P</span><span class="name">Deposit migration</span><span class="badge done">Done</span></a>
   <a href="#p3" class="is-blocked"><span class="num">Phase 3</span><span class="name">Real source adapters</span><span class="badge blocked">Blocked</span></a>
   <a href="#p4" class="is-partial"><span class="num">Phase 4</span><span class="name">Identity, transport, deployment</span><span class="badge partial">Partly blocked</span></a>
   <a href="#p5" class="is-blocked"><span class="num">Phase 5</span><span class="name">Liquidity data sources</span><span class="badge blocked">Blocked</span></a>
@@ -502,6 +503,20 @@ footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid var(--line);
   </table></div>
   <div class="cols"><div><h4>Progress log</h4><ul id="log2o">
     <li>11 Nov: phase complete. On the synthetic book, 10% on mortgages, 15% on personal loans, 5% on term loans and 5% on term deposits take the EVE loss under a parallel rise from 30.5m to 19.5m. Simplification: what is repaid early pays no accrued interest for the part-period. 1 new engine test and 1 Playwright scenario; 52 Playwright checks. Next: deposit migration under a shock.</li>
+  </ul></div></div>
+</section>
+<section class="phase is-done" id="p2p">
+  <div class="phase-head"><span class="num">Phase 2P</span><h3>Deposit migration under a shock</h3><span class="badge done">Done</span><span class="when">11 November 2026</span></div>
+  <p class="goal">Until now a shock changed what deposits pay and when they reprice, never how much sat in them. When rates rise, customers move money from accounts that pay little into term deposits. Last of the five follow-ups to Phase 2K.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Work item</th><th>What it is</th><th>Depends on</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="item">Migration parameters</td><td>Per non-maturity product, the share that moves for each 100 basis points the short end rises; a cap; the term it moves to. All zero, rises only. Validated on save; editable on Gap, EVE and Setup.</td><td>Phase 2O</td><td><span class="badge done">Done</span></td></tr>
+      <tr><td class="item">Gap, EVE and NII</td><td>The gap slots the moved share in the term's bucket (<code>gap::under</code>). EVE values it as new term deposits at the shocked rate, worth par. In NII it pays the shocked term rate. Each result reports how much moved.</td><td>Migration parameters</td><td><span class="badge done">Done</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols"><div><h4>Progress log</h4><ul id="log2p">
+    <li>11 Nov: phase complete. On the synthetic book, 10% per 100 bp on current accounts and savings moves 258m under a parallel rise: the fall in NII goes from 6.5m to 24.8m and the EVE loss from 30.5m to 60.3m. Not included: the duration and key rate estimates (first-order on today's flows), and money moving back when rates fall. 1 new engine test and 1 Playwright scenario; 53 Playwright checks. The five follow-ups are complete.</li>
   </ul></div></div>
 </section>
 <section class="phase is-blocked" id="p3">

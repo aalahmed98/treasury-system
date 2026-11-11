@@ -5,7 +5,7 @@ import type { EveResult } from '../../api/types';
 import { Card } from '../../components/ui';
 import { Bars } from '../../components/charts';
 import { useTool, useUnhedged } from '../../alm/state';
-import { AssumptionsHeader, Headline, HedgeEffect, KV, ResultsHeader, SimpleTable, ToolLayout } from '../../alm/tool';
+import { AssumptionsHeader, Headline, HedgeEffect, KV, MigrationNote, ResultsHeader, SimpleTable, ToolLayout } from '../../alm/tool';
 import { eveView, whenLine } from '../../alm/views';
 import { fmtMoneyShort, signed } from '../../lib/fmt';
 import { DepositBehaviour, EarlyRepayment } from './Gap';
@@ -16,7 +16,7 @@ function Assumptions() {
     <>
       <AssumptionsHeader />
       <RateLimits nii={false} />
-      <DepositBehaviour help="How deposits with no contractual maturity are assumed to behave. A longer life or a larger core puts their value further out the curve, where a rate move changes it more." />
+      <DepositBehaviour help="How deposits with no contractual maturity are assumed to behave. A longer life or a larger core puts their value further out the curve, where a rate move changes it more; migration takes part of that value away when rates rise." />
       <EarlyRepayment />
       <ShockSizes />
       <p className="t-small prose" style={{ marginTop: 10 }}>
@@ -60,6 +60,7 @@ export function Eve() {
               )}
             </HedgeEffect>
           )}
+          <MigrationNote amount={raw.migrated}>It is valued as new term deposits at the shocked rate, worth par, so the bank keeps the value of cheap funding on the rest only. The duration and key rate estimates do not include it.</MigrationNote>
           {!v.shocked && (
             <div className="shock-result">
               <span className="t-muted">Choose a rate shock above to see how much of this value it adds or takes away.</span>

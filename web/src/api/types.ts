@@ -485,6 +485,10 @@ export interface BehaviourParams {
   prepayment_when_rates_fall: number;
   withdrawal_when_rates_rise: number;
   withdrawal_when_rates_fall: number;
+  /** Per non-maturity product: the share that moves into term deposits per +100 bp at the short end, percent. */
+  migration_pct_per_100bp: Record<string, number>;
+  migration_cap_pct: number;
+  migration_term_months: number;
 }
 export interface LiquidityGapParams {
   stable_share_pct: Record<string, number>;
@@ -632,6 +636,8 @@ export interface GapResult {
   scenario: RateScenario;
   shock_label: string | null;
   nii_effect_12m: number | null;
+  /** Deposits the scenario moves into term deposits; null when nothing moves. */
+  migrated: number | null;
 }
 export interface EveCurrency {
   ccy: string;
@@ -681,6 +687,7 @@ export interface EveResult {
   key_rates: KeyRate[];
   /** Each cash flow's sensitivity times the move at its own tenor; null on today's curve. */
   key_rate_estimate: number | null;
+  migrated: number | null;
   tier1_capital: number;
   loss_pct_tier1: number | null;
   limit_pct_tier1: number;
@@ -712,6 +719,7 @@ export interface NiiResult {
   by_ccy: NiiBreakdown[];
   base_nii: number | null;
   shock_label: string | null;
+  migrated: number | null;
   mode: BalanceSheetMode;
   modes: NiiModeRow[];
   products: NiiProduct[];

@@ -163,6 +163,13 @@ pub fn validate(p: &AlmParams) -> Result<(), ApiError> {
             return Err(bad(format!("early repayment of {k} must be 0 to 50 percent a year")));
         }
     }
+    for (k, v) in &p.behaviour.migration_pct_per_100bp {
+        pct(&format!("migration of {k}"), *v)?;
+    }
+    pct("migration cap", p.behaviour.migration_cap_pct)?;
+    if !(1..=120).contains(&p.behaviour.migration_term_months) {
+        return Err(bad("the migration term must be 1 to 120 months".into()));
+    }
     let b = &p.behaviour;
     for v in [b.prepayment_when_rates_rise, b.prepayment_when_rates_fall, b.withdrawal_when_rates_rise, b.withdrawal_when_rates_fall] {
         if !v.is_finite() || !(0.0..=3.0).contains(&v) {
@@ -455,7 +462,7 @@ pub async fn gap(State(state): State<AppState>, Extension(auth): Extension<AuthU
     let scenario = req.scenario.unwrap_or(RateScenario::Base);
     let custom = custom_shock(&req)?.unwrap_or(CustomShock::parallel(0.0));
     Ok(Json(official(&state, "gap", &book, cache_as(version, hedged), shock_key(scenario, custom), || {
-        alm::gap::with_shock(alm::gap::compute(&book.positions, &params, &book.spots, book.as_of, version), &params, &book.curves, scenario, custom)
+        alm::gap::under(&book.positions, &params, &book.spots, &book.curves, book.as_of, scenario, custom, version)
     })))
 }
 

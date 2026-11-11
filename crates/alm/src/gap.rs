@@ -2,7 +2,8 @@
 //! cohort next reprices (floating at its reset, fixed at each principal date with any prepayment
 //! or early withdrawal set for its product, administered
 //! deposits by their behavioural profile: the non-core share overnight, the core over its life),
-//! with the bank's cumulative limits.
+//! with the bank's cumulative limits. Under a scenario it adds the gap estimate of the effect on
+//! income and, where deposit migration is set, moves the migrating share to the term bucket.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +20,12 @@ use crate::nmd;
 
 /// Balance slotted per bucket for one cohort, in its own currency.
 pub fn slots(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(usize, f64)> {
+    slots_after(pos, params, as_of, 0.0)
+}
+
+/// The same with a share of a non-maturity deposit moved into term deposits: that share reprices
+/// at the migration term, the rest by the product's behavioural profile.
+pub fn slots_after(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate, migrated: f64) -> Vec<(usize, f64)> {
     match pos.rate_type {
         RateType::NotSensitive => Vec::new(),
         RateType::Float => {
@@ -40,7 +47,11 @@ pub fn slots(pos: &BsPosition, params: &AlmParams, as_of: NaiveDate) -> Vec<(usi
             let mut out: BTreeMap<usize, f64> = BTreeMap::new();
             for (month, amount) in nmd::profile(pos, params) {
                 let days = month.map(|m| 30 * m + 15).unwrap_or(1);
-                *out.entry(gap_bucket(days)).or_default() += amount;
+                *out.entry(gap_bucket(days)).or_default() += amount * (1.0 - migrated);
+            }
+            if migrated > 0.0 {
+                let days = (nmd::migration_term_years(params) * 360.0).round() as i64;
+                *out.entry(gap_bucket(days)).or_default() += pos.balance * migrated;
             }
             out.into_iter().collect()
         }
@@ -75,6 +86,30 @@ fn buckets_from(totals: &[(f64, f64); 9], total_assets: f64, params: &AlmParams)
 }
 
 pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_of: NaiveDate, params_version: Option<i32>) -> GapResult {
+    build(positions, params, spots, as_of, params_version, &|_| 0.0)
+}
+
+/// The gap under a rate scenario: the income estimate of `with_shock`, on balances slotted as the
+/// scenario leaves them. Nearly all stay where they are; the exception is deposit migration, where
+/// a rise in short rates moves part of the non-maturity deposits into the term bucket.
+#[allow(clippy::too_many_arguments)]
+pub fn under(positions: &[BsPosition], params: &AlmParams, spots: &Spots, curves: &Curves, as_of: NaiveDate, scenario: RateScenario, custom: impl Into<CustomShock>, params_version: Option<i32>) -> GapResult {
+    let custom = custom.into();
+    let fallback = Curve::flat("", 0.0);
+    let mut short_moves: BTreeMap<String, f64> = BTreeMap::new();
+    for pos in positions.iter().filter(|p| p.rate_type == RateType::Admin && p.side == BsSide::Liability) {
+        short_moves.entry(pos.ccy.clone()).or_insert_with(|| {
+            let base = curves.get(&pos.ccy).unwrap_or(&fallback);
+            scenario_curve(base, params, scenario, custom).rate(nmd::SHORT_YEARS) - base.rate(nmd::SHORT_YEARS)
+        });
+    }
+    let migrated = |pos: &BsPosition| short_moves.get(&pos.ccy).map(|m| nmd::migrated_share(pos, params, *m)).unwrap_or(0.0);
+    let r = build(positions, params, spots, as_of, params_version, &migrated);
+    with_shock(r, params, curves, scenario, custom)
+}
+
+fn build(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_of: NaiveDate, params_version: Option<i32>, migrated: &dyn Fn(&BsPosition) -> f64) -> GapResult {
+    let mut moved = 0.0;
     let fx = |ccy: &str| if ccy == params.reporting_ccy { 1.0 } else { spots.get(ccy).copied().unwrap_or(1.0) };
     let mut total = [(0.0, 0.0); 9];
     let mut per_ccy: BTreeMap<String, [(f64, f64); 9]> = BTreeMap::new();
@@ -89,7 +124,9 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
             continue;
         }
         let entry = per_ccy.entry(pos.ccy.clone()).or_insert([(0.0, 0.0); 9]);
-        for (bucket, amount) in slots(pos, params, as_of) {
+        let share = migrated(pos);
+        moved += pos.balance * share * rate;
+        for (bucket, amount) in slots_after(pos, params, as_of, share) {
             let v = amount * rate;
             match pos.side {
                 BsSide::Asset => {
@@ -114,13 +151,14 @@ pub fn compute(positions: &[BsPosition], params: &AlmParams, spots: &Spots, as_o
         scenario: RateScenario::Base,
         shock_label: None,
         nii_effect_12m: None,
+        migrated: (moved > 0.0).then_some(moved),
     }
 }
 
 /// The middle of each bucket in years: where its balances are taken to reprice.
 pub const BUCKET_MID_YEARS: [f64; 9] = [0.5 / 365.0, 4.0 / 365.0, 18.5 / 365.0, 60.5 / 365.0, 136.5 / 365.0, 273.5 / 365.0, 1.5, 3.5, 7.5];
 
-/// The gap under a rate scenario. The balances do not move; what the scenario adds is the classic
+/// The income side of the gap under a rate scenario: on the balances as given, the classic
 /// gap estimate of its effect on the next twelve months' NII: per bucket and currency, the gap
 /// times the rate move at that tenor times the part of the year left once the bucket has
 /// repriced. It takes every balance to pass the move on in full, so it overstates what deposits
